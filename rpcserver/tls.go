@@ -1,0 +1,83 @@
+package rpcserver
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"net"
+	"os"
+	"time"
+)
+
+// CreateTLSCertificate creates a self-signed key/cert pair for https server
+// you can give the destination path without extension (.crt/.key will be added),
+// and optionally pass hostnames to be written to the cert
+func CreateTLSCertificate(destPath string, hostnames ...string) (certPath string, keyPath string, err error) {
+	var privateKey *ecdsa.PrivateKey
+	var certFile, keyFile *os.File
+	var derBytes, keyBytes []byte
+
+	privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return
+	}
+
+	certPath = destPath + ".crt"
+	keyPath = destPath + ".key"
+
+	// generate a random serial number
+	serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
+	if serialNumber == nil || serialNumber.Sign() <= 0 {
+		serialNumber = big.NewInt(123456)
+	}
+
+	cert := &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"Severalnines AB"},
+		},
+		NotBefore:             time.Now().Add(time.Hour * time.Duration(-24)),
+		NotAfter:              time.Now().Add(time.Hour * time.Duration(24*365*10)),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	for _, h := range hostnames {
+		if ip := net.ParseIP(h); ip != nil {
+			cert.IPAddresses = append(cert.IPAddresses, ip)
+		} else {
+			cert.DNSNames = append(cert.DNSNames, h)
+		}
+	}
+
+	if derBytes, err = x509.CreateCertificate(rand.Reader, cert, cert, &privateKey.PublicKey, privateKey); err != nil {
+		return
+	}
+
+	if certFile, err = os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err != nil {
+		defer certFile.Close()
+		if err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
+			return
+		}
+	} else {
+		return
+	}
+
+	if keyFile, err = os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600); err != nil {
+		defer keyFile.Close()
+		if keyBytes, err = x509.MarshalPKCS8PrivateKey(privateKey); err != nil {
+			return
+		}
+		if err = pem.Encode(certFile, &pem.Block{Type: "PRIVATE KEY", Bytes: keyBytes}); err != nil {
+			return
+		}
+	} else {
+		return
+	}
+
+	return
+}
