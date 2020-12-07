@@ -16,7 +16,7 @@ import (
 // CreateTLSCertificate creates a self-signed key/cert pair for https server
 // you can give the destination path without extension (.crt/.key will be added),
 // and optionally pass hostnames to be written to the cert
-func CreateTLSCertificate(destPath string, hostnames ...string) (certPath string, keyPath string, err error) {
+func CreateTLSCertificate(certPath, keyPath string, hostnames ...string) (err error) {
 	var privateKey *ecdsa.PrivateKey
 	var certFile, keyFile *os.File
 	var derBytes, keyBytes []byte
@@ -25,9 +25,6 @@ func CreateTLSCertificate(destPath string, hostnames ...string) (certPath string
 	if err != nil {
 		return
 	}
-
-	certPath = destPath + ".crt"
-	keyPath = destPath + ".key"
 
 	// generate a random serial number
 	serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
@@ -58,26 +55,26 @@ func CreateTLSCertificate(destPath string, hostnames ...string) (certPath string
 		return
 	}
 
-	if certFile, err = os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err != nil {
-		defer certFile.Close()
-		if err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
-			return
-		}
-	} else {
+	// save the PEM encoded certificate
+	certFile, err = os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return
+	}
+	defer certFile.Close()
+	if err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
 		return
 	}
 
-	if keyFile, err = os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600); err != nil {
-		defer keyFile.Close()
-		if keyBytes, err = x509.MarshalPKCS8PrivateKey(privateKey); err != nil {
-			return
-		}
-		if err = pem.Encode(certFile, &pem.Block{Type: "PRIVATE KEY", Bytes: keyBytes}); err != nil {
-			return
-		}
-	} else {
+	// and save the PEM encoded private key in PKCS8 format
+	keyFile, err = os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return
+	}
+	defer keyFile.Close()
+	if keyBytes, err = x509.MarshalPKCS8PrivateKey(privateKey); err != nil {
 		return
 	}
 
+	err = pem.Encode(keyFile, &pem.Block{Type: "PRIVATE KEY", Bytes: keyBytes})
 	return
 }

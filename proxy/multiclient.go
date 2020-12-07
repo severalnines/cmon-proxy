@@ -16,7 +16,7 @@ type MultiClient struct {
 }
 
 func NewMultiClient(config *config.Config) (*MultiClient, error) {
-	if config == nil || len(config.Urls) < 1 {
+	if config == nil {
 		return nil, fmt.Errorf("Invalid configuration")
 	}
 

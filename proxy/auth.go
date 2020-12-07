@@ -2,8 +2,6 @@ package proxy
 
 import (
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -44,26 +42,17 @@ func (ml *MultiClient) RPCAuthenticate(ctx *gin.Context) {
 
 	var user *cmon.User
 	authOk := false
-	for _, theUrl := range ml.Config.Urls {
-		if !strings.Contains(theUrl, "://") {
-			// golang URL parser requires scheme
-			theUrl = "https://" + theUrl
-		}
-		urlArg, err := url.Parse(theUrl)
-		if err != nil {
-			logger.Sugar().Warnf("URL parse failure (%s): %s", theUrl, err)
-		}
-		urlArg.User = url.UserPassword(req.UserName, req.Password)
-
-		ml.Timestamps[theUrl] = time.Now()
-		ml.Clients[theUrl] = NewClient(urlArg, "", ml.Config.Timeout)
+	for _, instance := range ml.Config.Instances {
+		ml.Timestamps[instance.Url] = time.Now()
+		ml.Clients[instance.Url] = NewClient(instance, ml.Config.Timeout)
 
 		// howto return how many cmons has failed to authenticated and why?
-		if err := ml.Clients[theUrl].Authenticate(); err != nil {
-			logger.Sugar().Warnf("Cmon [%s] auth failure: %s", theUrl, err.Error())
+		if err := ml.Clients[instance.Url].Authenticate(); err != nil {
+			logger.Sugar().Warnf("Cmon [%s] auth failure: %s", instance.Url, err.Error())
 		} else {
+			// if any has passed we are good
 			authOk = true
-			user = ml.Clients[theUrl].User()
+			user = ml.Clients[instance.Url].User()
 		}
 	}
 

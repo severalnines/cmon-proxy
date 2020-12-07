@@ -15,25 +15,27 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/severalnines/ccx/go/cmon"
+	"github.com/severalnines/cmon-proxy/config"
+	"go.uber.org/zap"
 )
 
 // Client struct.
 type Client struct {
-	url     *url.URL
-	keyfile string
-	http    *http.Client
-	ses     *http.Cookie
-	sesMu   *sync.Mutex
-	user    *cmon.User
-	userMu  *sync.Mutex
+	Instance *config.CmonInstance
+	http     *http.Client
+	ses      *http.Cookie
+	sesMu    *sync.Mutex
+	user     *cmon.User
+	userMu   *sync.Mutex
 }
 
 // NewClient returns a new RPCv2 client.
-func NewClient(url *url.URL, keyfile string, timeout int) *Client {
+func NewClient(instance *config.CmonInstance, timeout int) *Client {
 	httpClient := &http.Client{
 		Timeout: time.Second * time.Duration(timeout),
 	}
@@ -43,11 +45,10 @@ func NewClient(url *url.URL, keyfile string, timeout int) *Client {
 		},
 	}
 	c := &Client{
-		url:     url,
-		keyfile: keyfile,
-		http:    httpClient,
-		sesMu:   &sync.Mutex{},
-		userMu:  &sync.Mutex{},
+		Instance: instance,
+		http:     httpClient,
+		sesMu:    &sync.Mutex{},
+		userMu:   &sync.Mutex{},
 	}
 	return c
 }
@@ -103,11 +104,11 @@ func (client *Client) Request(module string, req, res interface{}, retry bool, a
 
 // Authenticate does RPCv2 authentication.
 func (client *Client) Authenticate() error {
-	if _, hasPass := client.url.User.Password(); hasPass {
+	if len(client.Instance.Password) > 0 {
 		return client.AuthenticateWithPassword()
 	}
 
-	if len(client.keyfile) > 0 {
+	if len(client.Instance.Keyfile) > 0 {
 		return client.AuthenticateWithKey()
 	}
 
@@ -115,11 +116,10 @@ func (client *Client) Authenticate() error {
 }
 
 func (client *Client) AuthenticateWithPassword() error {
-	password, _ := client.url.User.Password()
 	rd := &AuthenticateRequest{
 		Operation: "authenticateWithPassword",
-		UserName:  client.url.User.Username(),
-		Password:  password,
+		UserName:  client.Instance.Username,
+		Password:  client.Instance.Password,
 	}
 
 	ar := &AuthenticateResponse{}
@@ -163,13 +163,13 @@ func loadRsaKey(filename string) (*rsa.PrivateKey, error) {
 }
 
 func (client *Client) AuthenticateWithKey() error {
-	rsaKey, err := loadRsaKey(client.keyfile)
+	rsaKey, err := loadRsaKey(client.Instance.Keyfile)
 	if err != nil {
 		return err
 	}
 	rd := &AuthenticateRequest{
 		Operation: "authenticate",
-		UserName:  client.url.User.Username(),
+		UserName:  client.Instance.Username,
 	}
 	ar := &AuthenticateResponse{}
 	if err := client.Request(cmon.ModuleAuth, rd, ar, false, true); err != nil {
@@ -208,12 +208,21 @@ func (client *Client) AuthenticateWithKey() error {
 }
 
 func (client *Client) buildURI(module string) string {
-	u := &url.URL{
-		Host:   client.url.Host,
-		Scheme: client.url.Scheme,
-		Path:   "/v2/" + module,
+	urlStr := client.Instance.Url
+	if !strings.HasPrefix(urlStr, "https://") {
+		urlStr = "https://" + urlStr
 	}
-	return u.String()
+	if parsed, err := url.Parse(urlStr); err != nil {
+		zap.L().Sugar().Fatalf("URL parse '%s' failure: %s", urlStr, err.Error())
+		return ""
+	} else {
+		u := &url.URL{
+			Host:   parsed.Host,
+			Scheme: parsed.Scheme,
+			Path:   "/v2/" + module,
+		}
+		return u.String()
+	}
 }
 
 func (client *Client) saveSessionFromResponse(res *http.Response) bool {
