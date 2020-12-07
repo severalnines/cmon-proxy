@@ -10,7 +10,10 @@ import (
 
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
-	"github.com/severalnines/bar-user-auth-api/auth"
+
+	/*
+		"github.com/severalnines/bar-user-auth-api/auth"
+	*/
 	"github.com/severalnines/bar-user-auth-api/session"
 	"github.com/severalnines/ccx/go/http_handlers"
 	"github.com/severalnines/cmon-proxy/config"
@@ -26,7 +29,7 @@ func Start() {
 		port = "19051"
 	}
 
-	config, err := config.Load("cmon-proxy.cnf")
+	config, err := config.Load("cmon-proxy.yaml")
 	if err != nil {
 		zap.L().Sugar().Fatalf("configfile problem: %s", err.Error())
 	}
@@ -40,17 +43,33 @@ func Start() {
 	s.Use(http_handlers.Middleware)
 	s.OPTIONS("*any", http_handlers.Options)
 	s.Use(session.Sessions())
-	s.Use(auth.Check)
 
-	multiClient, err := proxy.NewMultiClient(config)
+	/*
+		s.Use(auth.Check)
+	*/
+
+	router, err := proxy.NewRouter(config)
 	if err != nil {
 		log.Sugar().Fatalf("initialization problem: %s", err.Error())
 	}
+	// do initial connection to the nodes
+	router.Authenticate()
 
-	v1 := s.Group("/v2")
+	// kinda cmon compatible apis.. *experimental*
+	v2 := s.Group("/v2")
 	{
-		v1.POST("/auth", multiClient.RPCAuthenticate)
+		v2.POST("/auth", router.RPCAuthenticate)
 	}
+
+	// aggregating APIs for WEB UI v0
+	p := s.Group("/proxy")
+	{
+		clusters := p.Group("/clusters")
+		{
+			clusters.GET("/status", router.RPCClustersStatus)
+		}
+	}
+
 	hs := &http.Server{
 		Handler:      s,
 		Addr:         ":" + port,

@@ -1,0 +1,7 @@
+timeout: 180
+logfile: cmon-proxy.log
+instances:
+  - url: https://127.0.0.01:9501/
+    name: kedz-workstation
+    username: adminxy
+    password: f559aadc-9361-4059-b392-7645a038247d

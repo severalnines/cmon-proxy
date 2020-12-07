@@ -1,4 +1,4 @@
-package proxy
+package cmon
 
 import (
 	"bytes"
@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/severalnines/ccx/go/cmon"
+	"github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
 	"go.uber.org/zap"
 )
@@ -30,7 +30,7 @@ type Client struct {
 	http     *http.Client
 	ses      *http.Cookie
 	sesMu    *sync.Mutex
-	user     *cmon.User
+	user     *api.User
 	userMu   *sync.Mutex
 }
 
@@ -116,19 +116,22 @@ func (client *Client) Authenticate() error {
 }
 
 func (client *Client) AuthenticateWithPassword() error {
-	rd := &AuthenticateRequest{
-		Operation: "authenticateWithPassword",
-		UserName:  client.Instance.Username,
-		Password:  client.Instance.Password,
+	rd := &api.AuthenticateRequest{
+		WithOperation: &api.WithOperation{
+			Operation: "authenticateWithPassword",
+		},
+		UserName: client.Instance.Username,
+		Password: client.Instance.Password,
 	}
 
-	ar := &AuthenticateResponse{}
-	if err := client.Request(cmon.ModuleAuth, rd, ar, false, true); err != nil {
+	ar := &api.AuthenticateResponse{}
+	if err := client.Request(api.ModuleAuth, rd, ar, false, true); err != nil {
 		return err
 	}
 
-	if ar.RequestStatus != cmon.RequestStatusOk {
-		return cmon.NewErrorFromResponseData(ar.WithResponseData)
+	if ar.RequestStatus != api.RequestStatusOk {
+		fmt.Println("REPLY:", *ar)
+		return api.NewErrorFromResponseData(ar.WithResponseData)
 	}
 
 	client.userMu.Lock()
@@ -167,17 +170,19 @@ func (client *Client) AuthenticateWithKey() error {
 	if err != nil {
 		return err
 	}
-	rd := &AuthenticateRequest{
-		Operation: "authenticate",
-		UserName:  client.Instance.Username,
+	rd := &api.AuthenticateRequest{
+		WithOperation: &api.WithOperation{
+			Operation: "authenticate",
+		},
+		UserName: client.Instance.Username,
 	}
-	ar := &AuthenticateResponse{}
-	if err := client.Request(cmon.ModuleAuth, rd, ar, false, true); err != nil {
+	ar := &api.AuthenticateResponse{}
+	if err := client.Request(api.ModuleAuth, rd, ar, false, true); err != nil {
 		return err
 	}
 
-	if ar.RequestStatus != cmon.RequestStatusOk {
-		return cmon.NewErrorFromResponseData(ar.WithResponseData)
+	if ar.RequestStatus != api.RequestStatusOk {
+		return api.NewErrorFromResponseData(ar.WithResponseData)
 	}
 
 	signature := ""
@@ -189,16 +194,18 @@ func (client *Client) AuthenticateWithKey() error {
 	}
 
 	// responding to the challenge request
-	cr := &Authenticate2Request{
-		Operation: "authenticateResponse",
+	cr := &api.Authenticate2Request{
+		WithOperation: &api.WithOperation{
+			Operation: "authenticateResponse",
+		},
 		Signature: signature,
 	}
-	if err := client.Request(cmon.ModuleAuth, cr, ar, false, true); err != nil {
+	if err := client.Request(api.ModuleAuth, cr, ar, false, true); err != nil {
 		return err
 	}
 
-	if ar.RequestStatus != cmon.RequestStatusOk {
-		return cmon.NewErrorFromResponseData(ar.WithResponseData)
+	if ar.RequestStatus != api.RequestStatusOk {
+		return api.NewErrorFromResponseData(ar.WithResponseData)
 	}
 
 	client.userMu.Lock()
@@ -237,7 +244,7 @@ func (client *Client) saveSessionFromResponse(res *http.Response) bool {
 	return false
 }
 
-func (client *Client) User() *cmon.User {
+func (client *Client) User() *api.User {
 	client.userMu.Lock()
 	defer client.userMu.Unlock()
 	return client.User()
