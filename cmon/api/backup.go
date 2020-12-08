@@ -14,6 +14,7 @@ type ListBackupsRequest struct {
 }
 
 type ListBackupsResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 	*WithTotal        `json:",inline"`
 
@@ -27,6 +28,7 @@ type ListBackupSchedulesRequest struct {
 }
 
 type ListBackupSchedulesResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 	*WithTotal        `json:",inline"`
 
@@ -40,7 +42,8 @@ type RestoreBackupRequest struct {
 }
 
 type RestoreBackupResponse struct {
-	Job *Job `json:"job"`
+	*WithControllerID `json:",inline"`
+	Job               *Job `json:"job"`
 }
 
 type RestoreBackupJobData struct {

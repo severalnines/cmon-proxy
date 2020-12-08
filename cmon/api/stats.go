@@ -19,6 +19,7 @@ type GetStatByNameRequest struct {
 }
 
 type GetStatByNameResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 	*WithTotal        `json:",inline"`
 

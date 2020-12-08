@@ -17,6 +17,7 @@ type Authenticate2Request struct {
 
 // AuthenticateResponse the data we get from server for auth reqs
 type AuthenticateResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 
 	Challenge string `json:"challenge"`

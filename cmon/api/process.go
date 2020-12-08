@@ -11,6 +11,7 @@ type GetSqlProcessesRequest struct {
 }
 
 type GetSqlProcessesResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 
 	Processes []*SQLProcess `json:"processes"`

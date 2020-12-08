@@ -16,6 +16,7 @@ type GetClusterInfoRequest struct {
 }
 
 type GetClusterInfoResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 
 	Cluster *Cluster `json:"cluster"`
@@ -32,6 +33,7 @@ type GetAllClusterInfoRequest struct {
 }
 
 type GetAllClusterInfoResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 	*WithTotal        `json:",inline"`
 
@@ -87,6 +89,7 @@ type CreateDatabaseRequest struct {
 }
 
 type CreateDatabaseResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 
 	Database *Database `json:"database"`
@@ -98,6 +101,7 @@ type ListDatabasesRequest struct {
 }
 
 type ListDatabasesResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 
 	Databases []*Database `json:"databases"`

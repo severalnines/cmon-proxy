@@ -121,6 +121,11 @@ func Start() {
 		{
 			clusters.GET("/status", router.RPCClustersStatus)
 		}
+
+		cmons := p.Group("/controllers")
+		{
+			cmons.GET("/status", router.RPCControllerStatus)
+		}
 	}
 
 	hs := &http.Server{

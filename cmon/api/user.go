@@ -5,7 +5,8 @@ import (
 )
 
 type User struct {
-	WithClassName `json:",inline"`
+	*WithControllerID `json:",inline"`
+	*WithClassName    `json:",inline"`
 
 	FirstName string    `json:"first_name"`
 	LastName  string    `json:"last_name"`

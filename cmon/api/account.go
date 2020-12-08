@@ -8,6 +8,7 @@ type CreateAccountRequest struct {
 }
 
 type CreateAccountResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 
 	Account *Account `json:"account"`
@@ -36,6 +37,7 @@ type ListAccountsRequest struct {
 }
 
 type ListAccountsResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 	*WithTotal        `json:",inline"`
 
@@ -50,5 +52,6 @@ type DeleteAccountRequest struct {
 }
 
 type DeleteAccountResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 }

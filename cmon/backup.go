@@ -89,5 +89,5 @@ func (client *Client) RestoreBackup(req *api.RestoreBackupRequest) (*api.Restore
 	if err != nil {
 		return nil, fmt.Errorf("failed to create restore backup job: %s", err.Error())
 	}
-	return &api.RestoreBackupResponse{jRes.Job}, nil
+	return &api.RestoreBackupResponse{WithControllerID: jRes.WithControllerID, Job: jRes.Job}, nil
 }

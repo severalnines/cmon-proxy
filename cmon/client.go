@@ -55,7 +55,7 @@ func NewClient(instance *config.CmonInstance, timeout int) *Client {
 }
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
-func (client *Client) Request(module string, req, res interface{}, retry bool, authrequest ...bool) error {
+func (client *Client) Request(module string, req, res interface{}, authretry bool, authrequest ...bool) error {
 	// for regular requests we may want to auto reauthenticate
 	autoAuth := len(authrequest) < 1 || !authrequest[0]
 
@@ -90,18 +90,6 @@ func (client *Client) Request(module string, req, res interface{}, retry bool, a
 		return err
 	}
 
-	client.saveSessionFromResponse(response)
-
-	// FIXME: this isn't completely right (but doesn't harm), the user may have no access for certain things
-	if autoAuth && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
-		if retry {
-			return fmt.Errorf("retry failed after re-authentication")
-		}
-		if err := client.Authenticate(); err != nil {
-			return err
-		}
-		return client.Request(module, req, res, true)
-	}
 	rb, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %+v", err)
@@ -110,6 +98,16 @@ func (client *Client) Request(module string, req, res interface{}, retry bool, a
 	if opts.Opts.DebugCmonRpc {
 		zap.L().Sugar().Debugf("Reply from cmon %s:\n%s",
 			uri, string(rb))
+	}
+
+	client.saveSessionFromResponse(response)
+
+	// TODO : fix this
+	if false && autoAuth && !authretry && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
+		if err := client.Authenticate(); err != nil {
+			return err
+		}
+		return client.Request(module, req, res, true)
 	}
 
 	return json.Unmarshal(rb, res)

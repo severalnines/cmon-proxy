@@ -52,6 +52,10 @@ type WithClusterID struct {
 	ClusterID uint64 `json:"cluster_id,omitempty"`
 }
 
+type WithClusterIDForced struct {
+	ClusterID uint64 `json:"cluster_id,"`
+}
+
 func (wci *WithClusterID) GetClusterID() uint64 {
 	if wci == nil {
 		return 0
@@ -104,4 +108,8 @@ type WithTags struct {
 type WithGroup struct {
 	GroupID   uint64 `json:"group_id"`
 	GroupName string `json:"group_name"`
+}
+
+type WithControllerID struct {
+	ControllerID string `json:"controller_id"`
 }

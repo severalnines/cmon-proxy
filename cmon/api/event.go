@@ -1,13 +1,13 @@
 package api
 
 type Event struct {
-	*WithClassName `json:",inline"`
+	*WithControllerID `json:",inline"`
+	*WithClassName    `json:",inline"`
 
 	EventClass     string          `json:"event_class"`
 	EventName      string          `json:"event_name"`
 	EventOrigins   *EventOrigins   `json:"event_origins"`
 	EventSpecifics *EventSpecifics `json:"event_specifics"`
-	ControllerID   string          `json:"controller_id"`
 }
 
 func (event *Event) IsJob() bool {

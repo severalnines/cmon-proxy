@@ -16,6 +16,7 @@ type GetJobInstancesRequest struct {
 }
 
 type GetJobInstancesResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 	*WithTotal        `json:",inline"`
 
@@ -30,6 +31,7 @@ type GetJobInstanceRequest struct {
 }
 
 type GetJobInstanceResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 
 	Job *Job `json:"job"`
@@ -43,6 +45,7 @@ type CreateJobInstanceRequest struct {
 }
 
 type CreateJobInstanceResponse struct {
+	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 
 	Job *Job `json:"job"`
