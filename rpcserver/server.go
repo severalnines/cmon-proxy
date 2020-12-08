@@ -1,7 +1,9 @@
 package rpcserver
 
 import (
+	"bytes"
 	"context"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,19 +13,63 @@ import (
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 
-	/*
-		"github.com/severalnines/bar-user-auth-api/auth"
-	*/
+	//"github.com/severalnines/bar-user-auth-api/auth"
 	"github.com/severalnines/bar-user-auth-api/session"
 	"github.com/severalnines/ccx/go/http_handlers"
 	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/logger"
+	"github.com/severalnines/cmon-proxy/opts"
 	"github.com/severalnines/cmon-proxy/proxy"
 	"go.uber.org/zap"
 )
 
+type GinWriteInterceptor struct {
+	gin.ResponseWriter
+	responseBody *bytes.Buffer
+}
+
+func (gwi *GinWriteInterceptor) WriteString(str string) (int, error) {
+	gwi.responseBody.WriteString(str)
+	return gwi.ResponseWriter.WriteString(str)
+}
+
+func (gwi *GinWriteInterceptor) Write(bs []byte) (int, error) {
+	gwi.responseBody.Write(bs)
+	return gwi.ResponseWriter.Write(bs)
+}
+
+func WebRpcDebugMiddleware(c *gin.Context) {
+	logger := zap.L().Sugar()
+	start := time.Now()
+
+	// we need to replace the writer to be able to capture the response body
+	bodyWriter := &GinWriteInterceptor{
+		ResponseWriter: c.Writer,
+		responseBody:   bytes.NewBufferString(""),
+	}
+	c.Writer = bodyWriter
+
+	// log the incoming request
+	body, _ := ioutil.ReadAll(c.Copy().Request.Body)
+	logger.Debugf("Web request [%s] %s %s:\n%s",
+		c.ClientIP(), c.Request.Method, c.Request.RequestURI, string(body))
+
+	// call handlers
+	c.Next()
+
+	// check elapsed time
+	elapsed := time.Since(start)
+
+	// and then log the reply too
+	logger.Debugf("Web reply   [%s] (elapsed: %dms) status %d:\n%s",
+		c.ClientIP(), int64(elapsed/time.Millisecond), c.Copy().Writer.Status(), bodyWriter.responseBody.String())
+}
+
 // Start is starting the service
 func Start() {
+	if !opts.Opts.DebugWebRpc {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "19051"
@@ -34,9 +80,10 @@ func Start() {
 		zap.L().Sugar().Fatalf("configfile problem: %s", err.Error())
 	}
 
+	// get logger only after we have lodaded the configuration
 	log := zap.L()
+
 	s := gin.New()
-	s.Use(logger.GinZapFunc())
 	s.Use(ginzap.RecoveryWithZap(log, true))
 	s.NoRoute(http_handlers.NoRoute)
 	s.NoMethod(http_handlers.NoMethod)
@@ -47,6 +94,12 @@ func Start() {
 	/*
 		s.Use(auth.Check)
 	*/
+
+	if opts.Opts.DebugWebRpc {
+		s.Use(WebRpcDebugMiddleware)
+	}
+
+	zap.L().Info("Starting RPC service")
 
 	router, err := proxy.NewRouter(config)
 	if err != nil {

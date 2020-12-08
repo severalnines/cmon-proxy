@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/severalnines/cmon-proxy/cmon"
-	"github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
 	"go.uber.org/zap"
 )
@@ -34,8 +33,7 @@ func NewRouter(config *config.Config) (*Router, error) {
 
 // Authenticate will does an inital authentication request to the cmon instances
 func (router *Router) Authenticate() {
-	logger := zap.L()
-	var user *api.User
+	logger := zap.L().Sugar()
 	for _, instance := range router.Config.Instances {
 		addr := instance.Url
 		router.Timestamps[addr] = time.Now()
@@ -43,11 +41,11 @@ func (router *Router) Authenticate() {
 
 		// howto return how many cmons has failed to authenticated and why?
 		if err := router.Clients[addr].Authenticate(); err != nil {
-			logger.Sugar().Warnf("Cmon [%s] auth failure: %s", addr, err.Error())
+			logger.Warnf("Cmon [%s] auth failure: %s", addr, err.Error())
 		} else {
 			// if any has passed we are good
-			user = router.Clients[addr].User()
-			logger.Sugar().Warnf("Cmon [%s] auth succed with user %s", addr, user.UserName)
+			user := router.Clients[addr].User()
+			logger.Infof("Cmon [%s] auth succed with user %s", addr, user.UserName)
 		}
 	}
 }

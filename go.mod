@@ -10,6 +10,7 @@ require (
 	github.com/golang/protobuf v1.4.3 // indirect
 	github.com/google/go-cmp v0.5.2 // indirect
 	github.com/gorilla/sessions v1.2.1 // indirect
+	github.com/jessevdk/go-flags v1.4.0
 	github.com/severalnines/bar-user-auth-api v0.1.1
 	github.com/severalnines/ccx/go v0.0.0-20201204143714-c2fe559e25ad
 	github.com/ugorji/go v1.2.1 // indirect

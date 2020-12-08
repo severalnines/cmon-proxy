@@ -21,6 +21,7 @@ import (
 
 	"github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
+	"github.com/severalnines/cmon-proxy/opts"
 	"go.uber.org/zap"
 )
 
@@ -75,6 +76,12 @@ func (client *Client) Request(module string, req, res interface{}, retry bool, a
 	if err != nil {
 		return err
 	}
+
+	if opts.Opts.DebugCmonRpc {
+		zap.L().Sugar().Debugf("Request to cmon %s:\n%s",
+			uri, string(reqBytes))
+	}
+
 	if client.ses != nil {
 		request.Header.Set("cookie", client.ses.String())
 	}
@@ -99,6 +106,12 @@ func (client *Client) Request(module string, req, res interface{}, retry bool, a
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %+v", err)
 	}
+
+	if opts.Opts.DebugCmonRpc {
+		zap.L().Sugar().Debugf("Reply from cmon %s:\n%s",
+			uri, string(rb))
+	}
+
 	return json.Unmarshal(rb, res)
 }
 
@@ -130,13 +143,13 @@ func (client *Client) AuthenticateWithPassword() error {
 	}
 
 	if ar.RequestStatus != api.RequestStatusOk {
-		fmt.Println("REPLY:", *ar)
 		return api.NewErrorFromResponseData(ar.WithResponseData)
 	}
 
 	client.userMu.Lock()
 	client.user = ar.User
 	client.userMu.Unlock()
+
 	return nil
 }
 
@@ -247,5 +260,5 @@ func (client *Client) saveSessionFromResponse(res *http.Response) bool {
 func (client *Client) User() *api.User {
 	client.userMu.Lock()
 	defer client.userMu.Unlock()
-	return client.User()
+	return client.user
 }
