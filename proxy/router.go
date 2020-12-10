@@ -47,7 +47,11 @@ func (router *Router) Authenticate() {
 
 	for _, instance := range router.Config.Instances {
 		addr := instance.Url
-		router.Clients[addr] = cmon.NewClient(instance, router.Config.Timeout)
+
+		// create client if needed
+		if cli, found := router.Clients[addr]; !found || cli == nil {
+			router.Clients[addr] = cmon.NewClient(instance, router.Config.Timeout)
+		}
 
 		// paralell authentication to the cmons
 		go func() {
@@ -70,30 +74,31 @@ func (router *Router) Authenticate() {
 }
 
 func (router *Router) Ping() {
-	//syncChannel := make(chan bool, parallelLevel)
+	syncChannel := make(chan bool, parallelLevel)
 
 	for _, instance := range router.Config.Instances {
 		addr := instance.Url
 
 		// do not ping if we did recently
 		if time.Since(router.LastPing[addr]) < time.Duration(pingInterval)*time.Second {
+			syncChannel <- true
 			continue
 		}
 
 		// ping now
 		router.LastPing[addr] = time.Now()
-		//go func() {
-		pingResp, err := router.Clients[addr].Ping()
-		router.LastPing[addr] = time.Now()
-		router.PingResponses[addr] = pingResp
-		router.PingErrors[addr] = err
+		go func() {
+			pingResp, err := router.Clients[addr].Ping()
+			router.LastPing[addr] = time.Now()
+			router.PingResponses[addr] = pingResp
+			router.PingErrors[addr] = err
 
-		//	syncChannel <- true
-		//}()
+			syncChannel <- true
+		}()
 	}
 
 	// wait till all finishes
-	//for i := 0; i < len(router.Config.Instances); i++ {
-	//	<-syncChannel
-	//}
+	for i := 0; i < len(router.Config.Instances); i++ {
+		<-syncChannel
+	}
 }

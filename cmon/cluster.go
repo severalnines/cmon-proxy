@@ -12,7 +12,7 @@ func (client *Client) GetClusterInfo(req *api.GetClusterInfoRequest) (*api.GetCl
 		return nil, fmt.Errorf("invalid cluster id")
 	}
 	res := &api.GetClusterInfoResponse{}
-	if err := client.Request(api.ModuleClusters, req, res, false); err != nil {
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {
@@ -27,7 +27,7 @@ func (client *Client) GetAllClusterInfo(req *api.GetAllClusterInfoRequest) (*api
 	}
 	req.Operation = "getAllClusterInfo"
 	res := &api.GetAllClusterInfoResponse{}
-	if err := client.Request(api.ModuleClusters, req, res, false); err != nil {
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {
@@ -42,7 +42,7 @@ func (client *Client) CreateDatabase(req *api.CreateDatabaseRequest) (*api.Creat
 		return nil, fmt.Errorf("invalid cluster id")
 	}
 	res := &api.CreateDatabaseResponse{}
-	if err := client.Request(api.ModuleClusters, req, res, false); err != nil {
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {

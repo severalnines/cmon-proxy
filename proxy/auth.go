@@ -22,15 +22,19 @@ func (ml *Router) RPCAuthenticate(ctx *gin.Context) {
 	var user *cmonapi.User
 	authOk := false
 	for _, instance := range ml.Config.Instances {
-		ml.Clients[instance.Url] = cmon.NewClient(instance, ml.Config.Timeout)
+		addr := instance.Url
+		// create client if needed
+		if cli, found := ml.Clients[addr]; !found || cli == nil {
+			ml.Clients[addr] = cmon.NewClient(instance, ml.Config.Timeout)
+		}
 
 		// howto return how many cmons has failed to authenticated and why?
-		if err := ml.Clients[instance.Url].Authenticate(); err != nil {
+		if err := ml.Clients[addr].Authenticate(); err != nil {
 			logger.Sugar().Warnf("Cmon [%s] auth failure: %s", instance.Url, err.Error())
 		} else {
 			// if any has passed we are good
 			authOk = true
-			user = ml.Clients[instance.Url].User()
+			user = ml.Clients[addr].User()
 		}
 	}
 

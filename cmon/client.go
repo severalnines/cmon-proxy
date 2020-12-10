@@ -27,12 +27,14 @@ import (
 
 // Client struct.
 type Client struct {
-	Instance *config.CmonInstance
-	http     *http.Client
-	ses      *http.Cookie
-	sesMu    *sync.Mutex
-	user     *api.User
-	userMu   *sync.Mutex
+	Instance          *config.CmonInstance
+	http              *http.Client
+	ses               *http.Cookie
+	mtx               *sync.Mutex
+	user              *api.User
+	controllerID      string // the controllerID obtained from the replies
+	lastRequestStatus string // the last request status
+	serverVersion     string // the server version obtained from the headers
 }
 
 // NewClient returns a new RPCv2 client.
@@ -48,16 +50,17 @@ func NewClient(instance *config.CmonInstance, timeout int) *Client {
 	c := &Client{
 		Instance: instance,
 		http:     httpClient,
-		sesMu:    &sync.Mutex{},
-		userMu:   &sync.Mutex{},
+		mtx:      &sync.Mutex{},
 	}
 	return c
 }
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
-func (client *Client) Request(module string, req, res interface{}, authretry bool, authrequest ...bool) error {
+func (client *Client) Request(module string, req, res interface{}, noAutoAuth ...bool) error {
 	// for regular requests we may want to auto reauthenticate
-	autoAuth := len(authrequest) < 1 || !authrequest[0]
+	autoAuth := len(noAutoAuth) < 1 || !noAutoAuth[0]
+
+	client.lastRequestStatus = ""
 
 	if autoAuth && client.ses == nil {
 		if err := client.Authenticate(); err != nil {
@@ -102,13 +105,31 @@ func (client *Client) Request(module string, req, res interface{}, authretry boo
 
 	client.saveSessionFromResponse(response)
 
-	// TODO : fix this
-	if false && autoAuth && !authretry && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
+	if autoAuth && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
 		if err := client.Authenticate(); err != nil {
 			return err
 		}
+		// after auth, we must go with no auto auth
 		return client.Request(module, req, res, true)
 	}
+
+	// this part might be not efficient, lets think about this later
+	switch req.(type) {
+	case *api.AuthenticateRequest:
+		// obtain controller ID
+		var ctrlID api.WithControllerID
+		json.Unmarshal(rb, &ctrlID)
+		client.controllerID = ctrlID.ControllerID
+
+		// obtain the server version number
+		if server := strings.Split(response.Header.Get("Server"), "/"); len(server) > 1 {
+			// Server: cmon/1.8.2 -> 1.8.2
+			client.serverVersion = strings.Trim(server[1], "\r\n\t '\"")
+		}
+	}
+	var respData api.WithResponseData
+	json.Unmarshal(rb, &respData)
+	client.lastRequestStatus = respData.RequestStatus
 
 	return json.Unmarshal(rb, res)
 }
@@ -136,7 +157,7 @@ func (client *Client) AuthenticateWithPassword() error {
 	}
 
 	ar := &api.AuthenticateResponse{}
-	if err := client.Request(api.ModuleAuth, rd, ar, false, true); err != nil {
+	if err := client.Request(api.ModuleAuth, rd, ar, true); err != nil {
 		return err
 	}
 
@@ -144,9 +165,9 @@ func (client *Client) AuthenticateWithPassword() error {
 		return api.NewErrorFromResponseData(ar.WithResponseData)
 	}
 
-	client.userMu.Lock()
+	client.mtx.Lock()
 	client.user = ar.User
-	client.userMu.Unlock()
+	client.mtx.Unlock()
 
 	return nil
 }
@@ -188,7 +209,7 @@ func (client *Client) AuthenticateWithKey() error {
 		UserName: client.Instance.Username,
 	}
 	ar := &api.AuthenticateResponse{}
-	if err := client.Request(api.ModuleAuth, rd, ar, false, true); err != nil {
+	if err := client.Request(api.ModuleAuth, rd, ar, true); err != nil {
 		return err
 	}
 
@@ -211,7 +232,7 @@ func (client *Client) AuthenticateWithKey() error {
 		},
 		Signature: signature,
 	}
-	if err := client.Request(api.ModuleAuth, cr, ar, false, true); err != nil {
+	if err := client.Request(api.ModuleAuth, cr, ar, true); err != nil {
 		return err
 	}
 
@@ -219,9 +240,9 @@ func (client *Client) AuthenticateWithKey() error {
 		return api.NewErrorFromResponseData(ar.WithResponseData)
 	}
 
-	client.userMu.Lock()
+	client.mtx.Lock()
 	client.user = ar.User
-	client.userMu.Unlock()
+	client.mtx.Unlock()
 	return nil
 }
 
@@ -246,9 +267,9 @@ func (client *Client) buildURI(module string) string {
 func (client *Client) saveSessionFromResponse(res *http.Response) bool {
 	for _, c := range res.Cookies() {
 		if c.Name == "cmon-sid" {
-			client.sesMu.Lock()
+			client.mtx.Lock()
 			client.ses = c
-			client.sesMu.Unlock()
+			client.mtx.Unlock()
 			return true
 		}
 	}
@@ -256,7 +277,19 @@ func (client *Client) saveSessionFromResponse(res *http.Response) bool {
 }
 
 func (client *Client) User() *api.User {
-	client.userMu.Lock()
-	defer client.userMu.Unlock()
+	client.mtx.Lock()
+	defer client.mtx.Unlock()
 	return client.user
+}
+
+func (client *Client) ControllerID() string {
+	return client.controllerID
+}
+
+func (client *Client) RequestStatus() string {
+	return client.lastRequestStatus
+}
+
+func (client *Client) ServerVersion() string {
+	return client.serverVersion
 }

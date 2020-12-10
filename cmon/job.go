@@ -13,7 +13,7 @@ func (client *Client) GetJobInstances(req *api.GetJobInstancesRequest) (*api.Get
 		return nil, err
 	}
 	res := &api.GetJobInstancesResponse{}
-	if err := client.Request(api.ModuleJobs, req, res, false); err != nil {
+	if err := client.Request(api.ModuleJobs, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {
@@ -28,7 +28,7 @@ func (client *Client) GetJobInstance(req *api.GetJobInstanceRequest) (*api.GetJo
 	//	return nil, err
 	//}
 	res := &api.GetJobInstanceResponse{}
-	if err := client.Request(api.ModuleJobs, req, res, false); err != nil {
+	if err := client.Request(api.ModuleJobs, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {
@@ -47,7 +47,7 @@ func (client *Client) CreateJobInstance(req *api.CreateJobInstanceRequest) (*api
 		}
 	}
 	res := &api.CreateJobInstanceResponse{}
-	if err := client.Request(api.ModuleJobs, req, res, false); err != nil {
+	if err := client.Request(api.ModuleJobs, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {

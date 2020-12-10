@@ -120,11 +120,13 @@ func Start() {
 		clusters := p.Group("/clusters")
 		{
 			clusters.GET("/status", router.RPCClustersStatus)
+			clusters.POST("/status", router.RPCClustersStatus)
 		}
 
 		cmons := p.Group("/controllers")
 		{
 			cmons.GET("/status", router.RPCControllerStatus)
+			cmons.POST("/status", router.RPCControllerStatus)
 		}
 	}
 

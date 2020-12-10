@@ -9,7 +9,7 @@ func (client *Client) Ping() (*api.PingResponse, error) {
 		WithOperation:       &api.WithOperation{Operation: "ping"},
 		WithClusterIDForced: &api.WithClusterIDForced{}}
 	res := &api.PingResponse{}
-	if err := client.Request(api.ModuleClusters, req, res, false); err != nil {
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {

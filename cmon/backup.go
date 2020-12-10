@@ -13,7 +13,7 @@ func (client *Client) ListBackups(req *api.ListBackupsRequest) (*api.ListBackups
 		return nil, fmt.Errorf("invalid cluster id")
 	}
 	res := &api.ListBackupsResponse{}
-	if err := client.Request(api.ModuleBackup, req, res, false); err != nil {
+	if err := client.Request(api.ModuleBackup, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {

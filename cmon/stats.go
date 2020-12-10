@@ -12,7 +12,7 @@ func (client *Client) GetStatByName(req *api.GetStatByNameRequest) (*api.GetStat
 		return nil, fmt.Errorf("invalid cluster id")
 	}
 	res := &api.GetStatByNameResponse{}
-	if err := client.Request(api.ModuleStat, req, res, false); err != nil {
+	if err := client.Request(api.ModuleStat, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {

@@ -12,7 +12,7 @@ func (client *Client) GetSqlProcesses(req *api.GetSqlProcessesRequest) (*api.Get
 		return nil, fmt.Errorf("invalid cluster id")
 	}
 	res := &api.GetSqlProcessesResponse{}
-	if err := client.Request(api.ModuleClusters, req, res, false); err != nil {
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {
@@ -27,7 +27,7 @@ func (client *Client) GetTopQueries(req *api.GetTopQueriesRequest) (*api.GetTopQ
 		return nil, fmt.Errorf("invalid cluster id")
 	}
 	res := &api.GetTopQueriesResponse{}
-	if err := client.Request(api.ModuleClusters, req, res, false); err != nil {
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {

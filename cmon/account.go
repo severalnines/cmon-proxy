@@ -12,7 +12,7 @@ func (client *Client) CreateAccount(req *api.CreateAccountRequest) (*api.CreateA
 		return nil, err
 	}
 	res := &api.CreateAccountResponse{}
-	if err := client.Request(api.ModuleClusters, req, res, false); err != nil {
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {
@@ -27,7 +27,7 @@ func (client *Client) ListAccounts(req *api.ListAccountsRequest) (*api.ListAccou
 		return nil, fmt.Errorf("invalid cluster id")
 	}
 	res := &api.ListAccountsResponse{}
-	if err := client.Request(api.ModuleClusters, req, res, false); err != nil {
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {
@@ -48,7 +48,7 @@ func (client *Client) DeleteAccount(req *api.DeleteAccountRequest) (*api.DeleteA
 		return nil, fmt.Errorf("invalid/empty username")
 	}
 	res := &api.DeleteAccountResponse{}
-	if err := client.Request(api.ModuleClusters, req, res, false); err != nil {
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
 	if res.RequestStatus != api.RequestStatusOk {
