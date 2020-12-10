@@ -12,7 +12,7 @@ import (
 
 const (
 	// do not ping more frequent than every 30 seconds
-	pingInterval = 30
+	pingInterval = 60
 	// the max number of cmon requests made in parallel
 	parallelLevel = 8
 )
@@ -25,6 +25,7 @@ type Router struct {
 	PingErrors    map[string]error
 }
 
+// NewRouter creates a new cmon router
 func NewRouter(config *config.Config) (*Router, error) {
 	if config == nil {
 		return nil, fmt.Errorf("Invalid configuration")
@@ -45,6 +46,26 @@ func (router *Router) Authenticate() {
 
 	syncChannel := make(chan bool, parallelLevel)
 
+	// first lets remove all the removed instances (for remove API)
+	for addr := range router.Clients {
+		keep := false
+		for _, instance := range router.Config.Instances {
+			if addr == instance.Url {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			break
+		}
+		// get rid of it then
+		delete(router.Clients, addr)
+		delete(router.LastPing, addr)
+		delete(router.PingResponses, addr)
+		delete(router.PingErrors, addr)
+	}
+
+	// (re)authenticate to the configured instances
 	for _, instance := range router.Config.Instances {
 		addr := instance.Url
 
@@ -73,6 +94,7 @@ func (router *Router) Authenticate() {
 	}
 }
 
+// Ping pings the controllers to see their statuses
 func (router *Router) Ping() {
 	syncChannel := make(chan bool, parallelLevel)
 

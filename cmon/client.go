@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,6 +24,10 @@ import (
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/opts"
 	"go.uber.org/zap"
+)
+
+const (
+	connectionTimeout = 5 * time.Second
 )
 
 // Client struct.
@@ -41,10 +46,14 @@ type Client struct {
 func NewClient(instance *config.CmonInstance, timeout int) *Client {
 	httpClient := &http.Client{
 		Timeout: time.Second * time.Duration(timeout),
-	}
-	httpClient.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout: connectionTimeout,
+			}).DialContext,
+			TLSHandshakeTimeout: connectionTimeout,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
 		},
 	}
 	c := &Client{
@@ -144,6 +153,7 @@ func (client *Client) Authenticate() error {
 		return client.AuthenticateWithKey()
 	}
 
+	client.lastRequestStatus = api.RequestStatusAuthRequired
 	return fmt.Errorf("no password or keyfile is defined")
 }
 
@@ -200,6 +210,7 @@ func loadRsaKey(filename string) (*rsa.PrivateKey, error) {
 func (client *Client) AuthenticateWithKey() error {
 	rsaKey, err := loadRsaKey(client.Instance.Keyfile)
 	if err != nil {
+		client.lastRequestStatus = api.RequestStatusAuthRequired
 		return err
 	}
 	rd := &api.AuthenticateRequest{

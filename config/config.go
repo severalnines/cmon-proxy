@@ -11,11 +11,12 @@ import (
 )
 
 type CmonInstance struct {
-	Url      string `yaml:"url,omitempty"`
-	Name     string `yaml:"name,omitempty"`
-	Username string `yaml:"username,omitempty"`
-	Password string `yaml:"password,omitempty"`
-	Keyfile  string `yaml:"keyfile,omitempty"`
+	Url      string   `yaml:"url" json:"url"`
+	Name     string   `yaml:"name,omitempty" json:"name,omitempty"`
+	Username string   `yaml:"username,omitempty" json:"username,omitempty`
+	Password string   `yaml:"password,omitempty" json:"password,omitempty"`
+	Keyfile  string   `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
+	Tags     []string `yaml:"tags,omitempty" json:"tags,omitempty"`
 }
 
 // Config holds the configuration of cmon-proxy, it is pretty minimal now
@@ -24,6 +25,19 @@ type Config struct {
 	Instances []*CmonInstance `yaml:"instances,omitempty"`
 	Timeout   int             `yaml:"timeout,omitempty"`
 	Logfile   string          `yaml:"logfile,omitempty"`
+}
+
+func (cfg *Config) Save() error {
+	if cfg == nil || len(cfg.Filename) < 1 {
+		return fmt.Errorf("can't save configuration, no file name")
+	}
+
+	contents, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile(cfg.Filename, contents, 0644)
 }
 
 func Load(filename string) (*Config, error) {
@@ -39,9 +53,16 @@ func Load(filename string) (*Config, error) {
 	}
 
 	config.Filename = filename
+
+	// we don't want nulls
+	if config.Instances == nil {
+		config.Instances = make([]*CmonInstance, 0)
+	}
+	// default minimum timeout value
 	if config.Timeout <= 30 {
 		config.Timeout = 30
 	}
+	// default configuration file name
 	if len(config.Logfile) < 1 {
 		config.Logfile = "cmon-proxy.log"
 	}

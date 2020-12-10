@@ -30,8 +30,8 @@ func NewErrorFromResponseData(d *WithResponseData) error {
 }
 
 type Error struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
+	Type    string `json:"type,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 func (err Error) Error() string {

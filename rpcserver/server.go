@@ -48,10 +48,12 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 	}
 	c.Writer = bodyWriter
 
-	// log the incoming request
-	body, _ := ioutil.ReadAll(c.Copy().Request.Body)
-	logger.Debugf("Web request [%s] %s %s:\n%s",
-		c.ClientIP(), c.Request.Method, c.Request.RequestURI, string(body))
+	if false {
+		// log the incoming request
+		body, _ := ioutil.ReadAll(c.Copy().Request.Body)
+		logger.Debugf("Web request [%s] %s %s:\n%s",
+			c.ClientIP(), c.Request.Method, c.Request.RequestURI, string(body))
+	}
 
 	// call handlers
 	c.Next()
@@ -127,6 +129,9 @@ func Start() {
 		{
 			cmons.GET("/status", router.RPCControllerStatus)
 			cmons.POST("/status", router.RPCControllerStatus)
+			cmons.POST("/test", router.RPCControllerTest)
+			cmons.POST("/add", router.RPCControllerAdd)
+			cmons.POST("/remove", router.RPCControllerRemove)
 		}
 	}
 

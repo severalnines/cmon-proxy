@@ -28,7 +28,7 @@ An example request and reply:
 curl -k 'https://localhost:19051/proxy/controllers/status' | jq
 ```
 
-```go
+```json
 {
   "controllers": [
     {
@@ -66,3 +66,46 @@ curl -k 'https://localhost:19051/proxy/controllers/status' | jq
   ]
 }
 ```
+
+### Test or add controller
+
+Test or add a controller, add will cause the configuration file to be updated as
+well (even in case of failures), so you might want to test first
+
+URLS:
+- proxy/controllers/test: to test a controller
+- proxy/controllers/add: to add a new controller
+
+```bash
+$ curl -XPOST -k 'https://localhost:19051/proxy/controllers/test' -d'{"controller":{"url":"192.168.0.100:9501","name":"testadd","username":"someuser","password":"password"}}' | jq
+````
+
+```json
+{
+  "controller": {
+    "controller_id": "",
+    "controller_name": "testadd",
+    "url": "192.168.0.100:9501",
+    "version": "",
+    "status_message": "Post \"https://192.168.0.100:9501/v2/auth\": dial tcp 192.168.0.100:9501: connect: connection refused",
+    "status": "failed"
+  }
+}
+```
+
+### Remove a controller
+
+This method can be used to remove a controller. Note the configuration will be
+updated too.
+
+```bash
+$ curl -XPOST -k 'https://localhost:19051/proxy/controllers/remove' -d'{"url":"192.168.0.100:9501"}' | jq
+```
+
+```json
+{
+  "type": "Ok",
+  "message": "The controller is removed."
+}
+```
+
