@@ -103,35 +103,29 @@ func Start() {
 
 	zap.L().Info("Starting RPC service")
 
-	router, err := proxy.NewRouter(config)
+	proxy, err := proxy.New(config)
 	if err != nil {
 		log.Sugar().Fatalf("initialization problem: %s", err.Error())
 	}
 	// do initial connection to the nodes
-	router.Authenticate()
-
-	// kinda cmon compatible apis.. *experimental*
-	v2 := s.Group("/v2")
-	{
-		v2.POST("/auth", router.RPCAuthenticate)
-	}
+	proxy.Authenticate()
 
 	// aggregating APIs for WEB UI v0
 	p := s.Group("/proxy")
 	{
 		clusters := p.Group("/clusters")
 		{
-			clusters.GET("/status", router.RPCClustersStatus)
-			clusters.POST("/status", router.RPCClustersStatus)
+			clusters.GET("/status", proxy.RPCClustersStatus)
+			clusters.POST("/status", proxy.RPCClustersStatus)
 		}
 
 		cmons := p.Group("/controllers")
 		{
-			cmons.GET("/status", router.RPCControllerStatus)
-			cmons.POST("/status", router.RPCControllerStatus)
-			cmons.POST("/test", router.RPCControllerTest)
-			cmons.POST("/add", router.RPCControllerAdd)
-			cmons.POST("/remove", router.RPCControllerRemove)
+			cmons.GET("/status", proxy.RPCControllerStatus)
+			cmons.POST("/status", proxy.RPCControllerStatus)
+			cmons.POST("/test", proxy.RPCControllerTest)
+			cmons.POST("/add", proxy.RPCControllerAdd)
+			cmons.POST("/remove", proxy.RPCControllerRemove)
 		}
 	}
 

@@ -2,7 +2,10 @@ package api
 
 import (
 	"fmt"
+	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -27,6 +30,55 @@ func NewError(t, m string) error {
 
 func NewErrorFromResponseData(d *WithResponseData) error {
 	return &Error{d.RequestStatus, d.ErrorString}
+}
+
+// CtxWriteError writes an error object to the JSON, in case of regural (non Error) errors you may specify a custom httpStatus in the optional argument
+func CtxWriteError(ctx *gin.Context, err error, httpStatus ...int) {
+	if err == nil {
+		err = NewError(RequestStatusOk, "OK")
+	}
+
+	switch e := err.(type) {
+	case *Error:
+		ctx.JSON(RequestStatusToStatusCode(e.Type), e)
+	default:
+		statusCode := http.StatusInternalServerError
+		if len(httpStatus) > 0 && httpStatus[0] > 0 {
+			statusCode = httpStatus[0]
+		}
+		ctx.JSON(statusCode, NewError(RequestStatusUnknownError, err.Error()))
+	}
+}
+
+func RequestStatusToStatusCode(requestStatus string) int {
+	switch requestStatus {
+	case RequestStatusInvalidRequest:
+		return http.StatusBadRequest
+	case RequestStatusObjectNotFound:
+		return http.StatusNotFound
+	case RequestStatusTryAgain:
+		return http.StatusTooEarly // FIXME, just playing here
+	case RequestStatusUnknownError:
+		return http.StatusInternalServerError
+	case RequestStatusAccessDenied, RequestStatusAuthRequired:
+		return http.StatusUnauthorized
+	case RequestStatusOk:
+		fallthrough
+	default:
+		return http.StatusOK
+	}
+}
+
+func ErrorToStatusCode(err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+	switch t := err.(type) {
+	case *Error:
+		return RequestStatusToStatusCode(t.Type)
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 type Error struct {
