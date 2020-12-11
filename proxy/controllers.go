@@ -145,6 +145,7 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 
 	if err := p.r.Config.RemoveController(req.Url, true); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
+		return
 	}
 
 	// also call authenticate, this will drop the existing client, it can be done delayed in a thread

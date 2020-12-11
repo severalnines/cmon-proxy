@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	connectionTimeout = 5 * time.Second
+	connectionTimeout = 3 * time.Second
 )
 
 // Client struct.

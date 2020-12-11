@@ -53,6 +53,9 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 		body, _ := ioutil.ReadAll(c.Copy().Request.Body)
 		logger.Debugf("Web request [%s] %s %s:\n%s",
 			c.ClientIP(), c.Request.Method, c.Request.RequestURI, string(body))
+	} else {
+		logger.Debugf("Web request [%s] %s %s",
+			c.ClientIP(), c.Request.Method, c.Request.RequestURI)
 	}
 
 	// call handlers
