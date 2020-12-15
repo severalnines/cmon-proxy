@@ -109,3 +109,34 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/controllers/remove' -d'{"url":"1
 }
 ```
 
+### Clusters status overview
+
+```bash
+$ curl -k 'https://localhost:19051/proxy/clusters/status' | jq
+```
+
+For cluster states see https://github.com/severalnines/clustercontrol-enterprise/blob/master/src/cmoncluster.cpp#L3924
+For host states see https://intra.severalnines.com/cmon-docs/current/hosts.html
+
+Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/clustersoverview.go
+```json
+{
+  "cluster_states": {
+    "DEGRADED": 1,
+    "STARTED": 47
+  },
+  "clusters_count": {
+    "10.216.188.149:9501": 1,
+    "127.0.0.01:9501": 47
+  },
+  "nodes_count": {
+    "10.216.188.149:9501": 2,
+    "127.0.0.01:9501": 189
+  },
+  "node_states": {
+    "CmonHostOnline": 190,
+    "CmonHostShutDown": 1
+  }
+}
+```
+

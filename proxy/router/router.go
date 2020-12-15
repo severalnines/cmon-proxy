@@ -19,11 +19,14 @@ const (
 )
 
 type Cmon struct {
-	Client       *cmon.Client
-	LastPing     time.Time
-	PingResponse *api.PingResponse
-	PingError    error
-	mtx          *sync.Mutex
+	Client                *cmon.Client
+	LastPing              time.Time
+	PingResponse          *api.PingResponse
+	Clusters              *api.GetAllClusterInfoResponse
+	GetClustersErrCounter int
+	GetClustersErr        error
+	PingError             error
+	mtx                   *sync.Mutex
 }
 
 type Router struct {
@@ -117,6 +120,9 @@ func (router *Router) Authenticate() {
 
 	for _, addr := range router.Urls() {
 		cli := router.Client(addr)
+		if cli == nil {
+			continue // removed in the mean time
+		}
 
 		// paralell authentication to the cmons
 		wg.Add(1)
@@ -172,4 +178,53 @@ func (router *Router) Ping() {
 	}
 
 	wg.Wait()
+}
+
+func (router *Router) GetAllClusterInfo(forceUpdate bool) {
+	wg := &sync.WaitGroup{}
+	syncChannel := make(chan bool, parallelLevel)
+
+	for _, addr := range router.Urls() {
+		c := router.Cmon(addr)
+		if c == nil || !forceUpdate &&
+			(time.Since(c.LastPing) < time.Duration(pingInterval)*time.Second) {
+			continue
+		}
+
+		// ping now
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+				<-syncChannel
+			}()
+			syncChannel <- true
+			listResp, err := c.Client.GetAllClusterInfo(&api.GetAllClusterInfoRequest{
+				WithOperation:    &api.WithOperation{Operation: "getAllClusterInfo"},
+				WithSheetInfo:    false,
+				WithDatabases:    false,
+				WithLicenseCheck: false,
+				WithHosts:        true,
+				WithTags:         true,
+			})
+
+			// to protect againts concurrent writes
+			c.mtx.Lock()
+			if listResp != nil && listResp.Clusters != nil {
+				c.Clusters = listResp
+				c.GetClustersErr = nil
+				c.GetClustersErrCounter = 0
+			}
+			if err != nil {
+				fmt.Println("Cmon query error", err.Error())
+				// store the error and increase the counter
+				c.GetClustersErrCounter++
+				c.GetClustersErr = err
+			}
+			c.mtx.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
 }

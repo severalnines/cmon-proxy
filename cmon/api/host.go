@@ -8,15 +8,15 @@ type Host struct {
 	HostID         uint64    `json:"hostId"`
 	UniqueID       uint64    `json:"unique_id"`
 	LastSeen       int64     `json:"lastseen"`
-	Port           int64     `json:"port"`
-	ListeningPort  int64     `json:"listening_port"`
+	Port           CmonInt   `json:"port"`
+	ListeningPort  CmonInt   `json:"listening_port"`
 	Hostname       string    `json:"hostname"`
 	HostStatus     string    `json:"hoststatus"`
 	Role           string    `json:"role"`
 	Nodetype       string    `json:"nodetype"`
 	IP             string    `json:"ip"`
-	RWPort         int64     `json:"rw_port"`
-	ROPort         int64     `json:"ro_port"`
+	RWPort         CmonInt   `json:"rw_port"`
+	ROPort         CmonInt   `json:"ro_port"`
 	Uptime         int64     `json:"uptime"`
 	SSLCerts       *SSLCerts `json:"ssl_certs"`
 }
