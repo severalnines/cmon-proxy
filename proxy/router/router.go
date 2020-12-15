@@ -228,3 +228,23 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 	wg.Wait()
 
 }
+
+func (cmon *Cmon) ControllerID() string {
+	if cmon == nil {
+		return ""
+	}
+	cmon.mtx.Lock()
+	defer cmon.mtx.Unlock()
+
+	if cmon.PingResponse == nil {
+		if cmon.Client == nil {
+			return ""
+		}
+
+		// return the controller ID from the parsed headers
+		return cmon.Client.ControllerID()
+	}
+
+	// return the controller ID from the last ping reply
+	return cmon.PingResponse.ControllerID
+}
