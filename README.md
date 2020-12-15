@@ -115,6 +115,12 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/controllers/remove' -d'{"url":"1
 $ curl -k 'https://localhost:19051/proxy/clusters/status' | jq
 ```
 
+Returned fields:
+- "cluster_states": count of clusters in certain cluster state
+- "node_states": count of node states in certain host status
+- "clusters_count": the number of clusters hosted by each controller (key is cmon URL)
+- "nodes_count": the number of hosts by each controller (key is cmon URL)
+
 For cluster states see https://github.com/severalnines/clustercontrol-enterprise/blob/master/src/cmoncluster.cpp#L3924
 For host states see https://intra.severalnines.com/cmon-docs/current/hosts.html
 
