@@ -148,7 +148,7 @@ Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api
 
 ### Clusters list
 
-Request doc: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/clusterlist.go
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/clusterlist.go
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, state, cluster_type
 
@@ -175,6 +175,58 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/clusters/list' \
   "last_updated": {
     "10.216.188.149:9501": "0001-01-01T00:00:00Z",
     "127.0.0.01:9501": "0001-01-01T00:00:00Z"
+  }
+}
+```
+
+### Hosts list
+
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/hostlist.go
+Supported filter keys for this request: controller_id, controller_url,
+cluster_id, clusterid (yeah both as CmonHost has 'clusterid'), cluster_type,
+port, hostname, role, nodetype, hoststatus
+
+```bash
+$ curl -XPOST -k 'https://localhost:19051/proxy/clusters/hosts' -d'{ "filters":[ {"key":"hoststatus","values":["CmonHostOffline","CmonHostShutDown","CmonHostFailed"] }] }' | jq
+```
+
+```json
+{
+  "hosts": [
+    {
+      "controller_id": "home.kedz.eu",
+      "controller_url": "127.0.0.01:9501",
+      "class_name": "CmonPostgreSqlHost",
+      "clusterid": 262,
+      "service_started": 1607280181,
+      "hostId": 5240,
+      "unique_id": 880,
+      "lastseen": 1608131196,
+      "port": 5432,
+      "listening_port": 0,
+      "hostname": "10.216.188.135",
+      "hoststatus": "CmonHostShutDown",
+      "role": "slave",
+      "nodetype": "postgres",
+      "ip": "10.216.188.135",
+      "rw_port": 0,
+      "ro_port": 0,
+      "uptime": 758329,
+      "ssl_certs": {
+        "replication": null,
+        "server": {
+          "ca": "/etc/ssl/postgresql_single/cluster_262/server_ca.crt",
+          "id": 102,
+          "key": "/etc/ssl/postgresql_single/cluster_262/server.key",
+          "path": "/etc/ssl/postgresql_single/cluster_262/server.crt",
+          "ssl_enabled": true
+        }
+      }
+    }
+  ],
+  "last_updated": {
+    "10.216.188.149:9501": "2020-12-16T15:06:55Z",
+    "127.0.0.01:9501": "2020-12-16T15:06:55Z"
   }
 }
 ```

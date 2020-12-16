@@ -4,6 +4,7 @@ package api
 type Host struct {
 	*WithClassName `json:",inline"`
 
+	ClusterID      CmonInt   `json:"clusterid"`
 	ServiceStarted int64     `json:"service_started"`
 	HostID         uint64    `json:"hostId"`
 	UniqueID       uint64    `json:"unique_id"`

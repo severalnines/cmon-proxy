@@ -123,6 +123,9 @@ func Start() {
 
 			clusters.GET("/list", proxy.RPCClustersList)
 			clusters.POST("/list", proxy.RPCClustersList)
+
+			clusters.GET("/hosts", proxy.RPCClustersHostList)
+			clusters.POST("/hosts", proxy.RPCClustersHostList)
 		}
 
 		cmons := p.Group("/controllers")
