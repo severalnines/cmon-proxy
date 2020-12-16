@@ -153,7 +153,8 @@ Supported filter keys for this request: controller_id, controller_url,
 cluster_id, state, cluster_type
 
 ```bash
-$ curl -XPOST -k 'https://localhost:19051/proxy/clusters/list' -d'{ "filters":[ {"key":"state","values":["DEGRADED","FAILURE"] }], "with_hosts": false }' | jq
+$ curl -XPOST -k 'https://localhost:19051/proxy/clusters/list' \
+  -d'{ "filters":[ {"key":"state","values":["DEGRADED","FAILURE"] }], "with_hosts": false }' | jq
 ```
 
 ```json
