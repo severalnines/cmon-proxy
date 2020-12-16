@@ -187,7 +187,8 @@ cluster_id, clusterid (yeah both as CmonHost has 'clusterid'), cluster_type,
 port, hostname, role, nodetype, hoststatus
 
 ```bash
-$ curl -XPOST -k 'https://localhost:19051/proxy/clusters/hosts' -d'{ "filters":[ {"key":"hoststatus","values":["CmonHostOffline","CmonHostShutDown","CmonHostFailed"] }] }' | jq
+$ curl -XPOST -k 'https://localhost:19051/proxy/clusters/hosts' \
+    -d'{ "filters":[ {"key":"hoststatus","values":["CmonHostOffline","CmonHostShutDown","CmonHostFailed"] }] }' | jq
 ```
 
 ```json
