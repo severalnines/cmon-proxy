@@ -11,7 +11,8 @@ type ClusterExt struct {
 }
 
 type ClusterListRequest struct {
-	Filters []*Filter `json:"filters"`
+	WithHosts bool      `json:"with_hosts,omitempty"`
+	Filters   []*Filter `json:"filters"`
 }
 
 type ClusterListReply struct {

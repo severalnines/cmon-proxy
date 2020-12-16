@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -60,16 +61,31 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 		if data == nil || data.Clusters == nil {
 			continue
 		}
+		if !api.PassFilter(req.Filters, "controller_id", data.ControllerID()) ||
+			!api.PassFilter(req.Filters, "controller_url", url) {
+			continue
+		}
+
 		resp.LastUpdated[url] = &cmonapi.NullTime{
 			T: data.Clusters.RequestCreated,
 		}
 		for _, cluster := range data.Clusters.Clusters {
+			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(cluster.ClusterID, 10)) {
+				continue
+			}
+			if !api.PassFilter(req.Filters, "state", cluster.State) {
+				continue
+			}
+			if !api.PassFilter(req.Filters, "cluster_type", cluster.ClusterType) {
+				continue
+			}
+
 			clus := &api.ClusterExt{
 				WithControllerID: &api.WithControllerID{
 					ControllerURL: url,
 					ControllerID:  data.ControllerID(),
 				},
-				Cluster: cluster,
+				Cluster: cluster.Copy(req.WithHosts),
 			}
 
 			resp.Clusters = append(resp.Clusters, clus)

@@ -146,3 +146,35 @@ Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api
 }
 ```
 
+### Clusters list
+
+Request doc: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/clusterlist.go
+Supported filter keys for this request: controller_id, controller_url,
+cluster_id, state, cluster_type
+
+```bash
+$ curl -XPOST -k 'https://localhost:19051/proxy/clusters/list' -d'{ "filters":[ {"key":"state","values":["DEGRADED","FAILURE"] }], "with_hosts": false }' | jq
+```
+
+```json
+{
+  "clusters": [
+    {
+      "controller_id": "home.kedz.eu",
+      "controller_url": "127.0.0.01:9501",
+      "class_name": "CmonClusterInfo",
+      "cluster_id": 262,
+      "cluster_name": "cluster_262",
+      "cluster_type": "POSTGRESQL_SINGLE",
+      "hosts": null,
+      "state": "DEGRADED",
+      "maintenance_mode_active": false
+    }
+  ],
+  "last_updated": {
+    "10.216.188.149:9501": "0001-01-01T00:00:00Z",
+    "127.0.0.01:9501": "0001-01-01T00:00:00Z"
+  }
+}
+```
+

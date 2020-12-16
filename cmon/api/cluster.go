@@ -63,6 +63,25 @@ func (c *Cluster) IsSSLEnabled() bool {
 	return true
 }
 
+func (c *Cluster) Copy(withHosts bool) *Cluster {
+	retval := &Cluster{
+		ClusterID:             c.ClusterID,
+		ClusterName:           c.ClusterName,
+		ClusterType:           c.ClusterType,
+		State:                 c.State,
+		Databases:             c.Databases,
+		MaintenanceModeActive: c.MaintenanceModeActive,
+	}
+	if c.WithClassName != nil {
+		retval.WithClassName = &WithClassName{ClassName: c.ClassName}
+	}
+	if withHosts && len(c.Hosts) > 0 {
+		retval.Hosts = make([]*Host, len(c.Hosts))
+		copy(retval.Hosts, c.Hosts)
+	}
+	return retval
+}
+
 var (
 	dbHostsClassNames = []string{
 		"CmonPostgreSqlHost",
