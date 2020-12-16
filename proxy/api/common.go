@@ -14,7 +14,7 @@ type Filter struct {
 }
 
 func (f *Filter) AcceptsValue(value string) bool {
-	if len(value) < 1 {
+	if f == nil || len(value) < 1 {
 		return true
 	}
 	for _, val := range f.Values {
@@ -27,7 +27,7 @@ func (f *Filter) AcceptsValue(value string) bool {
 
 func PassFilter(filters []*Filter, key, value string) bool {
 	// no filters at all... fine
-	if len(filters) < 1 {
+	if filters == nil || len(filters) < 1 {
 		return true
 	}
 

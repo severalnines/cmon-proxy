@@ -11,7 +11,7 @@ type HostExt struct {
 }
 
 type HostListRequest struct {
-	*ClusterListRequest
+	Filters []*Filter `json:"filters"`
 }
 
 type HostListReply struct {
