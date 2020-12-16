@@ -149,6 +149,7 @@ Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api
 ### Clusters list
 
 Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/clusterlist.go
+
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, state, cluster_type
 
@@ -182,6 +183,7 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/clusters/list' \
 ### Hosts list
 
 Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/hostlist.go
+
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, clusterid (yeah both as CmonHost has 'clusterid'), cluster_type,
 port, hostname, role, nodetype, hoststatus
