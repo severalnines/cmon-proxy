@@ -23,6 +23,7 @@ type Cmon struct {
 	LastPing              time.Time
 	PingResponse          *api.PingResponse
 	Clusters              *api.GetAllClusterInfoResponse
+	Alarms                map[uint64]*api.GetAlarmsReply
 	GetClustersErrCounter int
 	GetClustersErr        error
 	PingError             error
@@ -74,6 +75,7 @@ func (router *Router) Sync() {
 				router.cmons[addr] = &Cmon{
 					Client: cmon.NewClient(instance, router.Config.Timeout),
 					mtx:    &sync.Mutex{},
+					Alarms: make(map[uint64]*api.GetAlarmsReply),
 				}
 			}
 		}
@@ -186,8 +188,15 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
-		if c == nil || !forceUpdate &&
-			(time.Since(c.LastPing) < time.Duration(pingInterval)*time.Second) {
+		if c == nil {
+			continue
+		}
+		var lastUpdated time.Time
+		if c.Clusters != nil && c.Clusters.WithResponseData != nil {
+			lastUpdated = c.Clusters.RequestProcessed
+		}
+		if !forceUpdate &&
+			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
 			continue
 		}
 
@@ -229,6 +238,60 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 
 }
 
+func (router *Router) GetAlarms(forceUpdate bool) {
+	// make sure we have clusters data
+	router.GetAllClusterInfo(false)
+
+	wg := &sync.WaitGroup{}
+	syncChannel := make(chan bool, parallelLevel)
+	mtx := &sync.Mutex{}
+
+	for _, addr := range router.Urls() {
+		c := router.Cmon(addr)
+		if c == nil {
+			continue
+		}
+		var lastUpdated time.Time
+		if len(c.Alarms) > 0 {
+			for _, reply := range c.Alarms {
+				if reply != nil && reply.WithResponseData != nil {
+					lastUpdated = reply.RequestProcessed
+					break
+				}
+			}
+		}
+		if !forceUpdate &&
+			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
+			continue
+		}
+
+		updatedAlarms := make(map[uint64]*api.GetAlarmsReply)
+
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+				<-syncChannel
+			}()
+			syncChannel <- true
+
+			for _, cid := range c.ClusterIDs() {
+				if alarms, _ := c.Client.GetAlarms(cid); alarms != nil {
+					mtx.Lock()
+					updatedAlarms[cid] = alarms
+					mtx.Unlock()
+				}
+			}
+		}()
+
+		c.mtx.Lock()
+		c.Alarms = updatedAlarms
+		c.mtx.Unlock()
+	}
+
+	wg.Wait()
+}
+
 func (cmon *Cmon) ControllerID() string {
 	if cmon == nil {
 		return ""
@@ -247,4 +310,23 @@ func (cmon *Cmon) ControllerID() string {
 
 	// return the controller ID from the last ping reply
 	return cmon.PingResponse.ControllerID
+}
+
+func (cmon *Cmon) ClusterIDs() []uint64 {
+	if cmon == nil {
+		return nil
+	}
+
+	cmon.mtx.Lock()
+	defer cmon.mtx.Unlock()
+
+	if cmon.Clusters == nil || len(cmon.Clusters.Clusters) < 1 {
+		return nil
+	}
+
+	retval := make([]uint64, len(cmon.Clusters.Clusters))
+	for idx, cluster := range cmon.Clusters.Clusters {
+		retval[idx] = cluster.ClusterID
+	}
+	return retval
 }

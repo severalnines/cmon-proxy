@@ -234,3 +234,37 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/clusters/hosts' \
 }
 ```
 
+### Alarms overview
+
+```bash
+$ curl -k 'https://localhost:19051/proxy/alarms/status' | jq
+```
+
+```json
+{
+  "alarm_counts": {
+    "ALARM_WARNING": 2
+  },
+  "alarm_types": {
+    "BackupFailed": 1,
+    "HostCpuUsage": 1
+  },
+  "by_controller": {
+    "10.216.188.149:9501": {
+      "alarm_counts": {},
+      "alarm_types": {}
+    },
+    "127.0.0.01:9501": {
+      "alarm_counts": {
+        "ALARM_WARNING": 2
+      },
+      "alarm_types": {
+        "BackupFailed": 1,
+        "HostCpuUsage": 1
+      }
+    }
+  }
+}
+```
+
+

@@ -136,6 +136,12 @@ func Start() {
 			cmons.POST("/add", proxy.RPCControllerAdd)
 			cmons.POST("/remove", proxy.RPCControllerRemove)
 		}
+
+		alarms := p.Group("/alarms")
+		{
+			alarms.GET("/status", proxy.RPCAlarmsOverview)
+			alarms.POST("/status", proxy.RPCAlarmsOverview)
+		}
 	}
 
 	hs := &http.Server{

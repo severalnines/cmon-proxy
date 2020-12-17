@@ -10,6 +10,7 @@ import (
 
 const (
 	ModuleAuth     = "auth"
+	ModuleAlarm    = "alarm"
 	ModuleClusters = "clusters"
 	ModuleBackup   = "backup"
 	ModuleJobs     = "jobs"
