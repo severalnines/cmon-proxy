@@ -267,4 +267,34 @@ $ curl -k 'https://localhost:19051/proxy/alarms/status' | jq
 }
 ```
 
+### Alarms list
+
+```bash
+$ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' -d'{"filters":[ {"key":"severity_name","value":"ALARM_WARNING"} ]}' | jq
+```
+
+```json
+{
+  "alarms": [
+    {
+      "controller_id": "home.kedz.eu",
+      "controller_url": "127.0.0.01:9501",
+      "alarm_id": 13752,
+      "cluster_id": 248,
+      "component_name": "Cluster",
+      "created": "2020-12-17T13:32:41Z",
+      "hostname": "",
+      "title": "Cluster Failure",
+      "message": "Cluster Failure.",
+      "recommendation": "Cluster failed, Cluster Recovery needed.",
+      "severity_name": "ALARM_WARNING",
+      "type_name": "ClusterFailure"
+    }
+  ],
+  "last_updated": {
+    "10.216.188.149:9501": "2020-12-16T15:06:55Z",
+    "127.0.0.01:9501": "2020-12-16T15:06:55Z"
+  }
+}
+```
 

@@ -60,7 +60,6 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 	}
 
 	resp := &api.AlarmListReply{
-		Alarms:      make([]*api.AlarmExt, 0, 16),
 		LastUpdated: make(map[string]*cmonapi.NullTime),
 	}
 
@@ -70,35 +69,42 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 		if data == nil || len(data.Alarms) < 1 {
 			continue
 		}
-		if !api.PassFilter(req.Filters, "controller_id", data.ControllerID()) ||
+		controllerId := data.ControllerID()
+
+		if !api.PassFilter(req.Filters, "controller_id", controllerId) ||
 			!api.PassFilter(req.Filters, "controller_url", url) {
 			continue
 		}
 
 		alarms := data.Alarms
 
-		resp.LastUpdated[url] = &cmonapi.NullTime{
-			T: alarms[0].RequestProcessed,
+		if alarms[0] != nil && alarms[0].WithResponseData != nil {
+			resp.LastUpdated[url] = &cmonapi.NullTime{
+				T: alarms[0].RequestProcessed,
+			}
 		}
 
-		/*
-			countsByCtrl := &api.AlarmsOverview{
-				AlarmCounts: make(map[string]int),
-				AlarmTypes:  make(map[string]int),
+		for cid, clusterAlarms := range alarms {
+			if !api.PassFilter(req.Filters, "cluster_id", fmt.Sprintf("%d", cid)) {
+				continue
 			}
-			// iterate by clusterIds... one by one..
-			for _, clusterAlarms := range data.Alarms {
-				for _, alarm := range clusterAlarms.Alarms {
-					resp.AlarmCounts[alarm.SeverityName]++
-					resp.AlarmTypes[alarm.TypeName]++
-
-					countsByCtrl.AlarmCounts[alarm.SeverityName]++
-					countsByCtrl.AlarmTypes[alarm.TypeName]++
+			for _, alarm := range clusterAlarms.Alarms {
+				if !api.PassFilter(req.Filters, "severity_name", alarm.SeverityName) {
+					continue
 				}
-			}
+				if !api.PassFilter(req.Filters, "type_name", alarm.TypeName) {
+					continue
+				}
+				if !api.PassFilter(req.Filters, "hostname", alarm.Hostname) {
+					continue
+				}
+				if !api.PassFilter(req.Filters, "component_name", alarm.ComponentName) {
+					continue
+				}
 
-			resp.AlarmCountsByController[url] = countsByCtrl
-		*/
+				resp.Add(alarm, url, controllerId)
+			}
+		}
 	}
 
 	ctx.JSON(http.StatusOK, resp)

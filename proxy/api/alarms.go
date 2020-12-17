@@ -38,5 +38,6 @@ func (al *AlarmListReply) Add(alarm *cmonapi.Alarm, controllerUrl, controllerId 
 			ControllerURL: controllerUrl,
 			ControllerID:  controllerId,
 		},
+		Alarm: alarm.Copy(),
 	})
 }

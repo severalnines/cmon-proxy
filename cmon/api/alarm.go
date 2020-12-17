@@ -34,3 +34,18 @@ type Alarm struct {
 func (a *Alarm) GetSeverity() string {
 	return strings.Replace(a.SeverityName, "ALARM_", "", -1)
 }
+
+func (a *Alarm) Copy() *Alarm {
+	return &Alarm{
+		AlarmId:        a.AlarmId,
+		ClusterId:      a.ClusterId,
+		ComponentName:  a.ComponentName,
+		Created:        a.Created,
+		Hostname:       a.Hostname,
+		Title:          a.Title,
+		Message:        a.Message,
+		Recommendation: a.Recommendation,
+		SeverityName:   a.SeverityName,
+		TypeName:       a.TypeName,
+	}
+}
