@@ -90,6 +90,7 @@ type Job struct {
 	JobSpec         *JobSpec  `json:"job_spec,omitempty"`
 	HasProgress     bool      `json:"has_progress"`
 	ProgressPercent int       `json:"progress_percent"`
+	Tags            string    `json:"tags,omitempty"`
 }
 
 type JobSpec struct {
