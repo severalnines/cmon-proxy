@@ -242,7 +242,7 @@ $ curl -k 'https://localhost:19051/proxy/alarms/status' | jq
 
 ```json
 {
-  "alarm_counts": {
+  "alarms_count": {
     "ALARM_WARNING": 2
   },
   "alarm_types": {
@@ -255,7 +255,7 @@ $ curl -k 'https://localhost:19051/proxy/alarms/status' | jq
       "alarm_types": {}
     },
     "127.0.0.01:9501": {
-      "alarm_counts": {
+      "alarms_count": {
         "ALARM_WARNING": 2
       },
       "alarm_types": {

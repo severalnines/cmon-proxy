@@ -30,8 +30,11 @@ func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
 		for _, cluster := range data.Clusters.Clusters {
 			resp.ClusterStatus[cluster.State]++
 			resp.ClustersCount[url]++
-			resp.NodesCount[url] += len(cluster.Hosts)
+			resp.NodesCount[url] += len(cluster.Hosts) - 1
 			for _, host := range cluster.Hosts {
+				if host.Nodetype == "controller" {
+					continue
+				}
 				resp.NodeStates[host.HostStatus]++
 			}
 		}
@@ -85,7 +88,7 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 					ControllerURL: url,
 					ControllerID:  data.ControllerID(),
 				},
-				Cluster: cluster.Copy(req.WithHosts),
+				Cluster: cluster.Copy(req.WithHosts, true),
 			}
 
 			resp.Clusters = append(resp.Clusters, clus)
@@ -135,6 +138,11 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 			}
 
 			for _, host := range cluster.Hosts {
+				// skip controller hosts
+				if host.Nodetype == "controller" {
+					continue
+				}
+
 				if !api.PassFilter(req.Filters, "port", strconv.FormatInt(int64(host.Port), 10)) {
 					continue
 				}

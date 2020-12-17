@@ -63,7 +63,7 @@ func (c *Cluster) IsSSLEnabled() bool {
 	return true
 }
 
-func (c *Cluster) Copy(withHosts bool) *Cluster {
+func (c *Cluster) Copy(withHosts, removeController bool) *Cluster {
 	retval := &Cluster{
 		ClusterID:             c.ClusterID,
 		ClusterName:           c.ClusterName,
@@ -78,6 +78,17 @@ func (c *Cluster) Copy(withHosts bool) *Cluster {
 	if withHosts && len(c.Hosts) > 0 {
 		retval.Hosts = make([]*Host, len(c.Hosts))
 		copy(retval.Hosts, c.Hosts)
+
+		if removeController {
+			// get rid of 'controller' we handle it spearately
+			for idx, host := range retval.Hosts {
+				if host.Nodetype == "controller" {
+					retval.Hosts[idx] = retval.Hosts[len(retval.Hosts)-1]
+					retval.Hosts = retval.Hosts[:len(retval.Hosts)-1]
+					break
+				}
+			}
+		}
 	}
 	return retval
 }

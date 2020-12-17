@@ -141,6 +141,9 @@ func Start() {
 		{
 			alarms.GET("/status", proxy.RPCAlarmsOverview)
 			alarms.POST("/status", proxy.RPCAlarmsOverview)
+
+			alarms.GET("/list", proxy.RPCAlarmsList)
+			alarms.POST("/list", proxy.RPCAlarmsList)
 		}
 	}
 
