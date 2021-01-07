@@ -27,6 +27,8 @@ type Cmon struct {
 	GetClustersErrCounter int
 	GetClustersErr        error
 	PingError             error
+	LastJobsRefresh       time.Time
+	Jobs                  map[uint64][]*api.Job
 	mtx                   *sync.Mutex
 }
 

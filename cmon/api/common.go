@@ -105,6 +105,10 @@ type WithClusterID struct {
 	ClusterID uint64 `json:"cluster_id,omitempty"`
 }
 
+type WithClusterIDs struct {
+	ClusterIDs []uint64 `json:"cluster_ids,omitempty"`
+}
+
 type WithClusterIDForced struct {
 	ClusterID uint64 `json:"cluster_id,"`
 }

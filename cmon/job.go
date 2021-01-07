@@ -2,13 +2,14 @@ package cmon
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/severalnines/ccx/go/retry"
 	"github.com/severalnines/cmon-proxy/cmon/api"
 )
 
 func (client *Client) GetJobInstances(req *api.GetJobInstancesRequest) (*api.GetJobInstancesResponse, error) {
-	req.Operation = "getJobInstances"
+	req.WithOperation = &api.WithOperation{Operation: "getJobInstances"}
 	if err := api.CheckClusterID(req); err != nil {
 		return nil, err
 	}
@@ -20,6 +21,60 @@ func (client *Client) GetJobInstances(req *api.GetJobInstancesRequest) (*api.Get
 		return nil, api.NewErrorFromResponseData(res.WithResponseData)
 	}
 	return res, nil
+}
+
+func (client *Client) GetLastJobs(clusterIds []uint64, lastNhours int) ([]*api.Job, error) {
+	perPage := int64(32)
+	req := &api.GetJobInstancesManyRequest{
+		WithOperation:  &api.WithOperation{Operation: "getJobInstances"},
+		WithClusterIDs: &api.WithClusterIDs{ClusterIDs: clusterIds},
+		WithLimit: &api.WithLimit{
+			Limit: perPage,
+		},
+	}
+	req.Operation = "getJobInstances"
+
+	count := 0
+	retval := make([]*api.Job, 0, len(clusterIds)*10)
+	timestamp := time.Now().Add(time.Hour * time.Duration(-lastNhours))
+
+	for {
+		// this returns the jobs descending (by jobid)
+		res := &api.GetJobInstancesResponse{}
+		if err := client.Request(api.ModuleJobs, req, res); err != nil {
+			return nil, err
+		}
+		if res.RequestStatus != api.RequestStatusOk {
+			return nil, api.NewErrorFromResponseData(res.WithResponseData)
+		}
+
+		// gonna break when there are no more entries
+		endReached := len(res.Jobs) == 0
+
+		for _, job := range res.Jobs {
+			// to avoid duplicates, skip already seen jobs
+			if count > 0 && retval[count-1].JobID <= job.JobID {
+				continue
+			}
+
+			// okay, this job is too old, stop now
+			if job.Created.Before(timestamp) {
+				endReached = true
+				break
+			}
+
+			retval = append(retval, job)
+			count++
+		}
+
+		if endReached {
+			break
+		}
+
+		req.Offset += perPage
+	}
+
+	return retval, nil
 }
 
 func (client *Client) GetJobInstance(req *api.GetJobInstanceRequest) (*api.GetJobInstanceResponse, error) {

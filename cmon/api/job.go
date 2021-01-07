@@ -15,6 +15,15 @@ type GetJobInstancesRequest struct {
 	Tags          []string `json:"tags,omitempty"`
 }
 
+type GetJobInstancesManyRequest struct {
+	*WithOperation  `json:",inline"`
+	*WithClusterIDs `json:",inline"`
+	*WithLimit      `json:",inline"`
+
+	ShowScheduled bool     `json:"show_scheduled,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+}
+
 type GetJobInstancesResponse struct {
 	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
