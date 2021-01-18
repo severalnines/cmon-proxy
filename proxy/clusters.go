@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -169,6 +170,43 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 				resp.Hosts = append(resp.Hosts, h)
 			}
 		}
+	}
+
+	// handle pagination && filtration
+	resp.Page = req.Page
+	resp.PerPage = req.PerPage
+	resp.Total = uint64(len(resp.Hosts))
+	// sort first
+	switch req.Order {
+	case "cluster_id":
+		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			return resp.Hosts[i].ClusterID < resp.Hosts[j].ClusterID
+		})
+	case "port":
+		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			return resp.Hosts[i].Port < resp.Hosts[j].Port
+		})
+	case "hostname":
+		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			return resp.Hosts[i].Hostname < resp.Hosts[j].Hostname
+		})
+	case "role":
+		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			return resp.Hosts[i].Role < resp.Hosts[j].Role
+		})
+	case "nodetype":
+		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			return resp.Hosts[i].Nodetype < resp.Hosts[j].Nodetype
+		})
+	case "hoststatus":
+		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			return resp.Hosts[i].HostStatus < resp.Hosts[j].HostStatus
+		})
+	}
+	if req.ListRequest.PerPage > 0 {
+		// then handle the pagination
+		from, to := api.Paginate(req.ListRequest, int(resp.Total))
+		resp.Hosts = resp.Hosts[from:to]
 	}
 
 	ctx.JSON(http.StatusOK, &resp)

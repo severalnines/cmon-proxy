@@ -184,6 +184,8 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/clusters/list' \
 
 Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/hostlist.go
 
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, clusterid (yeah both as CmonHost has 'clusterid'), cluster_type,
 port, hostname, role, nodetype, hoststatus
@@ -270,6 +272,8 @@ $ curl -k 'https://localhost:19051/proxy/alarms/status' | jq
 ### Alarms list
 
 Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/alarms.go
+
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, cluster_type, severity_name, type_name, hostname, component_name

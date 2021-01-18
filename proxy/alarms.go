@@ -116,30 +116,30 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 	resp.Page = req.Page
 	resp.PerPage = req.PerPage
 	resp.Total = uint64(len(resp.Alarms))
+	// sort first
+	switch req.Order {
+	case "cluster_id":
+		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			return resp.Alarms[i].ClusterId < resp.Alarms[j].ClusterId
+		})
+	case "severity_name":
+		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			return resp.Alarms[i].SeverityName < resp.Alarms[j].SeverityName
+		})
+	case "type_name":
+		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			return resp.Alarms[i].TypeName < resp.Alarms[j].TypeName
+		})
+	case "hostname":
+		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			return resp.Alarms[i].Hostname < resp.Alarms[j].Hostname
+		})
+	case "component_name":
+		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			return resp.Alarms[i].ComponentName < resp.Alarms[j].ComponentName
+		})
+	}
 	if req.ListRequest.PerPage > 0 {
-		// sort first
-		switch req.Order {
-		case "cluster_id":
-			sort.Slice(resp.Alarms[:], func(i, j int) bool {
-				return resp.Alarms[i].ClusterId < resp.Alarms[j].ClusterId
-			})
-		case "severity_name":
-			sort.Slice(resp.Alarms[:], func(i, j int) bool {
-				return resp.Alarms[i].SeverityName < resp.Alarms[j].SeverityName
-			})
-		case "type_name":
-			sort.Slice(resp.Alarms[:], func(i, j int) bool {
-				return resp.Alarms[i].TypeName < resp.Alarms[j].TypeName
-			})
-		case "hostname":
-			sort.Slice(resp.Alarms[:], func(i, j int) bool {
-				return resp.Alarms[i].Hostname < resp.Alarms[j].Hostname
-			})
-		case "component_name":
-			sort.Slice(resp.Alarms[:], func(i, j int) bool {
-				return resp.Alarms[i].ComponentName < resp.Alarms[j].ComponentName
-			})
-		}
 		// then handle the pagination
 		from, to := api.Paginate(req.ListRequest, int(resp.Total))
 		resp.Alarms = resp.Alarms[from:to]
