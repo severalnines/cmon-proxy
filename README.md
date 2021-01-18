@@ -150,6 +150,8 @@ Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api
 
 Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/clusterlist.go
 
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, state, cluster_type
 
