@@ -96,6 +96,31 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 		}
 	}
 
+	// handle sorting && pagination
+	resp.Page = req.Page
+	resp.PerPage = req.PerPage
+	resp.Total = uint64(len(resp.Clusters))
+	// sort first
+	switch req.Order {
+	case "cluster_id":
+		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			return resp.Clusters[i].ClusterID < resp.Clusters[j].ClusterID
+		})
+	case "state":
+		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			return resp.Clusters[i].State < resp.Clusters[j].State
+		})
+	case "cluster_type":
+		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			return resp.Clusters[i].ClusterType < resp.Clusters[j].ClusterType
+		})
+	}
+	if req.ListRequest.PerPage > 0 {
+		// then handle the pagination
+		from, to := api.Paginate(req.ListRequest, int(resp.Total))
+		resp.Clusters = resp.Clusters[from:to]
+	}
+
 	ctx.JSON(http.StatusOK, &resp)
 }
 
@@ -172,7 +197,7 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 		}
 	}
 
-	// handle pagination && filtration
+	// handle sorting && pagination
 	resp.Page = req.Page
 	resp.PerPage = req.PerPage
 	resp.Total = uint64(len(resp.Hosts))

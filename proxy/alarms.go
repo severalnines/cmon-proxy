@@ -112,7 +112,7 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 		}
 	}
 
-	// handle pagination && filtration
+	// handle sorting && pagination
 	resp.Page = req.Page
 	resp.PerPage = req.PerPage
 	resp.Total = uint64(len(resp.Alarms))
