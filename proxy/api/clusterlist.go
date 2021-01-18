@@ -11,11 +11,12 @@ type ClusterExt struct {
 }
 
 type ClusterListRequest struct {
-	WithHosts bool      `json:"with_hosts,omitempty"`
-	Filters   []*Filter `json:"filters"`
+	ListRequest `json:",inline"`
+	WithHosts   bool `json:"with_hosts,omitempty"`
 }
 
 type ClusterListReply struct {
-	Clusters    []*ClusterExt                `json:"clusters"`
-	LastUpdated map[string]*cmonapi.NullTime `json:"last_updated"`
+	ListResponse `json:",inline"`
+	Clusters     []*ClusterExt                `json:"clusters"`
+	LastUpdated  map[string]*cmonapi.NullTime `json:"last_updated"`
 }

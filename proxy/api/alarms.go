@@ -21,12 +21,13 @@ type AlarmExt struct {
 }
 
 type AlarmListRequest struct {
-	Filters []*Filter `json:"filters"`
+	ListRequest `json:",inline"`
 }
 
 type AlarmListReply struct {
-	Alarms      []*AlarmExt                  `json:"alarms"`
-	LastUpdated map[string]*cmonapi.NullTime `json:"last_updated"`
+	ListResponse `json:",inline"`
+	Alarms       []*AlarmExt                  `json:"alarms"`
+	LastUpdated  map[string]*cmonapi.NullTime `json:"last_updated"`
 }
 
 func (al *AlarmListReply) Add(alarm *cmonapi.Alarm, controllerUrl, controllerId string) {

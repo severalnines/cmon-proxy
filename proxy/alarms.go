@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -88,6 +89,10 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 			if !api.PassFilter(req.Filters, "cluster_id", fmt.Sprintf("%d", cid)) {
 				continue
 			}
+			if !api.PassFilterLazy(req.Filters, "cluster_type",
+				func() string { return data.ClusterType(cid) }) {
+				continue
+			}
 			for _, alarm := range clusterAlarms.Alarms {
 				if !api.PassFilter(req.Filters, "severity_name", alarm.SeverityName) {
 					continue
@@ -105,6 +110,39 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 				resp.Add(alarm, url, controllerId)
 			}
 		}
+	}
+
+	// handle pagination && filtration
+	resp.Page = req.Page
+	resp.PerPage = req.PerPage
+	resp.Total = uint64(len(resp.Alarms))
+	if req.ListRequest.PerPage > 0 {
+		// sort first
+		switch req.Order {
+		case "cluster_id":
+			sort.Slice(resp.Alarms[:], func(i, j int) bool {
+				return resp.Alarms[i].ClusterId < resp.Alarms[j].ClusterId
+			})
+		case "severity_name":
+			sort.Slice(resp.Alarms[:], func(i, j int) bool {
+				return resp.Alarms[i].SeverityName < resp.Alarms[j].SeverityName
+			})
+		case "type_name":
+			sort.Slice(resp.Alarms[:], func(i, j int) bool {
+				return resp.Alarms[i].TypeName < resp.Alarms[j].TypeName
+			})
+		case "hostname":
+			sort.Slice(resp.Alarms[:], func(i, j int) bool {
+				return resp.Alarms[i].Hostname < resp.Alarms[j].Hostname
+			})
+		case "component_name":
+			sort.Slice(resp.Alarms[:], func(i, j int) bool {
+				return resp.Alarms[i].ComponentName < resp.Alarms[j].ComponentName
+			})
+		}
+		// then handle the pagination
+		from, to := api.Paginate(req.ListRequest, int(resp.Total))
+		resp.Alarms = resp.Alarms[from:to]
 	}
 
 	ctx.JSON(http.StatusOK, resp)

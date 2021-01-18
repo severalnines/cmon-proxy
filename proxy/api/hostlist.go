@@ -11,10 +11,11 @@ type HostExt struct {
 }
 
 type HostListRequest struct {
-	Filters []*Filter `json:"filters"`
+	ListRequest `json:",inline"`
 }
 
 type HostListReply struct {
+	ListResponse `json:",inline"`
 	// the hosts after filtration
 	Hosts []*HostExt `json:"hosts"`
 	// the last update timestamp of each cmon instance

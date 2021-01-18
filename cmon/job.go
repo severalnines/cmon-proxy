@@ -23,11 +23,13 @@ func (client *Client) GetJobInstances(req *api.GetJobInstancesRequest) (*api.Get
 	return res, nil
 }
 
-func (client *Client) GetLastJobs(clusterIds []uint64, lastNhours int) ([]*api.Job, error) {
+//GetLastJobs returns the jobs for the specified clusters from the last N hours, and we may have some data already from the past
+func (client *Client) GetLastJobs(clusterIds []uint64, lastNhours int, haveBefore ...time.Time) ([]*api.Job, error) {
 	perPage := int64(32)
 	req := &api.GetJobInstancesManyRequest{
 		WithOperation:  &api.WithOperation{Operation: "getJobInstances"},
 		WithClusterIDs: &api.WithClusterIDs{ClusterIDs: clusterIds},
+		ShowScheduled:  false,
 		WithLimit: &api.WithLimit{
 			Limit: perPage,
 		},

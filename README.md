@@ -272,7 +272,7 @@ $ curl -k 'https://localhost:19051/proxy/alarms/status' | jq
 Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/alarms.go
 
 Supported filter keys for this request: controller_id, controller_url,
-cluster_id, severity_name, type_name, hostname, component_name
+cluster_id, cluster_type, severity_name, type_name, hostname, component_name
 
 ```bash
 $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' \

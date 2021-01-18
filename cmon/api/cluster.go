@@ -50,7 +50,7 @@ type Cluster struct {
 	Hosts                 []*Host     `json:"hosts"`
 	State                 string      `json:"state"`
 	MaintenanceModeActive bool        `json:"maintenance_mode_active"`
-	Tags                  string      `json:"tags,omitempty"`
+	Tags                  []string    `json:"tags,omitempty"`
 }
 
 // IsSSLEnabled return true if all hosts in cluster have ssl_certs.server.ssl_enabled

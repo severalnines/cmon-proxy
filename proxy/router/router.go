@@ -332,3 +332,24 @@ func (cmon *Cmon) ClusterIDs() []uint64 {
 	}
 	return retval
 }
+
+func (cmon *Cmon) ClusterType(clusterId uint64) string {
+	if cmon == nil || clusterId == 0 {
+		return ""
+	}
+
+	cmon.mtx.Lock()
+	defer cmon.mtx.Unlock()
+
+	if cmon.Clusters == nil || len(cmon.Clusters.Clusters) < 1 {
+		return ""
+	}
+
+	for _, cluster := range cmon.Clusters.Clusters {
+		if cluster.ClusterID == clusterId {
+			return cluster.ClusterType
+		}
+	}
+
+	return ""
+}
