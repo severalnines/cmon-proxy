@@ -9,4 +9,7 @@ type ClustersOverview struct {
 	NodesCount    map[string]int `json:"nodes_count,omitempty"`
 	// the node states see:
 	NodeStates map[string]int `json:"node_states,omitempty"`
+
+	// for the "technology" filters
+	ByClusterType map[string]*ClustersOverview `json:"by_cluster_type,omitempty"`
 }

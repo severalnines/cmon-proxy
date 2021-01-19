@@ -18,6 +18,7 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 		AlarmCounts:             make(map[string]int),
 		AlarmTypes:              make(map[string]int),
 		AlarmCountsByController: make(map[string]*api.AlarmsOverview),
+		ByClusterType:           make(map[string]*api.AlarmsOverview),
 	}
 
 	p.r.GetAlarms(false)
@@ -32,13 +33,34 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 			AlarmTypes:  make(map[string]int),
 		}
 		// iterate by clusterIds... one by one..
-		for _, clusterAlarms := range data.Alarms {
+		for cid, clusterAlarms := range data.Alarms {
+			clusterType := data.ClusterType(cid)
+			if stat, found := resp.ByClusterType[clusterType]; !found || stat == nil {
+				resp.ByClusterType[clusterType] =
+					&api.AlarmsOverview{
+						AlarmCounts:             make(map[string]int),
+						AlarmTypes:              make(map[string]int),
+						AlarmCountsByController: make(map[string]*api.AlarmsOverview),
+					}
+				resp.ByClusterType[clusterType].AlarmCountsByController[url] =
+					&api.AlarmsOverview{
+						AlarmCounts: make(map[string]int),
+						AlarmTypes:  make(map[string]int),
+					}
+			}
+
 			for _, alarm := range clusterAlarms.Alarms {
 				resp.AlarmCounts[alarm.SeverityName]++
 				resp.AlarmTypes[alarm.TypeName]++
 
+				resp.ByClusterType[clusterType].AlarmCounts[alarm.SeverityName]++
+				resp.ByClusterType[clusterType].AlarmTypes[alarm.TypeName]++
+
 				countsByCtrl.AlarmCounts[alarm.SeverityName]++
 				countsByCtrl.AlarmTypes[alarm.TypeName]++
+
+				resp.ByClusterType[clusterType].AlarmCountsByController[url].AlarmCounts[alarm.SeverityName]++
+				resp.ByClusterType[clusterType].AlarmCountsByController[url].AlarmTypes[alarm.TypeName]++
 			}
 		}
 

@@ -20,6 +20,7 @@ func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
 		ClustersCount: make(map[string]int),
 		NodesCount:    make(map[string]int),
 		NodeStates:    make(map[string]int),
+		ByClusterType: make(map[string]*api.ClustersOverview),
 	}
 
 	p.r.GetAllClusterInfo(false)
@@ -29,14 +30,28 @@ func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
 			continue
 		}
 		for _, cluster := range data.Clusters.Clusters {
+			if resp.ByClusterType[cluster.ClusterType] == nil {
+				resp.ByClusterType[cluster.ClusterType] = &api.ClustersOverview{
+					ClusterStatus: make(map[string]int),
+					ClustersCount: make(map[string]int),
+					NodesCount:    make(map[string]int),
+					NodeStates:    make(map[string]int),
+				}
+			}
+
 			resp.ClusterStatus[cluster.State]++
+			resp.ByClusterType[cluster.ClusterType].ClusterStatus[cluster.State]++
 			resp.ClustersCount[url]++
+			resp.ByClusterType[cluster.ClusterType].ClustersCount[url]++
 			resp.NodesCount[url] += len(cluster.Hosts) - 1
+			resp.ByClusterType[cluster.ClusterType].NodesCount[url]++
+
 			for _, host := range cluster.Hosts {
 				if host.Nodetype == "controller" {
 					continue
 				}
 				resp.NodeStates[host.HostStatus]++
+				resp.ByClusterType[cluster.ClusterType].NodeStates[host.HostStatus]++
 			}
 		}
 	}

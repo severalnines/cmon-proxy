@@ -12,6 +12,9 @@ type AlarmsOverview struct {
 
 	// Alarm counts by controller
 	AlarmCountsByController map[string]*AlarmsOverview `json:"by_controller,omitempty"`
+
+	// for the "technology" filters
+	ByClusterType map[string]*AlarmsOverview `json:"by_cluster_type,omitempty"`
 }
 
 // AlarmExt is a cmon alarm extended by controller ID / URL fields

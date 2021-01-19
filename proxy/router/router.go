@@ -294,6 +294,60 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 	wg.Wait()
 }
 
+func (router *Router) GetLastJobs(forceUpdate bool) {
+	// make sure we have clusters data
+	router.GetAllClusterInfo(false)
+
+	wg := &sync.WaitGroup{}
+	syncChannel := make(chan bool, parallelLevel)
+	mtx := &sync.Mutex{}
+
+	for _, addr := range router.Urls() {
+		c := router.Cmon(addr)
+		if c == nil {
+			continue
+		}
+		var lastUpdated time.Time
+		if len(c.Alarms) > 0 {
+			for _, reply := range c.Alarms {
+				if reply != nil && reply.WithResponseData != nil {
+					lastUpdated = reply.RequestProcessed
+					break
+				}
+			}
+		}
+		if !forceUpdate &&
+			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
+			continue
+		}
+
+		updatedAlarms := make(map[uint64]*api.GetAlarmsReply)
+
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+				<-syncChannel
+			}()
+			syncChannel <- true
+
+			for _, cid := range c.ClusterIDs() {
+				if alarms, _ := c.Client.GetAlarms(cid); alarms != nil {
+					mtx.Lock()
+					updatedAlarms[cid] = alarms
+					mtx.Unlock()
+				}
+			}
+		}()
+
+		c.mtx.Lock()
+		c.Alarms = updatedAlarms
+		c.mtx.Unlock()
+	}
+
+	wg.Wait()
+}
+
 func (cmon *Cmon) ControllerID() string {
 	if cmon == nil {
 		return ""

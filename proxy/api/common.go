@@ -73,11 +73,18 @@ func PassFilterLazy(filters []*Filter, key string, fn LazyStringFn) bool {
 }
 
 func Paginate(listRequest ListRequest, length int) (int, int) {
-	if listRequest.PerPage == 0 {
+	if listRequest.PerPage <= 0 {
 		return 0, length
 	}
 
-	start := int(listRequest.Page * listRequest.PerPage)
+	// UI starts counting from 1, but we need it from 0 here
+	page := listRequest.Page - 1
+	// hack but we don't want invalid data here, it would crash
+	if page < 0 {
+		page = 0
+	}
+
+	start := int(page * listRequest.PerPage)
 	if start > length {
 		start = length
 	}
