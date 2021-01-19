@@ -1,5 +1,7 @@
 package api
 
+import "strings"
+
 // WithControllerID is used in replies to extend the standard cmon replies
 type WithControllerID struct {
 	ControllerID  string `json:"controller_id"`
@@ -70,6 +72,19 @@ func PassFilterLazy(filters []*Filter, key string, fn LazyStringFn) bool {
 
 	// the field isn't filtrated
 	return true
+}
+
+func (listRequest ListRequest) GetOrder() (order string, descending bool) {
+	order = ""
+	descending = false
+	parts := strings.Split(listRequest.Order, " ")
+	if len(parts) >= 2 {
+		descending = strings.ToLower(parts[1]) == "desc"
+	}
+	if len(parts) > 0 {
+		order = parts[0]
+	}
+	return
 }
 
 func Paginate(listRequest ListRequest, length int) (int, int) {

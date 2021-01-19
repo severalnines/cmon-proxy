@@ -41,10 +41,12 @@ func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
 
 			resp.ClusterStatus[cluster.State]++
 			resp.ByClusterType[cluster.ClusterType].ClusterStatus[cluster.State]++
+
 			resp.ClustersCount[url]++
 			resp.ByClusterType[cluster.ClusterType].ClustersCount[url]++
+
 			resp.NodesCount[url] += len(cluster.Hosts) - 1
-			resp.ByClusterType[cluster.ClusterType].NodesCount[url]++
+			resp.ByClusterType[cluster.ClusterType].NodesCount[url] += len(cluster.Hosts) - 1
 
 			for _, host := range cluster.Hosts {
 				if host.Nodetype == "controller" {
@@ -116,17 +118,27 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 	resp.PerPage = req.PerPage
 	resp.Total = uint64(len(resp.Clusters))
 	// sort first
-	switch req.Order {
+	order, desc := req.GetOrder()
+	switch order {
 	case "cluster_id":
 		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Clusters[i].ClusterID < resp.Clusters[j].ClusterID
 		})
 	case "state":
 		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Clusters[i].State < resp.Clusters[j].State
 		})
 	case "cluster_type":
 		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Clusters[i].ClusterType < resp.Clusters[j].ClusterType
 		})
 	}
@@ -217,29 +229,48 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 	resp.PerPage = req.PerPage
 	resp.Total = uint64(len(resp.Hosts))
 	// sort first
-	switch req.Order {
+	order, desc := req.GetOrder()
+	switch order {
 	case "cluster_id":
 		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Hosts[i].ClusterID < resp.Hosts[j].ClusterID
 		})
 	case "port":
 		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Hosts[i].Port < resp.Hosts[j].Port
 		})
 	case "hostname":
 		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Hosts[i].Hostname < resp.Hosts[j].Hostname
 		})
 	case "role":
 		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Hosts[i].Role < resp.Hosts[j].Role
 		})
 	case "nodetype":
 		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Hosts[i].Nodetype < resp.Hosts[j].Nodetype
 		})
 	case "hoststatus":
 		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Hosts[i].HostStatus < resp.Hosts[j].HostStatus
 		})
 	}

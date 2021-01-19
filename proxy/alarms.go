@@ -139,25 +139,41 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 	resp.PerPage = req.PerPage
 	resp.Total = uint64(len(resp.Alarms))
 	// sort first
-	switch req.Order {
+	order, desc := req.GetOrder()
+	switch order {
 	case "cluster_id":
 		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Alarms[i].ClusterId < resp.Alarms[j].ClusterId
 		})
 	case "severity_name":
 		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Alarms[i].SeverityName < resp.Alarms[j].SeverityName
 		})
 	case "type_name":
 		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Alarms[i].TypeName < resp.Alarms[j].TypeName
 		})
 	case "hostname":
 		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Alarms[i].Hostname < resp.Alarms[j].Hostname
 		})
 	case "component_name":
 		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
 			return resp.Alarms[i].ComponentName < resp.Alarms[j].ComponentName
 		})
 	}
