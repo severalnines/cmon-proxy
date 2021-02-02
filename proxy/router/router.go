@@ -303,6 +303,13 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
 
+	// fetch jobs only from the last N hours
+	fetchJobHours := router.Config.FetchJobsHours
+	if fetchJobHours < 1 {
+		// lets load the jobs from the last 12 hours by default
+		fetchJobHours = 12
+	}
+
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
 		if c == nil {
@@ -329,7 +336,7 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 			syncChannel <- true
 
 			// get the jobs from last 12hours
-			jobs, err := c.Client.GetLastJobs(cids, 12)
+			jobs, err := c.Client.GetLastJobs(cids, fetchJobHours)
 			if err != nil {
 				fmt.Println("ERROR???", err.Error())
 			}
@@ -338,7 +345,6 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 					updatedJobs = append(updatedJobs, job)
 				}
 			}
-			fmt.Println("Got", len(jobs), "jobs of cids:", cids)
 		}()
 	}
 

@@ -23,10 +23,11 @@ type CmonInstance struct {
 
 // Config holds the configuration of cmon-proxy, it is pretty minimal now
 type Config struct {
-	Filename  string
-	Instances []*CmonInstance `yaml:"instances,omitempty"`
-	Timeout   int             `yaml:"timeout,omitempty"`
-	Logfile   string          `yaml:"logfile,omitempty"`
+	Filename       string
+	FetchJobsHours int             `yaml:"fetch_jobs_hours,omitempty", json:"fetch_jobs_hours,omitempty"`
+	Instances      []*CmonInstance `yaml:"instances,omitempty"`
+	Timeout        int             `yaml:"timeout,omitempty"`
+	Logfile        string          `yaml:"logfile,omitempty"`
 
 	mtx *sync.RWMutex
 }

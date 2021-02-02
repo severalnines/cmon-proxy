@@ -13,7 +13,7 @@ type JobExt struct {
 
 type JobListRequest struct {
 	ListRequest `json:",inline"`
-	LastNHours  int `json:"last_n_hours"`
+	//	LastNHours  int `json:"last_n_hours"`
 }
 
 type JobListReply struct {

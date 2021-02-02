@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -26,9 +27,9 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 		}
 	}
 	// by defaults lets go with 12 hours
-	if req.LastNHours <= 1 {
-		req.LastNHours = 12
-	}
+	//if req.LastNHours <= 1 {
+	//	req.LastNHours = 12
+	//}
 
 	resp.Jobs = make([]*api.JobExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
@@ -69,6 +70,41 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 				},
 			)
 		}
+	}
+
+	// handle sorting && pagination
+	resp.Page = req.Page
+	resp.PerPage = req.PerPage
+	resp.Total = uint64(len(resp.Jobs))
+	// sort first
+	order, desc := req.GetOrder()
+	switch order {
+	case "cluster_id":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Jobs[i].ClusterID < resp.Jobs[j].ClusterID
+		})
+	case "job_command":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Jobs[i].JobSpec.Command < resp.Jobs[j].JobSpec.Command
+		})
+	case "job_id":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Jobs[i].JobID < resp.Jobs[j].JobID
+		})
+	}
+	if req.ListRequest.PerPage > 0 {
+		// then handle the pagination
+		from, to := api.Paginate(req.ListRequest, int(resp.Total))
+		resp.Jobs = resp.Jobs[from:to]
 	}
 
 	ctx.JSON(http.StatusOK, &resp)
