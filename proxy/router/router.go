@@ -28,7 +28,9 @@ type Cmon struct {
 	GetClustersErr        error
 	PingError             error
 	LastJobsRefresh       time.Time
-	Jobs                  map[uint64][]*api.Job
+	Jobs                  []*api.Job
+	LastBackupsRefresh    time.Time
+	BackupSchedules       []*api.Job
 	mtx                   *sync.Mutex
 }
 
@@ -300,49 +302,44 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
-	mtx := &sync.Mutex{}
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
 		if c == nil {
 			continue
 		}
-		var lastUpdated time.Time
-		if len(c.Alarms) > 0 {
-			for _, reply := range c.Alarms {
-				if reply != nil && reply.WithResponseData != nil {
-					lastUpdated = reply.RequestProcessed
-					break
-				}
-			}
-		}
 		if !forceUpdate &&
-			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
+			(time.Since(c.LastJobsRefresh) < time.Duration(pingInterval)*time.Second) {
 			continue
 		}
 
-		updatedAlarms := make(map[uint64]*api.GetAlarmsReply)
-
 		wg.Add(1)
 		go func() {
+			cids := c.ClusterIDs()
+			updatedJobs := make([]*api.Job, 0, len(cids))
+
 			defer func() {
+				c.mtx.Lock()
+				c.Jobs = updatedJobs
+				c.LastJobsRefresh = time.Now()
+				c.mtx.Unlock()
 				wg.Done()
 				<-syncChannel
 			}()
 			syncChannel <- true
 
-			for _, cid := range c.ClusterIDs() {
-				if alarms, _ := c.Client.GetAlarms(cid); alarms != nil {
-					mtx.Lock()
-					updatedAlarms[cid] = alarms
-					mtx.Unlock()
+			// get the jobs from last 12hours
+			jobs, err := c.Client.GetLastJobs(cids, 12)
+			if err != nil {
+				fmt.Println("ERROR???", err.Error())
+			}
+			if err == nil {
+				for _, job := range jobs {
+					updatedJobs = append(updatedJobs, job)
 				}
 			}
+			fmt.Println("Got", len(jobs), "jobs of cids:", cids)
 		}()
-
-		c.mtx.Lock()
-		c.Alarms = updatedAlarms
-		c.mtx.Unlock()
 	}
 
 	wg.Wait()
@@ -406,4 +403,49 @@ func (cmon *Cmon) ClusterType(clusterId uint64) string {
 	}
 
 	return ""
+}
+
+func (router *Router) GetBackupSchedules(forceUpdate bool) {
+	// make sure we have clusters data
+	router.GetAllClusterInfo(false)
+
+	wg := &sync.WaitGroup{}
+	syncChannel := make(chan bool, parallelLevel)
+
+	for _, addr := range router.Urls() {
+		c := router.Cmon(addr)
+		if c == nil {
+			continue
+		}
+		if !forceUpdate &&
+			(time.Since(c.LastBackupsRefresh) < time.Duration(pingInterval)*time.Second) {
+			continue
+		}
+
+		wg.Add(1)
+		go func() {
+			cids := c.ClusterIDs()
+			updatedJobs := make([]*api.Job, 0, len(cids))
+
+			defer func() {
+				c.mtx.Lock()
+				c.BackupSchedules = updatedJobs
+				c.LastBackupsRefresh = time.Now()
+				c.mtx.Unlock()
+
+				wg.Done()
+				<-syncChannel
+			}()
+			syncChannel <- true
+
+			jobs, err := c.Client.GetBackupJobs(cids)
+			if err == nil {
+				for _, job := range jobs {
+					updatedJobs = append(updatedJobs, job)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
 }

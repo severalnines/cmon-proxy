@@ -310,3 +310,77 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' \
 }
 ```
 
+### Jobs list
+
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/jobs.go
+
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+
+Supported filter keys for this request: controller_id, controller_url,
+cluster_id, cluster_type, job_command
+
+```bash
+$ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
+```
+
+```json
+{
+  "jobs": [
+    {
+      "controller_id": "home.kedz.eu",
+      "controller_url": "127.0.0.01:9501",
+      "class_name": "CmonJobInstance",
+      "tags": [
+        "recurrence"
+      ],
+      "cluster_id": 215,
+      "user_id": 0,
+      "user_name": "system",
+      "group_id": 1,
+      "group_name": "admins",
+      "can_be_deleted": true,
+      "created": "2021-02-02T13:50:00Z",
+      "ended": "2021-02-02T13:50:11Z",
+      "ip_address": "127.0.0.1",
+      "job_id": 185319,
+      "parent_job_id": 94935,
+      "rpc_version": "1.0",
+      "started": "2021-02-02T13:50:02Z",
+      "status": "FINISHED",
+      "status_text": "Command ok",
+      "title": "Create Backup",
+      "job_spec": {
+        "command": "backup",
+        "job_data": {
+          "backup_failover": false,
+          "backup_failover_host": "10.216.188.231:3306",
+          "backup_method": "mariabackupincr",
+          "backup_retention": 0,
+          "backupdir": "/home/cmon_user/backups",
+          "backupsubdir": "BACKUP-%I",
+          "cc_storage": "0",
+          "compression": true,
+          "compression_level": 6,
+          "hostname": "auto",
+          "throttle_rate_netbw": 0,
+          "use_pigz": false,
+          "use_qpress": false,
+          "wsrep_desync": false,
+          "xtrabackup_backup_locks": true,
+          "xtrabackup_lock_ddl_per_table": false,
+          "xtrabackup_parallellism": 1
+        }
+      },
+      "has_progress": false,
+      "progress_percent": 0
+    },
+ /* ... */
+  ],
+  "last_updated": {
+    "10.216.188.149:9501": "2020-12-16T15:06:55Z",
+    "127.0.0.01:9501": "2020-12-16T15:06:55Z"
+  }
+}
+```
+
+

@@ -2,11 +2,42 @@ package cmon
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/severalnines/ccx/go/retry"
 	"github.com/severalnines/cmon-proxy/cmon/api"
 )
+
+func (client *Client) GetBackupJobs(clusterIds []uint64) ([]*api.Job, error) {
+	// NOTE: we assume the clusters wont have too many scheduled jobs
+	req := &api.GetJobInstancesManyRequest{
+		WithOperation:  &api.WithOperation{Operation: "getJobInstances"},
+		WithClusterIDs: &api.WithClusterIDs{ClusterIDs: clusterIds},
+		ShowScheduled:  true, /* ask only scheduled jobs */
+	}
+	res := &api.GetJobInstancesResponse{}
+	if err := client.Request(api.ModuleJobs, req, res); err != nil {
+		return nil, err
+	}
+	if res.RequestStatus != api.RequestStatusOk {
+		return nil, api.NewErrorFromResponseData(res.WithResponseData)
+	}
+	retval := make([]*api.Job, 0, len(res.Jobs))
+	for idx, job := range retval {
+		// disabled/paused jobs are not going to be executed, skip them
+		if job.Status == "PAUSED" {
+			continue
+		}
+		// and skip any scheduled non-backup jobs
+		if job.JobSpec == nil || strings.ToLower(job.JobSpec.Command) != "backup" {
+			continue
+		}
+
+		retval = append(retval, res.Jobs[idx])
+	}
+	return retval, nil
+}
 
 func (client *Client) GetJobInstances(req *api.GetJobInstancesRequest) (*api.GetJobInstancesResponse, error) {
 	req.WithOperation = &api.WithOperation{Operation: "getJobInstances"}
@@ -52,6 +83,7 @@ func (client *Client) GetLastJobs(clusterIds []uint64, lastNhours int, haveBefor
 
 		// gonna break when there are no more entries
 		endReached := len(res.Jobs) == 0
+		fmt.Println("Received jobs:", len(res.Jobs))
 
 		for _, job := range res.Jobs {
 			// to avoid duplicates, skip already seen jobs
@@ -60,7 +92,7 @@ func (client *Client) GetLastJobs(clusterIds []uint64, lastNhours int, haveBefor
 			}
 
 			// okay, this job is too old, stop now
-			if job.Created.Before(timestamp) {
+			if job.Created.T.Before(timestamp) {
 				endReached = true
 				break
 			}

@@ -145,6 +145,27 @@ func Start() {
 			alarms.GET("/list", proxy.RPCAlarmsList)
 			alarms.POST("/list", proxy.RPCAlarmsList)
 		}
+
+		jobs := p.Group("/jobs")
+		{
+			jobs.GET("/status", proxy.RPCJobsStatus)
+			jobs.POST("/status", proxy.RPCJobsStatus)
+
+			jobs.GET("/list", proxy.RPCJobsList)
+			jobs.POST("/list", proxy.RPCJobsList)
+		}
+
+		backups := p.Group("/backups")
+		{
+			backups.GET("/status", proxy.RPCBackupsStatus)
+			backups.POST("/status", proxy.RPCBackupsStatus)
+
+			backups.GET("/list", proxy.RPCBackupsList)
+			backups.POST("/list", proxy.RPCBackupsList)
+
+			backups.GET("/schedules", proxy.RPCBackupJobsList)
+			backups.POST("/schedules", proxy.RPCBackupJobsList)
+		}
 	}
 
 	hs := &http.Server{

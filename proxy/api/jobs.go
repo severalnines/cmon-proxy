@@ -18,6 +18,6 @@ type JobListRequest struct {
 
 type JobListReply struct {
 	ListResponse `json:",inline"`
-	Jobs         []*JobExt                    `json:"clusters"`
+	Jobs         []*JobExt                    `json:"jobs"`
 	LastUpdated  map[string]*cmonapi.NullTime `json:"last_updated"`
 }

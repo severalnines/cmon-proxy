@@ -3,25 +3,24 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 type GetJobInstancesRequest struct {
 	*WithOperation `json:",inline"`
 	*WithClusterID `json:",inline"`
 	*WithLimit     `json:",inline"`
+	*WithTags      `json:",inline"`
 
-	ShowScheduled bool     `json:"show_scheduled,omitempty"`
-	Tags          []string `json:"tags,omitempty"`
+	ShowScheduled bool `json:"show_scheduled,omitempty"`
 }
 
 type GetJobInstancesManyRequest struct {
 	*WithOperation  `json:",inline"`
 	*WithClusterIDs `json:",inline"`
 	*WithLimit      `json:",inline"`
+	*WithTags       `json:",inline"`
 
-	ShowScheduled bool     `json:"show_scheduled,omitempty"`
-	Tags          []string `json:"tags,omitempty"`
+	ShowScheduled bool `json:"show_scheduled,omitempty"`
 }
 
 type GetJobInstancesResponse struct {
@@ -82,29 +81,52 @@ type Job struct {
 	*WithUser      `json:",inline"`
 	*WithGroup     `json:",inline"`
 
-	CanBeAborted    bool      `json:"can_be_aborted,omitempty"`
-	CanBeDeleted    bool      `json:"can_be_deleted,omitempty"`
-	Created         time.Time `json:"created,omitempty"`
-	Ended           time.Time `json:"ended,omitempty"`
-	ExitCode        int64     `json:"exit_code,omitempty"`
-	IPAddress       string    `json:"ip_address,omitempty"`
-	JobID           uint64    `json:"job_id,omitempty"`
-	ParentJobID     uint64    `json:"parent_job_id,omitempty"`
-	RPCVersion      string    `json:"rpc_version,omitempty"`
-	Started         time.Time `json:"started,omitempty"`
-	Status          string    `json:"status,omitempty"`
-	StatusText      string    `json:"status_text,omitempty"`
-	Title           string    `json:"title,omitempty"`
-	Recurrence      string    `json:"recurrence,omitempty"`
-	JobSpec         *JobSpec  `json:"job_spec,omitempty"`
-	HasProgress     bool      `json:"has_progress"`
-	ProgressPercent int       `json:"progress_percent"`
-	Tags            string    `json:"tags,omitempty"`
+	CanBeAborted    bool     `json:"can_be_aborted,omitempty"`
+	CanBeDeleted    bool     `json:"can_be_deleted,omitempty"`
+	Created         NullTime `json:"created,omitempty"`
+	Ended           NullTime `json:"ended,omitempty"`
+	ExitCode        int64    `json:"exit_code,omitempty"`
+	IPAddress       string   `json:"ip_address,omitempty"`
+	JobID           uint64   `json:"job_id,omitempty"`
+	ParentJobID     uint64   `json:"parent_job_id,omitempty"`
+	RPCVersion      string   `json:"rpc_version,omitempty"`
+	Started         NullTime `json:"started,omitempty"`
+	Status          string   `json:"status,omitempty"`
+	StatusText      string   `json:"status_text,omitempty"`
+	Title           string   `json:"title,omitempty"`
+	Recurrence      string   `json:"recurrence,omitempty"`
+	JobSpec         *JobSpec `json:"job_spec,omitempty"`
+	HasProgress     bool     `json:"has_progress"`
+	ProgressPercent int      `json:"progress_percent"`
 }
 
 type JobSpec struct {
 	Command string          `json:"command"`
 	JobData json.RawMessage `json:"job_data"`
+}
+
+func (js *JobSpec) UnmarshalJSON(b []byte) error {
+	// to workaround the cmon bug when it sends string in "job_data" instead of object
+	type jobspec struct {
+		Command string          `json:"command"`
+		JobData json.RawMessage `json:"job_data"`
+	}
+	obj := &jobspec{}
+	if err := json.Unmarshal(b, obj); err != nil {
+		// it might be in a string :-S
+		var s string
+		json.Unmarshal(b, &s)
+
+		// retry again
+		if err := json.Unmarshal(b, obj); err != nil {
+			// it is a free text job like "Galera recovery"
+			obj.Command = s
+		}
+	}
+
+	js.Command = obj.Command
+	js.JobData = obj.JobData
+	return nil
 }
 
 func (js *JobSpec) GetBackupJobData() (*BackupJobData, error) {

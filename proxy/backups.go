@@ -11,8 +11,8 @@ import (
 	"github.com/severalnines/cmon-proxy/proxy/api"
 )
 
-// RPCBackupsStatus returns the backup and backup schedule stats for each cluster
-func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
+// RPCClustersStatus constructs a high level reply of the cluster statuees
+func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
 	//logger := zap.L()
 
 	resp := &api.ClustersOverview{
@@ -62,7 +62,7 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 }
 
 // RPCClustersList gives back a list of clusters
-func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
+func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 	var req api.ClusterListRequest
 	var resp api.ClusterListReply
 	if ctx.Request.Method == http.MethodPost {
@@ -152,7 +152,7 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 }
 
 // RPCClustersNodesList gives back a list of nodes
-func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
+func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 	var req api.HostListRequest
 	var resp api.HostListReply
 	if ctx.Request.Method == http.MethodPost {

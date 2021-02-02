@@ -159,7 +159,7 @@ type WithOwner struct {
 }
 
 type WithTags struct {
-	Tags []string `json:"tags"`
+	Tags []string `json:"tags,omitempty"`
 }
 
 type WithGroup struct {

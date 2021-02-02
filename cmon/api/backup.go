@@ -102,7 +102,7 @@ type BackupSchedule struct {
 	*WithClassName `json:",inline"`
 
 	ClusterID  uint64         `json:"cluster_id"`
-	Created    time.Time      `json:"created"`
+	Created    NullTime       `json:"created"`
 	Enabled    bool           `json:"enabled"`
 	ID         uint64         `json:"id"`
 	Job        *BackupJobData `json:"job"`
