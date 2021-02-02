@@ -310,6 +310,79 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' \
 }
 ```
 
+### Jobs status
+
+```bash
+$ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/jobs/status'  -d'{"filters":[]}' | jq
+```
+
+```json
+{
+  "job_count": {
+    "FAILED": 1,
+    "FINISHED": 8
+  },
+  "job_commands": {
+    "backup": 9
+  },
+  "by_controller": {
+    "10.216.188.149:9501": {
+      "job_count": {},
+      "job_commands": {}
+    },
+    "127.0.0.01:9501": {
+      "job_count": {
+        "FAILED": 1,
+        "FINISHED": 8
+      },
+      "job_commands": {
+        "backup": 9
+      }
+    }
+  },
+  "by_cluster_type": {
+    "POSTGRESQL_SINGLE": {
+      "job_count": {
+        "FINISHED": 1
+      },
+      "job_commands": {
+        "backup": 1
+      },
+      "by_controller": {
+        "127.0.0.01:9501": {
+          "job_count": {
+            "FINISHED": 1
+          },
+          "job_commands": {
+            "backup": 1
+          }
+        }
+      }
+    },
+    "REPLICATION": {
+      "job_count": {
+        "FAILED": 1,
+        "FINISHED": 7
+      },
+      "job_commands": {
+        "backup": 8
+      },
+      "by_controller": {
+        "127.0.0.01:9501": {
+          "job_count": {
+            "FAILED": 1,
+            "FINISHED": 7
+          },
+          "job_commands": {
+            "backup": 8
+          }
+        }
+      }
+    }
+  }
+}
+```
+
 ### Jobs list
 
 Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/jobs.go

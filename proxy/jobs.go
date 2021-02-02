@@ -12,7 +12,59 @@ import (
 )
 
 func (p *Proxy) RPCJobsStatus(ctx *gin.Context) {
-	ctx.AbortWithError(http.StatusMethodNotAllowed, fmt.Errorf("Not implemented."))
+	resp := &api.JobsStatus{
+		JobCounts:             make(map[string]int),
+		JobCommands:           make(map[string]int),
+		JobCountsByController: make(map[string]*api.JobsStatus),
+		ByClusterType:         make(map[string]*api.JobsStatus),
+	}
+
+	p.r.GetLastJobs(false)
+	for _, url := range p.r.Urls() {
+		data := p.r.Cmon(url)
+		if data == nil || data.Clusters == nil {
+			continue
+		}
+
+		countsByCtrl := &api.JobsStatus{
+			JobCounts:   make(map[string]int),
+			JobCommands: make(map[string]int),
+		}
+		// iterate by clusterIds... one by one..
+		for _, job := range data.Jobs {
+			clusterType := data.ClusterType(job.ClusterID)
+			if stat, found := resp.ByClusterType[clusterType]; !found || stat == nil {
+				resp.ByClusterType[clusterType] =
+					&api.JobsStatus{
+						JobCounts:             make(map[string]int),
+						JobCommands:           make(map[string]int),
+						JobCountsByController: make(map[string]*api.JobsStatus),
+					}
+				resp.ByClusterType[clusterType].JobCountsByController[url] =
+					&api.JobsStatus{
+						JobCounts:   make(map[string]int),
+						JobCommands: make(map[string]int),
+					}
+			}
+
+			resp.JobCounts[job.Status]++
+			// FIXME: can we make sure that JobSpec is not null?
+			resp.JobCommands[job.JobSpec.Command]++
+
+			resp.ByClusterType[clusterType].JobCounts[job.Status]++
+			resp.ByClusterType[clusterType].JobCommands[job.JobSpec.Command]++
+
+			countsByCtrl.JobCounts[job.Status]++
+			countsByCtrl.JobCommands[job.JobSpec.Command]++
+
+			resp.ByClusterType[clusterType].JobCountsByController[url].JobCounts[job.Status]++
+			resp.ByClusterType[clusterType].JobCountsByController[url].JobCommands[job.JobSpec.Command]++
+		}
+
+		resp.JobCountsByController[url] = countsByCtrl
+	}
+
+	ctx.JSON(http.StatusOK, resp)
 }
 
 // RPCJobsList gives back a list of clusters

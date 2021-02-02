@@ -5,6 +5,19 @@ import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 )
 
+type JobsStatus struct {
+	// Job counts by job status
+	JobCounts map[string]int `json:"job_count"`
+	// Job counts by job commands
+	JobCommands map[string]int `json:"job_commands"`
+
+	// Job counts by controller
+	JobCountsByController map[string]*JobsStatus `json:"by_controller,omitempty"`
+
+	// for the "technology" filters
+	ByClusterType map[string]*JobsStatus `json:"by_cluster_type,omitempty"`
+}
+
 // JobExt is a cmon Job extended by controller ID / URL fields
 type JobExt struct {
 	*WithControllerID
