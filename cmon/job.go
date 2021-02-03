@@ -83,7 +83,6 @@ func (client *Client) GetLastJobs(clusterIds []uint64, lastNhours int, haveBefor
 
 		// gonna break when there are no more entries
 		endReached := len(res.Jobs) == 0
-		fmt.Println("Received jobs:", len(res.Jobs))
 
 		for _, job := range res.Jobs {
 			// to avoid duplicates, skip already seen jobs

@@ -120,14 +120,12 @@ func (js *JobSpec) UnmarshalJSON(b []byte) error {
 	}
 	obj := &jobspec{}
 	if err := json.Unmarshal(b, obj); err != nil {
-		fmt.Println("Can't unmarshal", string(b), err.Error())
 		// it might be in a string :-S
 		var s string
 		json.Unmarshal(b, &s)
 
 		// retry again
 		if err := json.Unmarshal([]byte(s), obj); err != nil {
-			fmt.Println("Can't unmarshal", s, err.Error())
 			// it is a free text job like "Galera recovery"
 			obj.Command = s
 		}
