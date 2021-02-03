@@ -100,6 +100,13 @@ type Job struct {
 	ProgressPercent int      `json:"progress_percent"`
 }
 
+func (j *Job) Command() string {
+	if j == nil || j.JobSpec == nil {
+		return ""
+	}
+	return j.JobSpec.Command
+}
+
 type JobSpec struct {
 	Command string          `json:"command"`
 	JobData json.RawMessage `json:"job_data"`
@@ -113,12 +120,14 @@ func (js *JobSpec) UnmarshalJSON(b []byte) error {
 	}
 	obj := &jobspec{}
 	if err := json.Unmarshal(b, obj); err != nil {
+		fmt.Println("Can't unmarshal", string(b), err.Error())
 		// it might be in a string :-S
 		var s string
 		json.Unmarshal(b, &s)
 
 		// retry again
-		if err := json.Unmarshal(b, obj); err != nil {
+		if err := json.Unmarshal([]byte(s), obj); err != nil {
+			fmt.Println("Can't unmarshal", s, err.Error())
 			// it is a free text job like "Galera recovery"
 			obj.Command = s
 		}

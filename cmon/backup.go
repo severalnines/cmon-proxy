@@ -40,10 +40,7 @@ func (client *Client) ListBackupSchedules(req *api.ListBackupSchedulesRequest) (
 		return res, nil
 	}
 	for _, j := range jobs.Jobs {
-		if j.JobSpec == nil {
-			continue
-		}
-		if j.JobSpec.Command != "backup" {
+		if j.Command() != "backup" {
 			continue
 		}
 		jd, err := j.JobSpec.GetBackupJobData()

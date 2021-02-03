@@ -48,17 +48,16 @@ func (p *Proxy) RPCJobsStatus(ctx *gin.Context) {
 			}
 
 			resp.JobCounts[job.Status]++
-			// FIXME: can we make sure that JobSpec is not null?
-			resp.JobCommands[job.JobSpec.Command]++
+			resp.JobCommands[job.Command()]++
 
 			resp.ByClusterType[clusterType].JobCounts[job.Status]++
-			resp.ByClusterType[clusterType].JobCommands[job.JobSpec.Command]++
+			resp.ByClusterType[clusterType].JobCommands[job.Command()]++
 
 			countsByCtrl.JobCounts[job.Status]++
-			countsByCtrl.JobCommands[job.JobSpec.Command]++
+			countsByCtrl.JobCommands[job.Command()]++
 
 			resp.ByClusterType[clusterType].JobCountsByController[url].JobCounts[job.Status]++
-			resp.ByClusterType[clusterType].JobCountsByController[url].JobCommands[job.JobSpec.Command]++
+			resp.ByClusterType[clusterType].JobCountsByController[url].JobCommands[job.Command()]++
 		}
 
 		resp.JobCountsByController[url] = countsByCtrl
@@ -105,11 +104,17 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(job.ClusterID, 10)) {
 				continue
 			}
+			if !api.PassFilter(req.Filters, "job_id", strconv.FormatUint(job.JobID, 10)) {
+				continue
+			}
 			if !api.PassFilterLazy(req.Filters, "cluster_type",
 				func() string { return data.ClusterType(job.ClusterID) }) {
 				continue
 			}
-			if !api.PassFilter(req.Filters, "job_command", job.JobSpec.Command) {
+			if !api.PassFilter(req.Filters, "job_command", job.Command()) {
+				continue
+			}
+			if !api.PassFilter(req.Filters, "status", job.Status) {
 				continue
 			}
 			resp.Jobs = append(resp.Jobs,
@@ -143,7 +148,7 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Jobs[i].JobSpec.Command < resp.Jobs[j].JobSpec.Command
+			return resp.Jobs[i].Command() < resp.Jobs[j].Command()
 		})
 	case "job_id":
 		sort.Slice(resp.Jobs[:], func(i, j int) bool {
@@ -151,6 +156,27 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 				i, j = j, i
 			}
 			return resp.Jobs[i].JobID < resp.Jobs[j].JobID
+		})
+	case "status":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Jobs[i].Status < resp.Jobs[j].Status
+		})
+	case "title":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Jobs[i].Title < resp.Jobs[j].Title
+		})
+	case "created":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Jobs[i].Created.T.Before(resp.Jobs[j].Created.T)
 		})
 	}
 	if req.ListRequest.PerPage > 0 {

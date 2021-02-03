@@ -30,7 +30,7 @@ func (client *Client) GetBackupJobs(clusterIds []uint64) ([]*api.Job, error) {
 			continue
 		}
 		// and skip any scheduled non-backup jobs
-		if job.JobSpec == nil || strings.ToLower(job.JobSpec.Command) != "backup" {
+		if strings.ToLower(job.Command()) != "backup" {
 			continue
 		}
 
