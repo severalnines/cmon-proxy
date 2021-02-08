@@ -456,4 +456,30 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
 }
 ```
 
+### Backup schedules list
+
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/jobs.go
+
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+
+Supported filter keys for this request: controller_id, controller_url,
+cluster_id, cluster_type
+
+```bash
+$ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
+```
+
+The reply is the same as in case of jobs list, but this one returns only the
+scheduled backup jobs only
+```json
+{
+  "jobs": [
+    /* ... */
+  ],
+  "last_updated": {
+    /* ... */
+  }
+}
+```
+
 

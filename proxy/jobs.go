@@ -77,10 +77,6 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 			return
 		}
 	}
-	// by defaults lets go with 12 hours
-	//if req.LastNHours <= 1 {
-	//	req.LastNHours = 12
-	//}
 
 	resp.Jobs = make([]*api.JobExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)

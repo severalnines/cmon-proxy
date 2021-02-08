@@ -24,11 +24,7 @@ func (client *Client) GetBackupJobs(clusterIds []uint64) ([]*api.Job, error) {
 		return nil, api.NewErrorFromResponseData(res.WithResponseData)
 	}
 	retval := make([]*api.Job, 0, len(res.Jobs))
-	for idx, job := range retval {
-		// disabled/paused jobs are not going to be executed, skip them
-		if job.Status == "PAUSED" {
-			continue
-		}
+	for idx, job := range res.Jobs {
 		// and skip any scheduled non-backup jobs
 		if strings.ToLower(job.Command()) != "backup" {
 			continue

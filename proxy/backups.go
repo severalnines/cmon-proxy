@@ -151,10 +151,10 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, &resp)
 }
 
-// RPCClustersNodesList gives back a list of nodes
+// RPCBackupJobsList gives back a list of scheduled backup jobs
 func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
-	var req api.HostListRequest
-	var resp api.HostListReply
+	var req api.JobListRequest
+	var resp api.JobListReply
 	if ctx.Request.Method == http.MethodPost {
 		if err := ctx.BindJSON(&req); err != nil {
 			cmonapi.CtxWriteError(ctx,
@@ -163,13 +163,14 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 		}
 	}
 
-	resp.Hosts = make([]*api.HostExt, 0, 128)
+	resp.Jobs = make([]*api.JobExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.r.GetAllClusterInfo(false)
+	p.r.GetBackupSchedules(false)
+
 	for _, url := range p.r.Urls() {
 		data := p.r.Cmon(url)
-		if data == nil || data.Clusters == nil {
+		if data == nil || data.BackupSchedules == nil {
 			continue
 		}
 		if !api.PassFilter(req.Filters, "controller_id", data.ControllerID()) ||
@@ -178,107 +179,83 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 		}
 
 		resp.LastUpdated[url] = &cmonapi.NullTime{
-			T: data.Clusters.RequestProcessed,
+			T: data.LastJobsRefresh,
 		}
-		for _, cluster := range data.Clusters.Clusters {
-			// yeah host instances have 'clusterid' instead of 'cluster_id' :-S
-			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(cluster.ClusterID, 10)) ||
-				!api.PassFilter(req.Filters, "clusterid", strconv.FormatUint(cluster.ClusterID, 10)) {
+		for _, job := range data.BackupSchedules {
+			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(job.ClusterID, 10)) {
 				continue
 			}
-			if !api.PassFilter(req.Filters, "cluster_type", cluster.ClusterType) {
+			if !api.PassFilter(req.Filters, "job_id", strconv.FormatUint(job.JobID, 10)) {
 				continue
 			}
-
-			for _, host := range cluster.Hosts {
-				// skip controller hosts
-				if host.Nodetype == "controller" {
-					continue
-				}
-
-				if !api.PassFilter(req.Filters, "port", strconv.FormatInt(int64(host.Port), 10)) {
-					continue
-				}
-				if !api.PassFilter(req.Filters, "hostname", host.Hostname) {
-					continue
-				}
-				if !api.PassFilter(req.Filters, "role", host.Role) {
-					continue
-				}
-				if !api.PassFilter(req.Filters, "nodetype", host.Nodetype) {
-					continue
-				}
-				if !api.PassFilter(req.Filters, "hoststatus", host.HostStatus) {
-					continue
-				}
-
-				h := &api.HostExt{
+			if !api.PassFilterLazy(req.Filters, "cluster_type",
+				func() string { return data.ClusterType(job.ClusterID) }) {
+				continue
+			}
+			if !api.PassFilter(req.Filters, "status", job.Status) {
+				continue
+			}
+			resp.Jobs = append(resp.Jobs,
+				&api.JobExt{
 					WithControllerID: &api.WithControllerID{
-						ControllerURL: url,
 						ControllerID:  data.ControllerID(),
+						ControllerURL: url,
 					},
-					Host: host,
-				}
-				resp.Hosts = append(resp.Hosts, h)
-			}
+					Job: job,
+				},
+			)
 		}
 	}
 
 	// handle sorting && pagination
 	resp.Page = req.Page
 	resp.PerPage = req.PerPage
-	resp.Total = uint64(len(resp.Hosts))
+	resp.Total = uint64(len(resp.Jobs))
 	// sort first
 	order, desc := req.GetOrder()
 	switch order {
 	case "cluster_id":
-		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Hosts[i].ClusterID < resp.Hosts[j].ClusterID
+			return resp.Jobs[i].ClusterID < resp.Jobs[j].ClusterID
 		})
-	case "port":
-		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+	case "job_id":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Hosts[i].Port < resp.Hosts[j].Port
+			return resp.Jobs[i].JobID < resp.Jobs[j].JobID
 		})
-	case "hostname":
-		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+	case "status":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Hosts[i].Hostname < resp.Hosts[j].Hostname
+			return resp.Jobs[i].Status < resp.Jobs[j].Status
 		})
-	case "role":
-		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+	case "title":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Hosts[i].Role < resp.Hosts[j].Role
+			return resp.Jobs[i].Title < resp.Jobs[j].Title
 		})
-	case "nodetype":
-		sort.Slice(resp.Hosts[:], func(i, j int) bool {
+	case "created":
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Hosts[i].Nodetype < resp.Hosts[j].Nodetype
-		})
-	case "hoststatus":
-		sort.Slice(resp.Hosts[:], func(i, j int) bool {
-			if desc {
-				i, j = j, i
-			}
-			return resp.Hosts[i].HostStatus < resp.Hosts[j].HostStatus
+			return resp.Jobs[i].Created.T.Before(resp.Jobs[j].Created.T)
 		})
 	}
 	if req.ListRequest.PerPage > 0 {
 		// then handle the pagination
 		from, to := api.Paginate(req.ListRequest, int(resp.Total))
-		resp.Hosts = resp.Hosts[from:to]
+		resp.Jobs = resp.Jobs[from:to]
 	}
 
 	ctx.JSON(http.StatusOK, &resp)
+
 }
