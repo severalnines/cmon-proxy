@@ -31,6 +31,7 @@ type Cmon struct {
 	Jobs                  []*api.Job
 	LastBackupsRefresh    time.Time
 	BackupSchedules       []*api.Job
+	Backups               []*api.Backup
 	mtx                   *sync.Mutex
 }
 
@@ -411,12 +412,18 @@ func (cmon *Cmon) ClusterType(clusterId uint64) string {
 	return ""
 }
 
-func (router *Router) GetBackupSchedules(forceUpdate bool) {
+func (router *Router) GetBackups(forceUpdate bool) {
 	// make sure we have clusters data
 	router.GetAllClusterInfo(false)
 
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
+
+	fetchBackupDays := router.Config.FetchBackupDays
+	if fetchBackupDays < 1 {
+		// lets return the backups from the past week
+		fetchBackupDays = 7
+	}
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
@@ -428,6 +435,22 @@ func (router *Router) GetBackupSchedules(forceUpdate bool) {
 			continue
 		}
 
+		// Fetch the list of backups
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cids := c.ClusterIDs()
+
+			backups, err := c.Client.GetLastBackups(cids, fetchBackupDays)
+			if err == nil {
+				c.mtx.Lock()
+				c.Backups = backups
+				c.LastBackupsRefresh = time.Now()
+				c.mtx.Unlock()
+			}
+		}()
+
+		// and also pull/refresh the scheduled backup jobs
 		wg.Add(1)
 		go func() {
 			cids := c.ClusterIDs()

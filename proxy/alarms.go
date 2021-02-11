@@ -84,6 +84,7 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 
 	resp := &api.AlarmListReply{
 		LastUpdated: make(map[string]*cmonapi.NullTime),
+		Alarms:      make([]*api.AlarmExt, 0),
 	}
 
 	p.r.GetAlarms(false)
@@ -141,6 +142,13 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 	// sort first
 	order, desc := req.GetOrder()
 	switch order {
+	case "created":
+		sort.Slice(resp.Alarms[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Alarms[i].ClusterId < resp.Alarms[j].ClusterId
+		})
 	case "cluster_id":
 		sort.Slice(resp.Alarms[:], func(i, j int) bool {
 			if desc {

@@ -13,21 +13,22 @@ import (
 )
 
 type CmonInstance struct {
-	Url      string   `yaml:"url" json:"url"`
-	Name     string   `yaml:"name,omitempty" json:"name,omitempty"`
-	Username string   `yaml:"username,omitempty" json:"username,omitempty`
-	Password string   `yaml:"password,omitempty" json:"password,omitempty"`
-	Keyfile  string   `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
-	Tags     []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Url         string `yaml:"url" json:"url"`
+	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
+	Username    string `yaml:"username,omitempty" json:"username,omitempty`
+	Password    string `yaml:"password,omitempty" json:"password,omitempty"`
+	Keyfile     string `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
+	FrontendUrl string `yaml:"frontend_url,omitempty" json:"frontend_url,omitempty"`
 }
 
 // Config holds the configuration of cmon-proxy, it is pretty minimal now
 type Config struct {
-	Filename       string
-	FetchJobsHours int             `yaml:"fetch_jobs_hours,omitempty", json:"fetch_jobs_hours,omitempty"`
-	Instances      []*CmonInstance `yaml:"instances,omitempty"`
-	Timeout        int             `yaml:"timeout,omitempty"`
-	Logfile        string          `yaml:"logfile,omitempty"`
+	Filename        string
+	FetchJobsHours  int             `yaml:"fetch_jobs_hours,omitempty" json:"fetch_jobs_hours,omitempty"`
+	FetchBackupDays int             `yaml:"fetch_backups_days,omitempty" json:"fetch_backups_days,omitempty"`
+	Instances       []*CmonInstance `yaml:"instances,omitempty"`
+	Timeout         int             `yaml:"timeout,omitempty"`
+	Logfile         string          `yaml:"logfile,omitempty"`
 
 	mtx *sync.RWMutex
 }

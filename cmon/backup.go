@@ -3,6 +3,7 @@ package cmon
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/severalnines/cmon-proxy/cmon/api"
 )
@@ -22,44 +23,63 @@ func (client *Client) ListBackups(req *api.ListBackupsRequest) (*api.ListBackups
 	return res, nil
 }
 
-func (client *Client) ListBackupSchedules(req *api.ListBackupSchedulesRequest) (*api.ListBackupSchedulesResponse, error) {
-	jobs, err := client.GetJobInstances(&api.GetJobInstancesRequest{
-		WithClusterID: req.WithClusterID,
-		WithLimit:     req.WithLimit,
-		ShowScheduled: true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to res backup schedules from cmon: %s", err.Error())
+// GetLastBackups returns the backups for the specified clusters from the last N days
+func (client *Client) GetLastBackups(clusterIds []uint64, lastNdays int, haveBefore ...time.Time) ([]*api.Backup, error) {
+	perPage := int64(32)
+	req := &api.ListBackupsRequest{
+		WithOperation: &api.WithOperation{Operation: "getBackups"},
+		WithClusterID: &api.WithClusterID{},
+		WithLimit: &api.WithLimit{
+			Limit: perPage,
+		},
 	}
-	res := &api.ListBackupSchedulesResponse{
-		WithResponseData: jobs.WithResponseData,
-		WithTotal:        jobs.WithTotal,
-		BackupSchedules:  make([]*api.BackupSchedule, 0, jobs.Total),
-	}
-	if jobs.Total == 0 {
-		return res, nil
-	}
-	for _, j := range jobs.Jobs {
-		if j.Command() != "backup" {
-			continue
-		}
-		jd, err := j.JobSpec.GetBackupJobData()
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to parse job_spec of job %d to BackupJobData: %s", j.JobID, err.Error())
-		}
-		res.BackupSchedules = append(res.BackupSchedules, &api.BackupSchedule{
-			ClusterID:  j.ClusterID,
-			Enabled:    true,
-			Recurrence: j.Recurrence,
-			Job:        jd,
-			ID:         j.JobID,
-			Created:    j.Created,
-			Status:     j.Status,
-		})
 
+	retval := make([]*api.Backup, 0, len(clusterIds)*10)
+	timestamp := time.Now().Add(time.Hour * time.Duration(-lastNdays*24))
+
+	for _, req.ClusterID = range clusterIds {
+		// start from page 0
+		req.Offset = 0
+		for {
+			// this returns the backups descending (by backup id)
+			res := &api.ListBackupsResponse{}
+			if err := client.Request(api.ModuleBackup, req, res); err != nil {
+				return nil, err
+			}
+			if res.RequestStatus != api.RequestStatusOk {
+				return nil, api.NewErrorFromResponseData(res.WithResponseData)
+			}
+
+			// gonna break when there are no more entries
+			endReached := len(res.Backups) == 0
+
+			for _, backup := range res.Backups {
+				count := len(retval)
+				// to avoid duplicates, skip already seen backups
+				if count > 0 && retval[count-1].ID <= backup.ID {
+					continue
+				}
+
+				// okay, this job is too old, stop now
+				if backup.Created.T.Before(timestamp) {
+					endReached = true
+					break
+				}
+
+				retval = append(retval, backup)
+			}
+
+			if endReached {
+				break
+				// continue with next cluster
+			}
+
+			req.Offset += perPage
+			// paginate till we reach the oldest backup
+		}
 	}
-	return res, nil
+
+	return retval, nil
 }
 
 func (client *Client) RestoreBackup(req *api.RestoreBackupRequest) (*api.RestoreBackupResponse, error) {

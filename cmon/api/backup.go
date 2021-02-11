@@ -21,20 +21,6 @@ type ListBackupsResponse struct {
 	Backups []*Backup `json:"backup_records"`
 }
 
-type ListBackupSchedulesRequest struct {
-	*WithOperation `json:",inline"`
-	*WithClusterID `json:",inline"`
-	*WithLimit     `json:",inline"`
-}
-
-type ListBackupSchedulesResponse struct {
-	*WithControllerID `json:",inline"`
-	*WithResponseData `json:",inline"`
-	*WithTotal        `json:",inline"`
-
-	BackupSchedules []*BackupSchedule `json:"backup_schedules"`
-}
-
 type RestoreBackupRequest struct {
 	*WithClusterID `json:",inline"`
 
@@ -55,15 +41,16 @@ type RestoreBackupJobData struct {
 type Backup struct {
 	*WithClassName `json:",inline"`
 
-	ID       uint64        `json:"id"`
-	ParentID uint64        `json:"parent_id"`
-	ChainUP  uint64        `json:"chain_up"`
-	Children uint64        `json:"children"`
-	Backups  []*BackupData `json:"backup"`
-	Method   string        `json:"method"`
-	Status   string        `json:"status"`
-	Created  time.Time     `json:"created"`
-	Finished time.Time     `json:"finished"`
+	ID        uint64        `json:"id"`
+	ClusterID uint64        `json:"cid"`
+	ParentID  uint64        `json:"parent_id"`
+	ChainUP   uint64        `json:"chain_up"`
+	Children  uint64        `json:"children"`
+	Backups   []*BackupData `json:"backup"`
+	Method    string        `json:"method"`
+	Status    string        `json:"status"`
+	Created   NullTime      `json:"created"`
+	Finished  NullTime      `json:"finished"`
 }
 
 // GetSize returns a sum of backup files sizes.

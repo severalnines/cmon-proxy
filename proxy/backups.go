@@ -63,8 +63,9 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 
 // RPCClustersList gives back a list of clusters
 func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
-	var req api.ClusterListRequest
-	var resp api.ClusterListReply
+	var req api.BackupListRequest
+	var resp api.BackupListReply
+
 	if ctx.Request.Method == http.MethodPost {
 		if err := ctx.BindJSON(&req); err != nil {
 			cmonapi.CtxWriteError(ctx,
@@ -73,13 +74,13 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 		}
 	}
 
-	resp.Clusters = make([]*api.ClusterExt, 0, 32)
+	resp.Backups = make([]*api.BackupExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.r.GetBackupSchedules(false)
+	p.r.GetBackups(false)
 	for _, url := range p.r.Urls() {
 		data := p.r.Cmon(url)
-		if data == nil || data.Clusters == nil {
+		if data == nil || data.Backups == nil {
 			continue
 		}
 		if !api.PassFilter(req.Filters, "controller_id", data.ControllerID()) ||
@@ -88,64 +89,79 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 		}
 
 		resp.LastUpdated[url] = &cmonapi.NullTime{
-			T: data.Clusters.RequestProcessed,
+			T: data.LastBackupsRefresh,
 		}
-		for _, cluster := range data.Clusters.Clusters {
-			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(cluster.ClusterID, 10)) {
+		for idx, backup := range data.Backups {
+			if !api.PassFilter(req.Filters, "backup_id", strconv.FormatUint(backup.ID, 10)) {
 				continue
 			}
-			if !api.PassFilter(req.Filters, "state", cluster.State) {
+			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(backup.ClusterID, 10)) {
 				continue
 			}
-			if !api.PassFilter(req.Filters, "cluster_type", cluster.ClusterType) {
+			if !api.PassFilter(req.Filters, "status", backup.Status) {
+				continue
+			}
+			if !api.PassFilter(req.Filters, "method", backup.Method) {
+				continue
+			}
+			if !api.PassFilterLazy(req.Filters, "cluster_type",
+				func() string { return data.ClusterType(backup.ClusterID) }) {
 				continue
 			}
 
-			clus := &api.ClusterExt{
+			b := &api.BackupExt{
 				WithControllerID: &api.WithControllerID{
 					ControllerURL: url,
 					ControllerID:  data.ControllerID(),
 				},
-				Cluster: cluster.Copy(req.WithHosts, true),
+				Backup: data.Backups[idx],
 			}
 
-			resp.Clusters = append(resp.Clusters, clus)
+			resp.Backups = append(resp.Backups, b)
 		}
 	}
 
 	// handle sorting && pagination
 	resp.Page = req.Page
 	resp.PerPage = req.PerPage
-	resp.Total = uint64(len(resp.Clusters))
+	resp.Total = uint64(len(resp.Backups))
 	// sort first
 	order, desc := req.GetOrder()
 	switch order {
 	case "cluster_id":
-		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+		sort.Slice(resp.Backups[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Clusters[i].ClusterID < resp.Clusters[j].ClusterID
+			return resp.Backups[i].ClusterID < resp.Backups[j].ClusterID
 		})
-	case "state":
-		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+	case "status":
+		sort.Slice(resp.Backups[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Clusters[i].State < resp.Clusters[j].State
+			return resp.Backups[i].Status < resp.Backups[j].Status
 		})
-	case "cluster_type":
-		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+	case "method":
+		sort.Slice(resp.Backups[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Clusters[i].ClusterType < resp.Clusters[j].ClusterType
+			return resp.Backups[i].Method < resp.Backups[j].Method
+		})
+	case "id", "backup_id":
+		sort.Slice(resp.Backups[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Backups[i].ID < resp.Backups[j].ID
 		})
 	}
+
 	if req.ListRequest.PerPage > 0 {
 		// then handle the pagination
 		from, to := api.Paginate(req.ListRequest, int(resp.Total))
-		resp.Clusters = resp.Clusters[from:to]
+		resp.Backups = resp.Backups[from:to]
 	}
 
 	ctx.JSON(http.StatusOK, &resp)
@@ -166,7 +182,7 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 	resp.Jobs = make([]*api.JobExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.r.GetBackupSchedules(false)
+	p.r.GetBackups(false)
 
 	for _, url := range p.r.Urls() {
 		data := p.r.Cmon(url)
