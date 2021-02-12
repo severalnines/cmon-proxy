@@ -112,7 +112,7 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/controllers/remove' -d'{"url":"1
 ### Clusters status overview
 
 ```bash
-$ curl -k 'https://localhost:19051/proxy/clusters/status' | jq
+$ curl -k -XPOST 'https://localhost:19051/proxy/clusters/status' -d'{"filters":[{"key":"tags", "matchall":["test","bitcoin"]}]}' | jq
 ```
 
 Returned fields:

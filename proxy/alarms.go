@@ -12,7 +12,16 @@ import (
 
 // RPCAlarmsOverview gives a high level overview of all cluster alarms
 func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
-	//logger := zap.L()
+	var req api.SimpleFilteredRequest
+
+	if ctx.Request.Method == http.MethodPost {
+		if err := ctx.BindJSON(&req); err != nil {
+			cmonapi.CtxWriteError(ctx,
+				cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
+					fmt.Sprint("Invalid request:", err.Error())))
+			return
+		}
+	}
 
 	resp := &api.AlarmsOverview{
 		AlarmCounts:             make(map[string]int),
@@ -34,6 +43,12 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 		}
 		// iterate by clusterIds... one by one..
 		for cid, clusterAlarms := range data.Alarms {
+			// tags filtration is possible here too
+			fn := func() []string { return data.ClusterTags(cid) }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
+
 			clusterType := data.ClusterType(cid)
 			if stat, found := resp.ByClusterType[clusterType]; !found || stat == nil {
 				resp.ByClusterType[clusterType] =

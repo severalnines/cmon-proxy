@@ -12,6 +12,17 @@ import (
 )
 
 func (p *Proxy) RPCJobsStatus(ctx *gin.Context) {
+	var req api.SimpleFilteredRequest
+
+	if ctx.Request.Method == http.MethodPost {
+		if err := ctx.BindJSON(&req); err != nil {
+			cmonapi.CtxWriteError(ctx,
+				cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
+					fmt.Sprint("Invalid request:", err.Error())))
+			return
+		}
+	}
+
 	resp := &api.JobsStatus{
 		JobCounts:             make(map[string]int),
 		JobCommands:           make(map[string]int),
@@ -32,6 +43,12 @@ func (p *Proxy) RPCJobsStatus(ctx *gin.Context) {
 		}
 		// iterate by clusterIds... one by one..
 		for _, job := range data.Jobs {
+			// tags filtration is possible here too
+			fn := func() []string { return data.ClusterTags(job.ClusterID) }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
+
 			clusterType := data.ClusterType(job.ClusterID)
 			if stat, found := resp.ByClusterType[clusterType]; !found || stat == nil {
 				resp.ByClusterType[clusterType] =

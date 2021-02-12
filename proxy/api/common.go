@@ -4,6 +4,10 @@ import (
 	"strings"
 )
 
+type SimpleFilteredRequest struct {
+	Filters []*Filter `json:"filters"`
+}
+
 // WithControllerID is used in replies to extend the standard cmon replies
 type WithControllerID struct {
 	ControllerID  string `json:"controller_id"`

@@ -13,7 +13,16 @@ import (
 
 // RPCBackupsStatus returns the backup and backup schedule stats for each cluster
 func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
-	//logger := zap.L()
+	var req api.SimpleFilteredRequest
+
+	if ctx.Request.Method == http.MethodPost {
+		if err := ctx.BindJSON(&req); err != nil {
+			cmonapi.CtxWriteError(ctx,
+				cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
+					fmt.Sprint("Invalid request:", err.Error())))
+			return
+		}
+	}
 
 	resp := &api.ClustersOverview{
 		ClusterStatus: make(map[string]int),
@@ -30,6 +39,12 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 			continue
 		}
 		for _, cluster := range data.Clusters.Clusters {
+			// tags filtration is possible here too
+			fn := func() []string { return cluster.Tags }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
+
 			if resp.ByClusterType[cluster.ClusterType] == nil {
 				resp.ByClusterType[cluster.ClusterType] = &api.ClustersOverview{
 					ClusterStatus: make(map[string]int),
