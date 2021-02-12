@@ -193,6 +193,10 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 			if !api.PassFilter(req.Filters, "cluster_type", cluster.ClusterType) {
 				continue
 			}
+			fn := func() []string { return cluster.Tags }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
 
 			for _, host := range cluster.Hosts {
 				// skip controller hosts
