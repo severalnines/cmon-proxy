@@ -1,6 +1,8 @@
 package api
 
-import "strings"
+import (
+	"strings"
+)
 
 // WithControllerID is used in replies to extend the standard cmon replies
 type WithControllerID struct {
@@ -23,9 +25,10 @@ type ListResponse struct {
 
 // Filter is a generic filter by a key and accepted values
 type Filter struct {
-	Key    string   `json:"key"`
-	Value  string   `json:"value,omitempty"`
-	Values []string `json:"values,omitempty"`
+	Key      string   `json:"key"`
+	Value    string   `json:"value,omitempty"`
+	Values   []string `json:"values,omitempty"`   /* OR like filter */
+	MatchAll []string `json:"matchall,omitempty"` /* all values specified here must match, for tags */
 }
 
 func (f *Filter) AcceptsValue(value string) bool {
@@ -40,6 +43,36 @@ func (f *Filter) AcceptsValue(value string) bool {
 	return f.Value == value
 }
 
+type LazyStringSlFn func() []string
+
+// PassTagsFilterLazy checks if all the defined tags in filter.MatchAll are in the 'tags' list
+func PassTagsFilterLazy(filters []*Filter, tagsFn LazyStringSlFn) bool {
+	for _, filter := range filters {
+		if filter == nil || filter.Key != "tags" || len(filter.MatchAll) < 1 {
+			continue
+		}
+
+		tags := tagsFn()
+		tagsMap := make(map[string]bool)
+		for _, tag := range tags {
+			tagsMap[tag] = true
+		}
+
+		for _, tag := range filter.MatchAll {
+			if _, found := tagsMap[tag]; !found {
+				// one of the required tags not found, fail
+				return false
+			}
+		}
+
+		// all tags found
+		return true
+	}
+
+	// no tags filter present
+	return true
+}
+
 func PassFilter(filters []*Filter, key, value string) bool {
 	// no filters at all... fine
 	if filters == nil || len(filters) < 1 {
@@ -47,7 +80,7 @@ func PassFilter(filters []*Filter, key, value string) bool {
 	}
 
 	for _, filter := range filters {
-		if filter.Key == key {
+		if filter != nil && filter.Key == key {
 			return filter.AcceptsValue(value)
 		}
 	}
@@ -65,7 +98,7 @@ func PassFilterLazy(filters []*Filter, key string, fn LazyStringFn) bool {
 	}
 
 	for _, filter := range filters {
-		if filter.Key == key {
+		if filter != nil && filter.Key == key {
 			return filter.AcceptsValue(fn())
 		}
 	}

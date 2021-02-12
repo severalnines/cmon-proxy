@@ -47,7 +47,7 @@ type Cluster struct {
 	ClusterName           string      `json:"cluster_name"`
 	ClusterType           string      `json:"cluster_type"`
 	Databases             []*Database `json:"databases,omitempty"`
-	Hosts                 []*Host     `json:"hosts"`
+	Hosts                 []*Host     `json:"hosts,omitempty"`
 	State                 string      `json:"state"`
 	MaintenanceModeActive bool        `json:"maintenance_mode_active"`
 	Tags                  []string    `json:"tags,omitempty"`
@@ -71,6 +71,7 @@ func (c *Cluster) Copy(withHosts, removeController bool) *Cluster {
 		ClusterType:           c.ClusterType,
 		State:                 c.State,
 		Databases:             c.Databases,
+		Tags:                  c.Tags,
 		MaintenanceModeActive: c.MaintenanceModeActive,
 	}
 	if c.WithClassName != nil {

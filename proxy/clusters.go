@@ -100,6 +100,10 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 			if !api.PassFilter(req.Filters, "cluster_type", cluster.ClusterType) {
 				continue
 			}
+			fn := func() []string { return cluster.Tags }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
 
 			clus := &api.ClusterExt{
 				WithControllerID: &api.WithControllerID{

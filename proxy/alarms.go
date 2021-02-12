@@ -116,6 +116,10 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 				func() string { return data.ClusterType(cid) }) {
 				continue
 			}
+			fn := func() []string { return data.ClusterTags(cid) }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
 			for _, alarm := range clusterAlarms.Alarms {
 				if !api.PassFilter(req.Filters, "severity_name", alarm.SeverityName) {
 					continue

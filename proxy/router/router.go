@@ -399,7 +399,7 @@ func (cmon *Cmon) ClusterType(clusterId uint64) string {
 	cmon.mtx.Lock()
 	defer cmon.mtx.Unlock()
 
-	if cmon.Clusters == nil || len(cmon.Clusters.Clusters) < 1 {
+	if cmon.Clusters == nil {
 		return ""
 	}
 
@@ -410,6 +410,27 @@ func (cmon *Cmon) ClusterType(clusterId uint64) string {
 	}
 
 	return ""
+}
+
+func (cmon *Cmon) ClusterTags(clusterId uint64) []string {
+	if cmon == nil || clusterId == 0 {
+		return nil
+	}
+
+	cmon.mtx.Lock()
+	defer cmon.mtx.Unlock()
+
+	if cmon.Clusters == nil {
+		return nil
+	}
+
+	for _, cluster := range cmon.Clusters.Clusters {
+		if cluster.ClusterID == clusterId {
+			return cluster.Tags
+		}
+	}
+
+	return nil
 }
 
 func (router *Router) GetBackups(forceUpdate bool) {

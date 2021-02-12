@@ -107,6 +107,10 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 				func() string { return data.ClusterType(job.ClusterID) }) {
 				continue
 			}
+			fn := func() []string { return data.ClusterTags(job.ClusterID) }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
 			if !api.PassFilter(req.Filters, "job_command", job.Command()) {
 				continue
 			}

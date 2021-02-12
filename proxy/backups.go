@@ -108,6 +108,10 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 				func() string { return data.ClusterType(backup.ClusterID) }) {
 				continue
 			}
+			fn := func() []string { return data.ClusterTags(backup.ClusterID) }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
 
 			b := &api.BackupExt{
 				WithControllerID: &api.WithControllerID{
@@ -206,6 +210,10 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 			}
 			if !api.PassFilterLazy(req.Filters, "cluster_type",
 				func() string { return data.ClusterType(job.ClusterID) }) {
+				continue
+			}
+			fn := func() []string { return data.ClusterTags(job.ClusterID) }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
 				continue
 			}
 			if !api.PassFilter(req.Filters, "status", job.Status) {

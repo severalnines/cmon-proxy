@@ -278,7 +278,8 @@ Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/pr
 *PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
-cluster_id, cluster_type, severity_name, type_name, hostname, component_name
+cluster_id, cluster_type, severity_name, type_name, hostname, component_name,
+tags
 
 ```bash
 $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' \
@@ -390,7 +391,7 @@ Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/pr
 *PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
-cluster_id, cluster_type, job_command
+cluster_id, cluster_type, job_command, tags
 
 ```bash
 $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
@@ -463,10 +464,10 @@ Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/pr
 *PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
-cluster_id, cluster_type
+cluster_id, cluster_type, tags
 
 ```bash
-$ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
+curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filters":[{"cluster_id": 234}]}' | jq
 ```
 
 The reply is the same as in case of jobs list, but this one returns only the
@@ -479,6 +480,33 @@ scheduled backup jobs only
   "last_updated": {
     /* ... */
   }
+}
+```
+
+### Backups list
+
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/backups.go
+
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+
+Supported filter keys for this request: controller_id, controller_url,
+cluster_id, cluster_type, tags, backup_id, status, method
+
+```bash
+curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filters":[{"cluster_id": 234}]}' | jq
+```
+
+```json
+{
+  "total": 12,
+  "backups": [
+    {
+      "controller_id": "home.kedz.eu",
+      "controller_url": "127.0.0.01:9501",
+      "class_name": "CmonBackupRecord",
+     /* ... */
+    }
+  ]
 }
 ```
 
