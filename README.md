@@ -457,6 +457,33 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
 }
 ```
 
+### Backup status overview
+
+Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/backups.go
+
+NOTE: tag filtration is possible
+
+```bash
+$ curl -k -XPOST 'https://localhost:19051/proxy/backups/status' -d'{}' | jq
+```
+
+```json
+{
+  "backups_count": {
+    "Completed": 11,
+    "Failed": 2
+  },
+  "by_controller": {
+    "10.216.111.243:123456": {
+      "backups_count": {},
+      "missing_schedules": 0,
+      "schedules_count": 0
+    },
+    /* ... */
+  }
+  /* ... */
+}
+
 ### Backup schedules list
 
 Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/jobs.go

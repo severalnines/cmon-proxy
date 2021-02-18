@@ -24,51 +24,87 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 		}
 	}
 
-	resp := &api.ClustersOverview{
-		ClusterStatus: make(map[string]int),
-		ClustersCount: make(map[string]int),
-		NodesCount:    make(map[string]int),
-		NodeStates:    make(map[string]int),
-		ByClusterType: make(map[string]*api.ClustersOverview),
+	resp := &api.BackupOverview{
+		BackupCounts:             make(map[string]int),
+		ByClusterType:            make(map[string]*api.BackupOverview),
+		BackupCountsByController: make(map[string]*api.BackupOverview),
 	}
 
+	// refresh clusters and backups too
 	p.r.GetAllClusterInfo(false)
+	p.r.GetBackups(false)
+
 	for _, url := range p.r.Urls() {
 		data := p.r.Cmon(url)
-		if data == nil || data.Clusters == nil {
+		if data == nil {
 			continue
 		}
-		for _, cluster := range data.Clusters.Clusters {
+
+		if resp.BackupCountsByController[url] == nil {
+			resp.BackupCountsByController[url] = &api.BackupOverview{
+				BackupCounts:  make(map[string]int),
+				ByClusterType: make(map[string]*api.BackupOverview),
+			}
+		}
+
+		for _, backup := range data.Backups {
 			// tags filtration is possible here too
-			fn := func() []string { return cluster.Tags }
+			fn := func() []string { return data.ClusterTags(backup.ClusterID) }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
 				continue
 			}
+			clusterType := data.ClusterType(backup.ClusterID)
 
-			if resp.ByClusterType[cluster.ClusterType] == nil {
-				resp.ByClusterType[cluster.ClusterType] = &api.ClustersOverview{
-					ClusterStatus: make(map[string]int),
-					ClustersCount: make(map[string]int),
-					NodesCount:    make(map[string]int),
-					NodeStates:    make(map[string]int),
+			if resp.ByClusterType[clusterType] == nil {
+				resp.ByClusterType[clusterType] = &api.BackupOverview{
+					BackupCounts:             make(map[string]int),
+					BackupCountsByController: make(map[string]*api.BackupOverview),
 				}
 			}
 
-			resp.ClusterStatus[cluster.State]++
-			resp.ByClusterType[cluster.ClusterType].ClusterStatus[cluster.State]++
+			resp.BackupCounts[backup.Status]++
+			resp.ByClusterType[clusterType].BackupCounts[backup.Status]++
 
-			resp.ClustersCount[url]++
-			resp.ByClusterType[cluster.ClusterType].ClustersCount[url]++
+			resp.BackupCountsByController[url].BackupCounts[backup.Status]++
 
-			resp.NodesCount[url] += len(cluster.Hosts) - 1
-			resp.ByClusterType[cluster.ClusterType].NodesCount[url] += len(cluster.Hosts) - 1
-
-			for _, host := range cluster.Hosts {
-				if host.Nodetype == "controller" {
-					continue
+			if resp.BackupCountsByController[url].ByClusterType[clusterType] == nil {
+				resp.BackupCountsByController[url].ByClusterType[clusterType] = &api.BackupOverview{
+					BackupCounts:             make(map[string]int),
+					BackupCountsByController: make(map[string]*api.BackupOverview),
 				}
-				resp.NodeStates[host.HostStatus]++
-				resp.ByClusterType[cluster.ClusterType].NodeStates[host.HostStatus]++
+			}
+
+			resp.BackupCountsByController[url].ByClusterType[clusterType].BackupCounts[backup.Status]++
+		}
+
+		schedsPerCluster := make(map[string]map[uint64]int)
+		for _, cid := range data.ClusterIDs() {
+			clusterType := data.ClusterType(cid)
+			if len(schedsPerCluster[clusterType]) == 0 {
+				schedsPerCluster[clusterType] = make(map[uint64]int)
+			}
+			schedsPerCluster[clusterType][cid] = 0
+		}
+		for _, sched := range data.BackupSchedules {
+			clusterType := data.ClusterType(sched.ClusterID)
+			schedsPerCluster[clusterType][sched.ClusterID]++
+		}
+
+		for clusterType, clusters := range schedsPerCluster {
+			if resp.ByClusterType[clusterType] == nil {
+				resp.ByClusterType[clusterType] = &api.BackupOverview{
+					BackupCounts:             make(map[string]int),
+					BackupCountsByController: make(map[string]*api.BackupOverview),
+				}
+			}
+
+			for _, schedules := range clusters {
+				if schedules == 0 {
+					resp.MissingSchedules++
+					resp.ByClusterType[clusterType].MissingSchedules++
+				}
+				resp.SchedulesCount += schedules
+				resp.ByClusterType[clusterType].SchedulesCount += schedules
 			}
 		}
 	}
