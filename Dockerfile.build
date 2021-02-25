@@ -1,0 +1,11 @@
+# build and test
+FROM eu.gcr.io/brave-night-121210/bar-go-builder:latest AS build
+RUN mkdir /src
+ADD ./ /src
+WORKDIR /src
+RUN make ci
+
+FROM scratch
+COPY --from=build /src/build/cmon-proxy.cmd /
+ENV GIN_MODE=release
+CMD ["/cmon-proxy.cmd"]
