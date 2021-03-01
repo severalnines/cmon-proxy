@@ -80,9 +80,15 @@ func Start() {
 		port = "19051"
 	}
 
-	config, err := config.Load("cmon-proxy.yaml")
+	cfg, err := config.Load("ccmgr.yaml")
 	if err != nil {
-		zap.L().Sugar().Fatalf("configfile problem: %s", err.Error())
+		zap.L().Sugar().Errorf("configfile problem: %s", err.Error())
+		// lets continue, with empty config
+		cfg = &config.Config{
+			// defaults
+			Filename: "ccmgr.yaml",
+			Logfile:  "ccmgr.log",
+		}
 	}
 
 	// get logger only after we have lodaded the configuration
@@ -106,7 +112,7 @@ func Start() {
 
 	zap.L().Info("Starting RPC service")
 
-	proxy, err := proxy.New(config)
+	proxy, err := proxy.New(cfg)
 	if err != nil {
 		log.Sugar().Fatalf("initialization problem: %s", err.Error())
 	}

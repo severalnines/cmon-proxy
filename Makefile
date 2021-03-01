@@ -6,6 +6,6 @@ ci:
 	GOOS=linux \
 	GO111MODULE=on go build \
         -a \
-        -o build/cmon-proxy.cmd \
+        -o build/ccmgr \
         -ldflags "-s -w -extldflags -static" \
         .

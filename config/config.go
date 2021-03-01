@@ -89,7 +89,7 @@ func Load(filename string) (*Config, error) {
 	}
 	// default configuration file name
 	if len(config.Logfile) < 1 {
-		config.Logfile = "cmon-proxy.log"
+		config.Logfile = "ccmgr.log"
 	}
 
 	// re-create the logger using the specified file name

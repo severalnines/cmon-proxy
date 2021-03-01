@@ -6,6 +6,6 @@ WORKDIR /src
 RUN make ci
 
 FROM scratch
-COPY --from=build /src/build/cmon-proxy.cmd /
+COPY --from=build /src/build/ccmgr /
 ENV GIN_MODE=release
-CMD ["/cmon-proxy.cmd"]
+CMD ["/ccmgr"]

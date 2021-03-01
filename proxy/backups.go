@@ -83,10 +83,20 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 			if len(schedsPerCluster[clusterType]) == 0 {
 				schedsPerCluster[clusterType] = make(map[uint64]int)
 			}
+			// tags filtration is possible here too
+			fn := func() []string { return data.ClusterTags(cid) }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
 			schedsPerCluster[clusterType][cid] = 0
 		}
 		for _, sched := range data.BackupSchedules {
 			clusterType := data.ClusterType(sched.ClusterID)
+			// tags filtration is possible here too
+			fn := func() []string { return data.ClusterTags(sched.ClusterID) }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
 			schedsPerCluster[clusterType][sched.ClusterID]++
 		}
 

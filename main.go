@@ -9,6 +9,6 @@ import (
 // entry point. no logic here.
 func main() {
 	logger.New(logger.DefaultConfig())
-	zap.L().Info("cmon-proxy")
+	zap.L().Info("ClusterControl Manager")
 	rpcserver.Start()
 }
