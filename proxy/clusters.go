@@ -102,9 +102,7 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 			continue
 		}
 
-		resp.LastUpdated[url] = &cmonapi.NullTime{
-			T: data.Clusters.RequestProcessed,
-		}
+		resp.LastUpdated[url] = &data.Clusters.RequestProcessed
 		for _, cluster := range data.Clusters.Clusters {
 			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(cluster.ClusterID, 10)) {
 				continue
@@ -196,9 +194,7 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 			continue
 		}
 
-		resp.LastUpdated[url] = &cmonapi.NullTime{
-			T: data.Clusters.RequestProcessed,
-		}
+		resp.LastUpdated[url] = &data.Clusters.RequestProcessed
 		for _, cluster := range data.Clusters.Clusters {
 			// yeah host instances have 'clusterid' instead of 'cluster_id' :-S
 			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(cluster.ClusterID, 10)) ||

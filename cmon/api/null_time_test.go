@@ -17,15 +17,15 @@ func TestNullTime_UnmarshalJSON(t *testing.T) {
 	if err := json.Unmarshal(j1, s1); err != nil {
 		t.Error(err)
 	}
-	if s1.Date.String() != "0001-01-01T00:00:00Z" {
-		t.Errorf("expected %s, got %s", "0001-01-01T00:00:00Z", s1.Date.String())
+	if s1.Date.String() != "" {
+		t.Errorf("expected %s, got %s", "", s1.Date.String())
 	}
 	s2 := new(S)
 	if err := json.Unmarshal(j2, s2); err != nil {
 		t.Error(err)
 	}
-	if s2.Date.String() != "0001-01-01T00:00:00Z" {
-		t.Errorf("expected %s, got %s", "0001-01-01T00:00:00Z", s2.Date.String())
+	if s2.Date.String() != "" {
+		t.Errorf("expected %s, got %s", "", s2.Date.String())
 	}
 	s3 := new(S)
 	if err := json.Unmarshal(j3, s3); err != nil {

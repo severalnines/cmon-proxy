@@ -198,7 +198,7 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 		}
 		var lastUpdated time.Time
 		if c.Clusters != nil && c.Clusters.WithResponseData != nil {
-			lastUpdated = c.Clusters.RequestProcessed
+			lastUpdated = c.Clusters.RequestProcessed.T
 		}
 		if !forceUpdate &&
 			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
@@ -260,7 +260,7 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 		if len(c.Alarms) > 0 {
 			for _, reply := range c.Alarms {
 				if reply != nil && reply.WithResponseData != nil {
-					lastUpdated = reply.RequestProcessed
+					lastUpdated = reply.RequestProcessed.T
 					break
 				}
 			}

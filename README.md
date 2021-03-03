@@ -15,6 +15,59 @@ https://github.com/severalnines/cmon-proxy/blob/main/cmon-proxy.yaml.sample
 
 ## RPC endpoints
 
+### Authentication
+
+During first startup the daemon is generating a default admin user and a
+password, it can be found in its log file.
+
+```
+2021-03-02T14:06:11.347+0100 info Default 'admin' user has been created with password '7052369b1abd'
+```
+
+#### Login request
+
+LoginRequest struct: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/user.go#L8
+
+```bash
+curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/login'  -d'{"username":"admin","password":"7052369b1abd"}' -c cookies.jar
+```
+```json
+{
+  "request_created": "",
+  "request_processed": "2021-03-03T11:17:43+01:00",
+  "request_status": "Ok",
+  "username": {
+    "username": "admin"
+  }
+}
+```
+
+#### Logout request
+
+(it can be either POST or GET request)
+
+```bash
+curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/logout'  -d'{}' -b cookies.jar
+```
+
+#### Check (get current user data) request
+
+If user is not logged in the request will throw a 401 HTTP status
+
+```bash
+$ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/check'  -d'{}' -b cookies.jar
+```
+```json
+{
+  "request_created": "",
+  "request_processed": "2021-03-03T11:18:34+01:00",
+  "request_status": "Ok",
+  "username": {
+    "username": "admin"
+  }
+}
+```
+
 ### Controllers status
 
 This endpoint will gives an oversview of the available configured cmon instances

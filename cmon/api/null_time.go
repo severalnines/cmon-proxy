@@ -14,6 +14,9 @@ type NullTime struct {
 
 // String returns datetime string in RFC3339.
 func (nt *NullTime) String() string {
+	if nt == nil || nt.T.IsZero() {
+		return ""
+	}
 	return nt.T.Format(time.RFC3339)
 }
 
@@ -35,5 +38,5 @@ func (nt *NullTime) UnmarshalJSON(b []byte) error {
 
 // MarshalJSON implements json.Marshaler.
 func (nt *NullTime) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + nt.String() + `"`), nil
+	return json.Marshal(nt.String())
 }

@@ -3,7 +3,6 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -132,11 +131,11 @@ type WithClassName struct {
 }
 
 type WithResponseData struct {
-	RequestID        uint64    `json:"request_id"`
-	RequestCreated   time.Time `json:"request_created"`
-	RequestProcessed time.Time `json:"request_processed"`
-	RequestStatus    string    `json:"request_status"`
-	ErrorString      string    `json:"error_string"`
+	RequestID        uint64   `json:"request_id,omitempty"`
+	RequestCreated   NullTime `json:"request_created,omitempty"`
+	RequestProcessed NullTime `json:"request_processed,omitempty"`
+	RequestStatus    string   `json:"request_status,omitempty"`
+	ErrorString      string   `json:"error_string,omitempty"`
 }
 
 type WithTotal struct {

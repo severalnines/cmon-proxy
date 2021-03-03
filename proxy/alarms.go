@@ -118,9 +118,7 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 		alarms := data.Alarms
 
 		if alarms[0] != nil && alarms[0].WithResponseData != nil {
-			resp.LastUpdated[url] = &cmonapi.NullTime{
-				T: alarms[0].RequestProcessed,
-			}
+			resp.LastUpdated[url] = &alarms[0].RequestProcessed
 		}
 
 		for cid, clusterAlarms := range alarms {

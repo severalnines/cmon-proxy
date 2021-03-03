@@ -13,12 +13,11 @@ import (
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 
-	//"github.com/severalnines/bar-user-auth-api/auth"
-	"github.com/severalnines/bar-user-auth-api/session"
 	"github.com/severalnines/ccx/go/http_handlers"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/opts"
 	"github.com/severalnines/cmon-proxy/proxy"
+	"github.com/severalnines/cmon-proxy/rpcserver/session"
 	"go.uber.org/zap"
 )
 
@@ -102,10 +101,6 @@ func Start() {
 	s.OPTIONS("*any", http_handlers.Options)
 	s.Use(session.Sessions())
 
-	/*
-		s.Use(auth.Check)
-	*/
-
 	if opts.Opts.DebugWebRpc {
 		s.Use(WebRpcDebugMiddleware)
 	}
@@ -122,7 +117,19 @@ func Start() {
 	// aggregating APIs for WEB UI v0
 	p := s.Group("/proxy")
 	{
+		auth := p.Group("/auth")
+		{
+			auth.GET("/check", proxy.RPCAuthCheckHandler)
+			auth.POST("/check", proxy.RPCAuthCheckHandler)
+
+			auth.POST("/login", proxy.RPCAuthLoginHandler)
+
+			auth.GET("/logout", proxy.RPCAuthLogoutHandler)
+			auth.POST("/logout", proxy.RPCAuthLogoutHandler)
+		}
+
 		clusters := p.Group("/clusters")
+		clusters.Use(proxy.RPCAuthMiddleware)
 		{
 			clusters.GET("/status", proxy.RPCClustersStatus)
 			clusters.POST("/status", proxy.RPCClustersStatus)
@@ -135,6 +142,7 @@ func Start() {
 		}
 
 		cmons := p.Group("/controllers")
+		cmons.Use(proxy.RPCAuthMiddleware)
 		{
 			cmons.GET("/status", proxy.RPCControllerStatus)
 			cmons.POST("/status", proxy.RPCControllerStatus)
@@ -144,6 +152,7 @@ func Start() {
 		}
 
 		alarms := p.Group("/alarms")
+		alarms.Use(proxy.RPCAuthMiddleware)
 		{
 			alarms.GET("/status", proxy.RPCAlarmsOverview)
 			alarms.POST("/status", proxy.RPCAlarmsOverview)
@@ -153,6 +162,7 @@ func Start() {
 		}
 
 		jobs := p.Group("/jobs")
+		jobs.Use(proxy.RPCAuthMiddleware)
 		{
 			jobs.GET("/status", proxy.RPCJobsStatus)
 			jobs.POST("/status", proxy.RPCJobsStatus)
@@ -162,6 +172,7 @@ func Start() {
 		}
 
 		backups := p.Group("/backups")
+		backups.Use(proxy.RPCAuthMiddleware)
 		{
 			backups.GET("/status", proxy.RPCBackupsStatus)
 			backups.POST("/status", proxy.RPCBackupsStatus)

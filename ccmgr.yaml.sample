@@ -17,4 +17,4 @@ instances:
       password: cmonpassword
     - url: 10.216.111.55
 timeout: 180
-logfile: cmon-proxy.log
+logfile: ccmgr.log
