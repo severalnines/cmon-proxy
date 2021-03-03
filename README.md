@@ -167,6 +167,8 @@ URLS:
 - proxy/controllers/test: to test a controller
 - proxy/controllers/add: to add a new controller
 
+The controller parameters can be seen here: https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L31
+
 ```bash
 $ curl -XPOST -k 'https://localhost:19051/proxy/controllers/test' -d'{"controller":{"url":"192.168.0.100:9501","name":"testadd","username":"someuser","password":"password"}}' | jq
 ````
