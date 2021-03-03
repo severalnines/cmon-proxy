@@ -13,5 +13,14 @@ type LoginRequest struct {
 type LoginResponse struct {
 	*cmonapi.WithResponseData `json:",inline"`
 
-	User *config.ProxyUser `json:"username,omitempty"`
+	User *config.ProxyUser `json:"user,omitempty"`
+}
+
+type UpdateUserRequest struct {
+	User *config.ProxyUser `json:"user,omitempty"`
+}
+
+type SetPasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
 }

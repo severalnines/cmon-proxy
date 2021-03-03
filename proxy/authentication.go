@@ -201,3 +201,96 @@ func (p *Proxy) RPCAuthLogoutHandler(ctx *gin.Context) {
 
 	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 }
+
+func (p *Proxy) RPCAuthUpdateUserHandler(ctx *gin.Context) {
+	var req api.UpdateUserRequest
+	var resp api.LoginResponse
+	resp.WithResponseData = &cmonapi.WithResponseData{
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+		RequestStatus:    cmonapi.RequestStatusAuthRequired,
+		ErrorString:      "not authenticated",
+	}
+
+	if err := ctx.BindJSON(&req); err != nil || req.User == nil {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
+				fmt.Sprint("Invalid request:", err.Error())))
+		return
+	}
+
+	if u := getUserForSession(ctx); u != nil {
+		if u.Username != req.User.Username {
+			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
+			resp.ErrorString = "wrong username"
+		} else if err := req.User.Validate(); err != nil {
+			resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+			resp.ErrorString = "wrong user: " + err.Error()
+		} else {
+			// we do not allow updating password from this request
+			req.User.PasswordHash = ""
+			if err := p.r.Config.UpdateUser(req.User); err != nil {
+				resp.RequestStatus = cmonapi.RequestStatusUnknownError
+				resp.ErrorString = "failed to update user: " + err.Error()
+			} else {
+				// also update the user in session
+				updatedUser, _ := p.r.Config.GetUser(req.User.Username)
+				setUserForSession(ctx, updatedUser)
+				// return the updated user instance
+				resp.User = updatedUser.Copy(false)
+
+				resp.RequestStatus = cmonapi.RequestStatusOk
+				resp.ErrorString = ""
+			}
+		}
+	}
+
+	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+}
+
+func (p *Proxy) RPCAuthSetPasswordHandler(ctx *gin.Context) {
+	var req api.SetPasswordRequest
+	var resp api.LoginResponse
+	resp.WithResponseData = &cmonapi.WithResponseData{
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+		RequestStatus:    cmonapi.RequestStatusAuthRequired,
+		ErrorString:      "not authenticated",
+	}
+
+	if ctx.Request.Method == http.MethodPost {
+		if err := ctx.BindJSON(&req); err != nil {
+			cmonapi.CtxWriteError(ctx,
+				cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
+					fmt.Sprint("Invalid request:", err.Error())))
+			return
+		}
+	}
+
+	if u := getUserForSession(ctx); u != nil {
+		resp.User = u.Copy(false)
+
+		if err := u.ValidatePassword(req.OldPassword); err != nil {
+			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
+			resp.ErrorString = "wrong old password"
+		} else if len(req.NewPassword) < 1 {
+			resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+			resp.ErrorString = "invalid new password"
+		} else {
+			resp.RequestStatus = cmonapi.RequestStatusOk
+			resp.ErrorString = ""
+
+			u.SetPassword(req.NewPassword)
+			if err := p.r.Config.UpdateUser(u); err != nil {
+				resp.RequestStatus = cmonapi.RequestStatusUnknownError
+				resp.ErrorString = "failed to update user: " + err.Error()
+			} else {
+				// also update the user in session
+				setUserForSession(ctx, u)
+
+				resp.RequestStatus = cmonapi.RequestStatusOk
+				resp.ErrorString = ""
+			}
+		}
+	}
+
+	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+}

@@ -126,6 +126,9 @@ func Start() {
 
 			auth.GET("/logout", proxy.RPCAuthLogoutHandler)
 			auth.POST("/logout", proxy.RPCAuthLogoutHandler)
+
+			auth.POST("/update", proxy.RPCAuthUpdateUserHandler)
+			auth.POST("/setpassword", proxy.RPCAuthSetPasswordHandler)
 		}
 
 		clusters := p.Group("/clusters")

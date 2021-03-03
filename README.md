@@ -68,6 +68,44 @@ $ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/check'  -d'{}' -b cookie
 }
 ```
 
+#### Update the user details
+
+Updating the ProxyUser object fields (you must send all, except passwordash it
+is going to be discarded by this request anyway, you can't udpate password using
+this request)
+ProxUser fields: https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L23
+
+```bash
+$ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/update'  -d'{"user":{"username":"admin","email":"kedz@kedz.eu"}}' -b cookies.jar | jq
+```
+```json
+{
+  "request_created": "",
+  "request_processed": "2021-03-03T12:07:05+01:00",
+  "request_status": "Ok",
+  "user": {
+    "username": "admin",
+    "email": "kedz@kedz.eu"
+  }
+}
+```
+
+#### Update user password
+
+```bash
+$ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/setpassword'  -d'{"old_password":"7052369b1abd","new_password":"password"}' -b cookies.jar | jq
+```
+```json
+{
+  "request_created": "",
+  "request_processed": "2021-03-03T12:10:16+01:00",
+  "request_status": "Ok",
+  "user": {
+    "username": "kedz"
+  }
+}
+```json
+
 ### Controllers status
 
 This endpoint will gives an oversview of the available configured cmon instances
