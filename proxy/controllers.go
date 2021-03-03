@@ -28,7 +28,9 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		mtx.Unlock()
 
 		if status == nil {
-			status = &api.ControllerStatus{Url: addr}
+			status = &api.ControllerStatus{
+				Url:         addr,
+				FrontendUrl: c.Client.Instance.FrontendUrl}
 		}
 
 		status.Name = c.Client.Instance.Name

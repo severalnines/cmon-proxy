@@ -25,6 +25,7 @@ type ControllerStatus struct {
 	ControllerID  string     `json:"controller_id"`
 	Name          string     `json:"controller_name"`
 	Url           string     `json:"url"`
+	FrontendUrl   string     `json:"fronted_url,omitempty"`
 	Version       string     `json:"version"`
 	StatusMessage string     `json:"status_message"`
 	Status        CmonStatus `json:"status"`
