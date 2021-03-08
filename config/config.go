@@ -81,7 +81,7 @@ func (cfg *Config) Save() error {
 }
 
 // Load loads the configuration from the specified file name
-func Load(filename string) (*Config, error) {
+func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	config := new(Config)
 
 	contents, err := ioutil.ReadFile(filename)
@@ -114,22 +114,25 @@ func Load(filename string) (*Config, error) {
 	loggerConfig.LogFileName = config.Logfile
 	logger.New(loggerConfig) // this replaces the global
 
-	zap.L().Info(fmt.Sprintf("Loaded configuration (%d cmon instances)", len(config.Instances)))
-	zap.L().Info(fmt.Sprintf("Using logfile %s", config.Logfile))
+	// do not log, and do not create default user when invoked from CLI
+	if len(loadFromCli) < 1 || !loadFromCli[0] {
+		zap.L().Info(fmt.Sprintf("Loaded configuration (%d cmon instances)", len(config.Instances)))
+		zap.L().Info(fmt.Sprintf("Using logfile %s", config.Logfile))
 
-	if len(config.Users) < 1 {
-		randBytes := make([]byte, 6)
-		rand.Read(randBytes)
-		user := &ProxyUser{Username: "admin"}
-		user.SetPassword(hex.EncodeToString(randBytes))
-		if err := config.AddUser(user); err != nil {
-			zap.L().Fatal(fmt.Sprintf("Couldn't create default admin user: %s", err.Error()))
+		if len(config.Users) < 1 {
+			randBytes := make([]byte, 6)
+			rand.Read(randBytes)
+			user := &ProxyUser{Username: "admin"}
+			user.SetPassword(hex.EncodeToString(randBytes))
+			if err := config.AddUser(user); err != nil {
+				zap.L().Fatal(fmt.Sprintf("Couldn't create default admin user: %s", err.Error()))
+			} else {
+				zap.L().Info(fmt.Sprintf("Default 'admin' user has been created with password '%s'", hex.EncodeToString(randBytes)))
+			}
+			defer config.Save()
 		} else {
-			zap.L().Info(fmt.Sprintf("Default 'admin' user has been created with password '%s'", hex.EncodeToString(randBytes)))
+			zap.L().Info(fmt.Sprintf("Found %d users in configuration", len(config.Users)))
 		}
-		defer config.Save()
-	} else {
-		zap.L().Info(fmt.Sprintf("Found %d users in configuration", len(config.Users)))
 	}
 
 	return config, nil

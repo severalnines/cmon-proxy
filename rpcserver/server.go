@@ -186,6 +186,12 @@ func Start() {
 			backups.GET("/schedules", proxy.RPCBackupJobsList)
 			backups.POST("/schedules", proxy.RPCBackupJobsList)
 		}
+
+		admin := p.Group("/admin")
+		{
+			admin.GET("/reload", proxy.RPCAdminReload)
+			admin.POST("/reload", proxy.RPCAdminReload)
+		}
 	}
 
 	hs := &http.Server{

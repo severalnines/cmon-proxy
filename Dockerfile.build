@@ -7,5 +7,6 @@ RUN make ci
 
 FROM scratch
 COPY --from=build /src/build/ccmgr /
+COPY --from=build /src/build/ccmgradm /
 ENV GIN_MODE=release
 CMD ["/ccmgr"]

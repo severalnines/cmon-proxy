@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/severalnines/cmon-proxy/cmon"
@@ -30,12 +31,14 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		if status == nil {
 			status = &api.ControllerStatus{
 				Url:         addr,
-				FrontendUrl: c.Client.Instance.FrontendUrl}
+				FrontendUrl: c.Client.Instance.FrontendUrl,
+			}
 		}
 
 		status.Name = c.Client.Instance.Name
 		status.ControllerID = c.Client.ControllerID()
 		status.Status = api.Ok
+		status.LastUpdated.T = time.Now()
 
 		if c.PingError != nil {
 			status.Status = api.Failed
@@ -55,6 +58,10 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		} else if len(c.Client.ServerVersion()) > 0 {
 			// but we can go with the one from server header too
 			status.Version = c.Client.ServerVersion()
+		}
+
+		if status.Status == api.Ok {
+			status.LastSeen.T = time.Now()
 		}
 
 		// persist in cache for later use
