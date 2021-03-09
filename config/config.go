@@ -46,6 +46,7 @@ type Config struct {
 	Timeout         int             `yaml:"timeout,omitempty"`
 	Logfile         string          `yaml:"logfile,omitempty"`
 	Users           []*ProxyUser    `yaml:"users,omitempty"`
+	FrontendPath    string          `yaml:"frontend_path,omitempty" json:"frontend_path,omitempty"`
 
 	mtx *sync.RWMutex
 }
@@ -95,6 +96,11 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 
 	config.mtx = &sync.RWMutex{}
 	config.Filename = filename
+
+	// a default value for docker... FIXME
+	if len(config.FrontendPath) < 1 {
+		config.FrontendPath = "/app"
+	}
 
 	// we don't want nulls
 	if config.Instances == nil {

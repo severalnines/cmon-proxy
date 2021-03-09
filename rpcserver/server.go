@@ -3,15 +3,21 @@ package rpcserver
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
+	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 
 	"github.com/severalnines/ccx/go/http_handlers"
 	"github.com/severalnines/cmon-proxy/config"
@@ -68,6 +74,36 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 		c.ClientIP(), int64(elapsed/time.Millisecond), c.Copy().Writer.Status(), bodyWriter.responseBody.String())
 }
 
+func serveFrontend(s *gin.Engine, cfg *config.Config) {
+	fmt.Println("xxx")
+	s.StaticFS("/static", gin.Dir(path.Join(cfg.FrontendPath, "/static"), false))
+	s.StaticFS("/build", gin.Dir(path.Join(cfg.FrontendPath, "/build"), false))
+	filepath.Walk(cfg.FrontendPath, func(p string, info fs.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+		if strings.Contains(p, "/static/") || strings.Contains(p, "/build/") {
+			return nil
+		}
+		s.StaticFile(path.Base(p), p)
+		return nil
+	})
+
+	// and redirect anything to index.html
+	s.NoRoute(func(c *gin.Context) {
+		if c.Request == nil && c.Request.URL == nil && strings.HasPrefix(c.Request.URL.Path, "/proxy") {
+			var resp cmonapi.WithResponseData
+			resp.RequestStatus = cmonapi.RequestStatusObjectNotFound
+			resp.ErrorString = "path not found"
+
+			c.JSON(http.StatusNotFound, resp)
+			return
+		}
+		// everything else shall go to web
+		c.File(path.Join(cfg.FrontendPath, "index.html"))
+	})
+}
+
 // Start is starting the service
 func Start() {
 	if !opts.Opts.DebugWebRpc {
@@ -95,7 +131,6 @@ func Start() {
 
 	s := gin.New()
 	s.Use(ginzap.RecoveryWithZap(log, true))
-	s.NoRoute(http_handlers.NoRoute)
 	s.NoMethod(http_handlers.NoMethod)
 	s.Use(http_handlers.Middleware)
 	s.OPTIONS("*any", http_handlers.Options)
@@ -113,6 +148,9 @@ func Start() {
 	}
 	// do initial connection to the nodes
 	proxy.Authenticate()
+
+	// to serve the static files
+	serveFrontend(s, cfg)
 
 	// aggregating APIs for WEB UI v0
 	p := s.Group("/proxy")
