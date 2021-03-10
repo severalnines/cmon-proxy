@@ -13,7 +13,7 @@ import (
 // RPCAdminReload makes the proxy to reload its configuration
 func (p *Proxy) RPCAdminReload(ctx *gin.Context) {
 	zap.L().Info(
-		fmt.Sprintf("[AUDIT] Configuration reload requestd (source %s / %s)",
+		fmt.Sprintf("[AUDIT] Configuration reload requested (source %s / %s)",
 			ctx.ClientIP(), ctx.Request.UserAgent()))
 
 	if newConfig, err := config.Load(p.r.Config.Filename); newConfig != nil && err == nil {
