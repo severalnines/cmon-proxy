@@ -3,7 +3,6 @@ package rpcserver
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -74,10 +73,12 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 }
 
 func serveFrontend(s *gin.Engine, cfg *config.Config) {
-	fmt.Println("xxx")
 	s.StaticFS("/static", gin.Dir(path.Join(cfg.FrontendPath, "/static"), false))
 	s.StaticFS("/build", gin.Dir(path.Join(cfg.FrontendPath, "/build"), false))
-	filepath.Walk(cfg.FrontendPath, func(p string, info os.FileInfo, err error) error {
+	err := filepath.Walk(cfg.FrontendPath, func(p string, info os.FileInfo, err error) error {
+		if info == nil || err != nil {
+			return err
+		}
 		if info.IsDir() {
 			return nil
 		}
@@ -87,6 +88,9 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) {
 		s.StaticFile(path.Base(p), p)
 		return nil
 	})
+	if err != nil {
+		zap.L().Sugar().Warnf("Can't serve static HTML files: %s", err.Error())
+	}
 
 	// and redirect anything to index.html
 	s.NoRoute(func(c *gin.Context) {
@@ -116,13 +120,8 @@ func Start() {
 
 	cfg, err := config.Load("ccmgr.yaml")
 	if err != nil {
-		zap.L().Sugar().Errorf("configfile problem: %s", err.Error())
-		// lets continue, with empty config
-		cfg = &config.Config{
-			// defaults
-			Filename: "ccmgr.yaml",
-			Logfile:  "ccmgr.log",
-		}
+		// we have nice default values from ::Load() method
+		zap.L().Sugar().Warnf("configfile problem: %s", err.Error())
 	}
 
 	// get logger only after we have lodaded the configuration

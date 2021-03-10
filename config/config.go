@@ -85,13 +85,12 @@ func (cfg *Config) Save() error {
 func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	config := new(Config)
 
+	newConfig := true
 	contents, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return config, err
-	}
-
-	if err := yaml.Unmarshal(contents, config); err != nil {
-		return config, err
+	if err == nil && len(contents) > 0 {
+		// unmarshal the contents if we could read anything
+		err = yaml.Unmarshal(contents, config)
+		newConfig = false
 	}
 
 	config.mtx = &sync.RWMutex{}
@@ -141,7 +140,11 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 		}
 	}
 
-	return config, nil
+	if newConfig {
+		config.Save()
+	}
+
+	return config, err
 }
 
 // ControllerUrls returns the URLs of the configured controllers
