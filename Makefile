@@ -28,3 +28,5 @@ getfrontendfiles:
 build: getfrontendfiles
 	docker build -t severalnines/cmon-proxy . -f Dockerfile.build
 
+run: build
+	docker run -p 19051:19051 severalnines/cmon-proxy
