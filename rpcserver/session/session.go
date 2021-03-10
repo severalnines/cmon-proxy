@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	SessionTTL = time.Hour
+	SessionTTL = time.Hour * 12
 	cookieName = "sid"
 )
 
