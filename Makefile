@@ -24,3 +24,7 @@ getfrontendfiles:
 	docker rm -f cmonproxyfe
 	echo "Pulled frontend files:"
 	find ./app
+
+build: getfrontendfiles
+	docker build -t severalnines/cmon-proxy . -f Dockerfile.build
+
