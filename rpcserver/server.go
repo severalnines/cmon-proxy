@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -78,7 +77,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) {
 	fmt.Println("xxx")
 	s.StaticFS("/static", gin.Dir(path.Join(cfg.FrontendPath, "/static"), false))
 	s.StaticFS("/build", gin.Dir(path.Join(cfg.FrontendPath, "/build"), false))
-	filepath.Walk(cfg.FrontendPath, func(p string, info fs.FileInfo, err error) error {
+	filepath.Walk(cfg.FrontendPath, func(p string, info os.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil
 		}
