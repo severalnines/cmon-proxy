@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/severalnines/cmon-proxy/config"
 	"go.uber.org/zap"
 )
 
@@ -27,8 +27,8 @@ var (
 )
 
 // Sessions is the sessions middleware
-func Sessions() gin.HandlerFunc {
-	return sessions.Sessions(cookieName, getStore())
+func Sessions(cfg *config.Config) gin.HandlerFunc {
+	return sessions.Sessions(cookieName, getStore(cfg))
 }
 
 // Destroy is destroying the session
@@ -42,18 +42,10 @@ func SessionDestroy(ctx *gin.Context) {
 		true)
 }
 
-func getStore() sessions.Store {
+func getStore(cfg *config.Config) sessions.Store {
 	var store sessions.Store
 	store = cookie.NewStore(getSessionKeys()...)
-	ttl := os.Getenv("SESSION_TTL")
-	sTTL := SessionTTL
-	if ttl != "" {
-		s, err := strconv.ParseInt(ttl, 10, 0)
-		if err != nil {
-			zap.L().Fatal(fmt.Sprintf("invalid value for SESSION_TTL env variable \"%s\": %v\n", ttl, err))
-		}
-		sTTL = time.Second * time.Duration(s)
-	}
+	sTTL := time.Duration(cfg.SessionTtl)
 	store.Options(sessions.Options{
 		Domain:   domain,
 		MaxAge:   int(sTTL.Seconds()),

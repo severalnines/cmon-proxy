@@ -10,4 +10,4 @@ COPY --from=build /src/build/ccmgr /
 COPY --from=build /src/build/ccmgradm /
 COPY --from=build /src/app /app
 ENV GIN_MODE=release
-CMD ["/ccmgr"]
+CMD ["/ccmgr","--basedir=/data"]

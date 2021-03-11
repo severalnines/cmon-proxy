@@ -8,12 +8,16 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/big"
+	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/logger"
+	"github.com/severalnines/cmon-proxy/opts"
 	"golang.org/x/crypto/pbkdf2"
 
 	"go.uber.org/zap"
@@ -47,6 +51,10 @@ type Config struct {
 	Logfile         string          `yaml:"logfile,omitempty"`
 	Users           []*ProxyUser    `yaml:"users,omitempty"`
 	FrontendPath    string          `yaml:"frontend_path,omitempty" json:"frontend_path,omitempty"`
+	Port            int             `yaml:"port" json:"port"`
+	TlsCert         string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
+	TlsKey          string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
+	SessionTtl      int64           `yaml:"session_ttl" json:"session_ttl"`
 
 	mtx *sync.RWMutex
 }
@@ -84,21 +92,43 @@ func (cfg *Config) Save() error {
 // Load loads the configuration from the specified file name
 func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	config := new(Config)
+	defer config.Save()
 
-	newConfig := true
 	contents, err := ioutil.ReadFile(filename)
 	if err == nil && len(contents) > 0 {
 		// unmarshal the contents if we could read anything
 		err = yaml.Unmarshal(contents, config)
-		newConfig = false
+	}
+	// for safety reasons
+	if _, statErr := os.Stat(filename); statErr == nil && err != nil {
+		// file exists but we failed to load, lets back it up
+		fileback := filename + ".bak" + time.Now().Format(time.RFC3339)
+		os.Rename(filename, fileback)
 	}
 
 	config.mtx = &sync.RWMutex{}
 	config.Filename = filename
 
-	// a default value for docker... FIXME
+	// a default value for docker...
 	if len(config.FrontendPath) < 1 {
 		config.FrontendPath = "/app"
+	}
+	if len(config.TlsCert) < 1 {
+		config.TlsCert = path.Join(opts.Opts.BaseDir, "server.crt")
+	}
+	if len(config.TlsKey) < 1 {
+		config.TlsKey = path.Join(opts.Opts.BaseDir, "server.key")
+	}
+	if config.Port <= 0 {
+		config.Port = 19051
+	}
+	if config.SessionTtl <= int64(time.Hour) {
+		config.SessionTtl = int64(time.Hour)
+	}
+
+	// some env vars are overriding main options
+	if port, _ := strconv.Atoi(os.Getenv("PORT")); port > 0 {
+		config.Port = port
 	}
 
 	// we don't want nulls
@@ -111,7 +141,7 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 	// default configuration file name
 	if len(config.Logfile) < 1 {
-		config.Logfile = "ccmgr.log"
+		config.Logfile = path.Join(opts.Opts.BaseDir, "ccmgr.log")
 	}
 
 	// re-create the logger using the specified file name
@@ -138,10 +168,6 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 		} else {
 			zap.L().Info(fmt.Sprintf("Found %d users in configuration", len(config.Users)))
 		}
-	}
-
-	if newConfig {
-		config.Save()
 	}
 
 	return config, err
@@ -233,11 +259,11 @@ func (user *ProxyUser) SetPassword(password string) error {
 	saltBytes := make([]byte, 8)
 	rand.Read(saltBytes) // be optimistic here
 
-	steps, _ := rand.Int(rand.Reader, big.NewInt(4000)) // so max 5k rounds
+	steps, _ := rand.Int(rand.Reader, big.NewInt(10240)) // max rounds
 	if steps == nil {
-		steps = big.NewInt(123) // fall back in case of error
+		steps = big.NewInt(1024) // fall back in case of error
 	}
-	steps = steps.Add(steps, big.NewInt(1000)) // min 1000 rounds
+	steps = steps.Add(steps, big.NewInt(2560)) // min 2.5k rounds
 	encrypted := pbkdf2.Key([]byte(password), saltBytes, int(steps.Int64()), 32, sha256.New)
 
 	user.PasswordHash = fmt.Sprintf("%s:%d:%s",

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -113,12 +114,7 @@ func Start() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "19051"
-	}
-
-	cfg, err := config.Load("ccmgr.yaml")
+	cfg, err := config.Load(path.Join(opts.Opts.BaseDir, "ccmgr.yaml"))
 	if err != nil {
 		// we have nice default values from ::Load() method
 		zap.L().Sugar().Warnf("configfile problem: %s", err.Error())
@@ -132,7 +128,7 @@ func Start() {
 	s.NoMethod(http_handlers.NoMethod)
 	s.Use(http_handlers.Middleware)
 	s.OPTIONS("*any", http_handlers.Options)
-	s.Use(session.Sessions())
+	s.Use(session.Sessions(cfg))
 
 	if opts.Opts.DebugWebRpc {
 		s.Use(WebRpcDebugMiddleware)
@@ -232,7 +228,7 @@ func Start() {
 
 	hs := &http.Server{
 		Handler:      s,
-		Addr:         ":" + port,
+		Addr:         ":" + strconv.Itoa(cfg.Port),
 		ReadTimeout:  time.Second * 180,
 		WriteTimeout: time.Second * 180,
 		IdleTimeout:  time.Second * 180,
@@ -255,18 +251,16 @@ func Start() {
 		}
 	}()
 
-	certFile := "server.crt"
-	keyFile := "server.key"
-	if _, err := os.Stat(certFile); os.IsNotExist(err) {
+	if _, err := os.Stat(cfg.TlsCert); os.IsNotExist(err) {
 		log.Info("Creating TLS certificate")
-		err = CreateTLSCertificate(certFile, keyFile)
+		err = CreateTLSCertificate(cfg.TlsCert, cfg.TlsKey)
 		if err != nil {
 			log.Fatal("Cant generate TLS cert: " + err.Error())
 		}
 	}
 
-	log.Sugar().Infof("Starting HTTPS Server on port %s", port)
-	if err := hs.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
-		log.Sugar().Fatalf("HTTPS Server failure on port %s: %s", port, err.Error())
+	log.Sugar().Infof("Starting HTTPS Server on port %d", cfg.Port)
+	if err := hs.ListenAndServeTLS(cfg.TlsCert, cfg.TlsKey); err != nil && err != http.ErrServerClosed {
+		log.Sugar().Fatalf("HTTPS Server failure on port %d: %s", cfg.Port, err.Error())
 	}
 }

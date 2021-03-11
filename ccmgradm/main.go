@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"time"
 
 	"github.com/severalnines/cmon-proxy/config"
+	"github.com/severalnines/cmon-proxy/opts"
 )
 
 var (
@@ -52,7 +54,11 @@ func main() {
 		password = os.Args[3]
 	}
 
-	cfg, err := config.Load(configFile, true)
+	cfg, err := config.Load(path.Join(opts.Opts.BaseDir, configFile), true)
+	if err != nil {
+		// 2nd chance for docker
+		cfg, err = config.Load(path.Join("/data", configFile), true)
+	}
 	if err != nil {
 		fmt.Println("Config file load error:", err.Error())
 		os.Exit(1)
@@ -103,6 +109,10 @@ func main() {
 	if err := cfg.Save(); err != nil {
 		fmt.Println("Couldn't update configuration:", err.Error())
 		os.Exit(1)
+	}
+
+	if cfg.Port > 0 {
+		address = fmt.Sprintf("https://127.0.0.1:%d/proxy/admin/reload", cfg.Port)
 	}
 
 	fmt.Println("Succeed, reloading daemon.")

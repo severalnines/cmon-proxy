@@ -4,6 +4,55 @@ cmon-proxy creates a unified view of multiple controllers.
 Disclaimer: everything here is currently experimental, in a working progress
 state.
 
+## Running with docker
+
+NOTE: This writing assumes you have the docker image available at tag
+'severalnines/cmon-proxy'.
+
+### Configure custom SSL certificates
+
+Create a persistent storage directory on your host system, like ./cmon-proxy-data,
+this directory will contain the configuration files and TLS certs/keys and the
+log of the cmon-proxy application.
+You can put your own TLS cert (a combined full chain one, so the main cert and
+all the CA-s together, or just a self signed one) and key into your data
+directory using the following file names: server.crt and server.key
+
+### Start the daemon
+
+You should pass the full path to your persistent directory to docker.
+By default the service runs at 19051, you can redirect it to any freely choosen
+available port.
+
+    docker run -v "$(pwd)/cmon-proxy-data:/data" -p 19051:19051 severalnines/cmon-proxy
+
+At first startup you are gonna see an auto generated 'admin' user and password
+printed out, you may use this or change the password or even drop this user.
+
+### Manager users
+
+Currently the daemon stores the password hashes (PBKDF2 algo) in the
+configuration file, you can manage the users using the following commands (after
+u have the proxy up&running)
+
+Lets find out your container ID/name first
+
+    $ docker ps
+    CONTAINER ID   IMAGE                     COMMAND                  CREATED         STATUS         PORTS                      NAMES
+    b6eca97d4982   severalnines/cmon-proxy   "/ccmgr --basedir=/d…"   8 minutes ago   Up 8 minutes   0.0.0.0:19051->19051/tcp   cranky_chandrasekhar
+
+Then you can use the ccmgradm tool to manage the users:
+
+    $ docker exec b6eca97d4982 ./ccmgradm
+    ClusterControl Manager - admin CLI v1.0 beta
+    Usage:  ./ccmgradm adduser|setpassword|dropuser USERNAME [PASSWORD]
+
+Creating a user for example:
+
+    $ docker exec b6eca97d4982 ./ccmgradm adduser myuser mypassword
+    ClusterControl Manager - admin CLI v1.0 beta
+    Succeed, reloading daemon.
+
 ## Configuration
 
 The daemon expects (for now) the configuration file located in the current
