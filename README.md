@@ -7,7 +7,10 @@ state.
 ## Running with docker
 
 NOTE: This writing assumes you have the docker image available at tag
-'severalnines/cmon-proxy'.
+'severalnines/clustercontrol-manager'.
+
+Updated, it is not published/released from time-to-time to our dockerhub
+(manually for now): https://hub.docker.com/repository/docker/severalnines/clustercontrol-manager
 
 ### Configure custom SSL certificates
 
@@ -24,7 +27,7 @@ You should pass the full path to your persistent directory to docker.
 By default the service runs at 19051, you can redirect it to any freely choosen
 available port.
 
-    docker run -v "$(pwd)/cmon-proxy-data:/data" -p 19051:19051 severalnines/cmon-proxy
+    docker run -v "$(pwd)/cmon-proxy-data:/data" -p 19051:19051 severalnines/clustercontrol-manager
 
 At first startup you are gonna see an auto generated 'admin' user and password
 printed out, you may use this or change the password or even drop this user.

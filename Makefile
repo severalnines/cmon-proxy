@@ -1,4 +1,4 @@
-.PHONY: ci
+.PHONY: ci getfrontendfiles build run
 
 # make a ci build
 ci:
@@ -26,7 +26,7 @@ getfrontendfiles:
 	find ./app
 	echo "window.FEAS_ENV = { API_URL: '/proxy' };" > app/config.js
 
-build: getfrontendfiles
+build: 
 	docker build -t severalnines/cmon-proxy . -f Dockerfile.local
 
 run:
@@ -37,6 +37,8 @@ run:
 	docker run -v "$(shell pwd)/dockerdata:/data" -p 19051:19051 severalnines/cmon-proxy
 
 releasetoregistry:
-	echo docker tag severalnines/cmon-proxy eu.gcr.io/brave-night-121210/clustercontrol-manager:v0.1
-	echo docker push eu.gcr.io/brave-night-121210/clustercontrol-manager:v0.1
+	bash -c 'pushd ../cmon-proxy-fe; docker build -f Dockerfile.build . -t severalnines/cmon-proxy-fe; popd'
+	docker build -f Dockerfile.local . -t severalnines/clustercontrol-manager
+	docker push severalnines/clustercontrol-manager:latest
+
 
