@@ -14,5 +14,6 @@ FROM scratch
 COPY --from=build /src/build/ccmgr /
 COPY --from=build /src/build/ccmgradm /
 COPY --from=fe /app /app
+COPY --from=build /src/config.js /app/
 ENV GIN_MODE=release
 CMD ["/ccmgr","--basedir=/data"]
