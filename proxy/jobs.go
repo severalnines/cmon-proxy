@@ -57,6 +57,9 @@ func (p *Proxy) RPCJobsStatus(ctx *gin.Context) {
 						JobCommands:           make(map[string]int),
 						JobCountsByController: make(map[string]*api.JobsStatus),
 					}
+			}
+
+			if jbc, found := resp.ByClusterType[clusterType].JobCountsByController[url]; !found || jbc == nil {
 				resp.ByClusterType[clusterType].JobCountsByController[url] =
 					&api.JobsStatus{
 						JobCounts:   make(map[string]int),
