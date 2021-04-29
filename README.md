@@ -66,6 +66,15 @@ https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L22
 An example configuration can be seen here:
 https://github.com/severalnines/cmon-proxy/blob/main/cmon-proxy.yaml.sample
 
+### Confguration parameters related to Backups and Jobs
+
+Specify how many days in the past cmon-proxy should look for backup data. Default is 7 days:
+    fetch_backups_days: INT
+
+Specify how many hours in the past cmon-proxy should look for jobs data. Default is 12 hours:
+    fetch_jobs_hours: INT
+
+
 ## RPC endpoints
 
 ### Authentication
