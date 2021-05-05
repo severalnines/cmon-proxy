@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/severalnines/ccx/go/retry"
+	"github.com/severalnines/ccx/retry"
 	"github.com/severalnines/cmon-proxy/cmon/api"
 )
 

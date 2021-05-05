@@ -18,7 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 
-	"github.com/severalnines/ccx/go/http_handlers"
+	"github.com/severalnines/ccx/http_handlers"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/opts"
 	"github.com/severalnines/cmon-proxy/proxy"
