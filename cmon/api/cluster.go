@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/severalnines/ccx/go/helpers"
+	"github.com/severalnines/ccx/helpers"
 )
 
 type GetClusterInfoRequest struct {

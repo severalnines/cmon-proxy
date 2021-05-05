@@ -92,7 +92,12 @@ func (cfg *Config) Save() error {
 // Load loads the configuration from the specified file name
 func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	config := new(Config)
-	defer config.Save()
+	defer func() {
+		if err := config.Save(); err != nil {
+			zap.L().Error("Failed to save config file",
+				zap.Error(err))
+		}
+	}()
 
 	contents, err := ioutil.ReadFile(filename)
 	if err == nil && len(contents) > 0 {
@@ -103,7 +108,12 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	if _, statErr := os.Stat(filename); statErr == nil && err != nil {
 		// file exists but we failed to load, lets back it up
 		fileback := filename + ".bak" + time.Now().Format(time.RFC3339)
-		os.Rename(filename, fileback)
+		if err2 := os.Rename(filename, fileback); err2 != nil {
+			zap.L().Error("Failed to rename config file",
+				zap.Error(err),
+				zap.String("filename", filename),
+				zap.String("fileback", fileback))
+		}
 	}
 
 	config.mtx = &sync.RWMutex{}
@@ -116,8 +126,14 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	if len(config.TlsCert) < 1 {
 		config.TlsCert = path.Join(opts.Opts.BaseDir, "server.crt")
 	}
+	if v := os.Getenv("TLS_CERTIFICATE_FILE"); v != "" {
+		config.TlsCert = v
+	}
 	if len(config.TlsKey) < 1 {
 		config.TlsKey = path.Join(opts.Opts.BaseDir, "server.key")
+	}
+	if v := os.Getenv("TLS_KEY_FILE"); v != "" {
+		config.TlsKey = v
 	}
 	if config.Port <= 0 {
 		config.Port = 19051
