@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,6 +24,26 @@ const (
 	RequestStatusAccessDenied   = "AccessDenied"   // The authenticated user has insufficient rights.
 	RequestStatusAuthRequired   = "AuthRequired"   // The client has to Authenticate first.
 )
+
+var (
+	// qt is used in SQLProcess.GetQueryTime(), defined in init()
+	qt time.Time
+
+	dbHostClassNames map[string]bool
+)
+
+func init() {
+	qt, _ = time.Parse("15:04:05", "00:00:00")
+
+	dbHostClassNames = make(map[string]bool)
+	dbHostClassNames["CmonMySqlHost"] = true
+	dbHostClassNames["CmonGaleraHost"] = true
+	dbHostClassNames["CmonGroupReplHost"] = true
+	dbHostClassNames["CmonMongoHost"] = true
+	dbHostClassNames["CmonNdbHost"] = true
+	dbHostClassNames["CmonPostgreSqlHost"] = true
+	dbHostClassNames["CmonRedisHost"] = true
+}
 
 func NewError(t, m string) error {
 	return &Error{t, m}

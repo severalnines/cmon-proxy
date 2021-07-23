@@ -18,7 +18,6 @@ import (
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 
-	"github.com/severalnines/ccx/http_handlers"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/opts"
 	"github.com/severalnines/cmon-proxy/proxy"
@@ -125,9 +124,23 @@ func Start() {
 
 	s := gin.New()
 	s.Use(ginzap.RecoveryWithZap(log, true))
-	s.NoMethod(http_handlers.NoMethod)
-	s.Use(http_handlers.Middleware)
-	s.OPTIONS("*any", http_handlers.Options)
+	s.NoMethod(func(c *gin.Context) { c.JSON(http.StatusMethodNotAllowed, gin.H{"err": "method not allowed"}) })
+	s.Use(func(c *gin.Context) {
+		// Middleware attaches CORS (access-control-allow-*) headers
+		// to gin.Context on every request to allow cross-domain
+		// requests from the frontend.
+		origin := c.GetHeader("origin")
+		if origin == "" {
+			origin = "*"
+		}
+		c.Header("access-control-allow-origin", origin)
+		c.Header("access-control-allow-credentials", "true")
+		c.Next()
+	})
+	s.OPTIONS("*any", func(c *gin.Context) {
+		c.Header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE")
+		c.Status(http.StatusOK)
+	})
 	s.Use(session.Sessions(cfg))
 
 	if opts.Opts.DebugWebRpc {

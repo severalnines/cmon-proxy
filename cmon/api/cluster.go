@@ -1,9 +1,5 @@
 package api
 
-import (
-	"github.com/severalnines/ccx/helpers"
-)
-
 type GetClusterInfoRequest struct {
 	*WithOperation `json:",inline"`
 	*WithClusterID `json:",inline"`
@@ -95,18 +91,11 @@ func (c *Cluster) Copy(withHosts, removeController bool) *Cluster {
 	return retval
 }
 
-var (
-	dbHostsClassNames = []string{
-		"CmonPostgreSqlHost",
-		"CmonGaleraHost",
-	}
-)
-
 // GetDatabaseHosts returns a filtered list of hosts, containing only database hosts.
 func (c *Cluster) GetDatabaseHosts() []*Host {
 	list := make([]*Host, 0, len(c.Hosts))
 	for _, h := range c.Hosts {
-		if helpers.FindStr(dbHostsClassNames, h.ClassName) {
+		if _, found := dbHostClassNames[h.ClassName]; found {
 			list = append(list, h)
 		}
 	}

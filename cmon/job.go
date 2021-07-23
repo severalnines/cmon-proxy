@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/severalnines/ccx/retry"
 	"github.com/severalnines/cmon-proxy/cmon/api"
+	"github.com/severalnines/cmon-proxy/retry"
 )
 
 func (client *Client) GetBackupJobs(clusterIds []uint64) ([]*api.Job, error) {

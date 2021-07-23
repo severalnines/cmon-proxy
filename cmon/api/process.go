@@ -56,15 +56,6 @@ func (pl *SQLProcess) GetInstance() string {
 	return "unknown"
 }
 
-var (
-	// qt is used in SQLProcess.GetQueryTime(), defined in init()
-	qt time.Time
-)
-
-func init() {
-	qt, _ = time.Parse("15:04:05", "00:00:00")
-}
-
 // GetQueryTime returns SQLProcess.Time || SQLProcess.ElapsedTime || 0
 func (pl *SQLProcess) GetQueryTime() int64 {
 	if pl.Time > 0 {
