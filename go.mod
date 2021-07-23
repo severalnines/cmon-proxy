@@ -8,7 +8,7 @@ require (
 	github.com/gin-gonic/gin v1.7.1
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/rs/xid v1.3.0
-	github.com/severalnines/ccx v1.7.8
+	github.com/severalnines/ccx v1.16.5
 	go.uber.org/zap v1.16.0
 	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0

@@ -57,6 +57,9 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 						AlarmTypes:              make(map[string]int),
 						AlarmCountsByController: make(map[string]*api.AlarmsOverview),
 					}
+			}
+
+			if x, found := resp.ByClusterType[clusterType].AlarmCountsByController[url]; !found || x == nil {
 				resp.ByClusterType[clusterType].AlarmCountsByController[url] =
 					&api.AlarmsOverview{
 						AlarmCounts: make(map[string]int),
