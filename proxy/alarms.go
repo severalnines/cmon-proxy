@@ -68,6 +68,12 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 			}
 
 			for _, alarm := range clusterAlarms.Alarms {
+				if alarm == nil {
+					// sometimes cmon returns null alarm in the list
+					// this should just protect from panics
+					continue
+				}
+
 				resp.AlarmCounts[alarm.SeverityName]++
 				resp.AlarmTypes[alarm.TypeName]++
 
