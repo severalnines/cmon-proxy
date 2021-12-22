@@ -53,16 +53,15 @@ jobs:
     - run: |-
         gcloud --quiet auth configure-docker
 
-    - uses: google-github-actions/get-gke-credentials@v0.2.1
+    - uses: google-github-actions/get-gke-credentials@v0
       with:
         cluster_name: ${{ env.GKE_CLUSTER }}
         location: ${{ env.GKE_ZONE }}
-        credentials: ${{ secrets.GKE_SA }}
-        
+
     - name: Login Docker
       uses: 'lagren/docker-gcr-action@master'
       with:
-        SERVICE_ACCOUNT_KEY: ${{ secrets.GKE_SA_PLAIN }}
+        SERVICE_ACCOUNT_KEY: ${{ steps.credentials.outputs.content }}
         HOST: 'eu.gcr.io'
 
     - name: Build
