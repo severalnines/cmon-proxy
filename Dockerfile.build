@@ -8,7 +8,7 @@ WORKDIR /src
 RUN make ci
 
 # get frontend files
-FROM eu.gcr.io/brave-night-121210/clustercontrol-manager-frontend:build-$BUILD_NUMBER AS fe
+FROM eu.gcr.io/brave-night-121210/clustercontrol-manager-frontend:build-32 AS fe
 
 FROM scratch
 COPY --from=build /src/build/ccmgr /
