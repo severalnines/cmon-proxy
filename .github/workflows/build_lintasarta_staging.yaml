@@ -5,7 +5,7 @@ on:
       - main
 
 env:
-  PROJECT_ID: ${{ secrets.GKE_PROJECT }}
+  PROJECT_ID: brave-night-121210
   GKE_CLUSTER: ccx-ap-se-2	 
   GKE_ZONE: asia-southeast2-a
   GKE_PROJECT: brave-night-121210
@@ -35,11 +35,14 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
-        
-    - uses: google-github-actions/setup-gcloud@v0.2.0
+
+    - id: 'auth'
+      uses: 'google-github-actions/auth@v0'
       with:
-        service_account_key: ${{ secrets.GKE_SA }}
-        project_id: ${{ env.GKE_PROJECT }}
+        credentials_json: 'google.json'
+
+    - uses: google-github-actions/setup-gcloud@v0.2.0
+
 
     - run: |-
         gcloud --quiet auth configure-docker
