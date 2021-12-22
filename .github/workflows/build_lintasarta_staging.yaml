@@ -1,0 +1,94 @@
+name: Build and Deploy to GKE - Asia
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GKE_PROJECT }}
+  GKE_CLUSTER: ccx-ap-se-2	 
+  GKE_ZONE: asia-southeast2-a
+  GKE_PROJECT: brave-night-121210
+  IMAGE: cmon-proxy-staging
+  NAMESPACE: cmon-proxy
+  DEPLOYMENT_NAME: cmon-proxy
+  E_NUM: 4
+
+jobs:
+  slackNotification:
+    name: Slack Notification
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Slack Notification
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        SLACK_COLOR: ${{ job.status }} 
+        SLACK_TITLE: ':rocket: :warning: Build starting :warning: :rocket:'
+
+  setup-build-publish-deploy:
+    name: Setup, Build, Publish, and Deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+        
+    - uses: google-github-actions/setup-gcloud@v0.2.0
+      with:
+        service_account_key: ${{ secrets.GKE_SA }}
+        project_id: ${{ env.GKE_PROJECT }}
+
+    - run: |-
+        gcloud --quiet auth configure-docker
+
+    - uses: google-github-actions/get-gke-credentials@v0.2.1
+      with:
+        cluster_name: ${{ env.GKE_CLUSTER }}
+        location: ${{ env.GKE_ZONE }}
+        credentials: ${{ secrets.GKE_SA }}
+        
+    - name: Login Docker
+      uses: 'lagren/docker-gcr-action@master'
+      with:
+        SERVICE_ACCOUNT_KEY: ${{ secrets.GKE_SA_PLAIN }}
+        HOST: 'eu.gcr.io'
+
+    - name: Build
+      run: |-
+        docker build \
+          --tag "gcr.io/brave-night-121210/$IMAGE:build-$GITHUB_RUN_ID" \
+          --tag "gcr.io/brave-night-121210/$IMAGE:latest" \
+          --build-arg GITHUB_SHA="$GITHUB_SHA" \
+          --build-arg GITHUB_REF="$GITHUB_REF" \
+          --build-arg GITHUB_REF="$GITHUB_RUN_ID" \
+          -f Dockerfile.build \
+          .
+
+    # Push the Docker image to Google Container Registry
+    - name: Publish SHA
+      run: |-
+        docker push "gcr.io/brave-night-121210/$IMAGE:build-$GITHUB_RUN_ID"
+        
+    - name: Publish Latest
+      run: |-
+        docker push "gcr.io/brave-night-121210/$IMAGE:latest"
+
+    # Deploy the Docker image to the GKE cluster
+    - name: Deploy
+      run: |-
+        kubectl --namespace=$NAMESPACE set image deployment $DEPLOYMENT_NAME $DEPLOYMENT_NAME="gcr.io/brave-night-121210/$IMAGE:build-$GITHUB_RUN_ID"
+        kubectl get services -o wide
+  slackFinalNotification:
+    name: Slack Notification
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Slack Notification
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        SLACK_COLOR: ${{ job.status }} 
+        SLACK_TITLE: ':rocket: :warning: Build Finished with status: ${{ job.status }} :warning: :rocket:'

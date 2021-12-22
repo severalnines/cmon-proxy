@@ -1,0 +1,96 @@
+---
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    volume.beta.kubernetes.io/storage-provisioner: kubernetes.io/gce-pd
+  name: cmon-proxy-pvc
+  namespace: ccx-staging
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 60Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cmon-proxy-svc
+  namespace: ccx-staging
+spec:
+  ports:
+  - port: 19051
+    protocol: TCP
+    targetPort: 19051
+  selector:
+    app: cmon-proxy
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}
+
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/secure-backends: "true"
+  name: cmon-proxy-ingress
+  namespace: ccx-staging
+spec:
+  rules:
+  - host: ccx-mgmt-staging-asia.s9s.io
+    http:
+      paths:
+      - backend:
+          serviceName: cmon-proxy-svc
+          servicePort: 19051
+        path: /
+        pathType: ImplementationSpecific
+  tls:
+  - hosts:
+    - ccx-mgmt.s9s.io
+    secretName: s9s-io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cmon-proxy
+  namespace: ccx-staging
+spec:
+  containers:
+  - env:
+    - name: SESSION_DOMAIN
+      value: s9s.io
+    - name: TLS_CERTIFICATE_FILE
+      value: /certs/tls.crt
+    - name: TLS_KEY_FILE
+      value: /certs/tls.key
+    image: eu.gcr.io/brave-night-121210/cmon-proxy-production:build-1
+    imagePullPolicy: Always
+    name: cmon-proxy
+    ports:
+    - containerPort: 19051
+      protocol: TCP
+    resources: {}
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /data
+      name: cmon-proxy-pv
+    - mountPath: /certs
+      name: certs
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 30
+  volumes:
+  - name: cmon-proxy-pv
+    persistentVolumeClaim:
+      claimName: cmon-proxy-pvc
+  - name: certs
+    secret:
+      defaultMode: 256
+      optional: false
+      secretName: s9s-io
