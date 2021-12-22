@@ -10,7 +10,7 @@ env:
   GKE_ZONE: asia-southeast2-a
   GKE_PROJECT: brave-night-121210
   IMAGE: cmon-proxy-staging
-  NAMESPACE: cmon-proxy
+  NAMESPACE: ccx-staging
   DEPLOYMENT_NAME: cmon-proxy
   E_NUM: 4
 

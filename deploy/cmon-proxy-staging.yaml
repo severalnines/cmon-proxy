@@ -1,18 +1,4 @@
 ---
-kind: PersistentVolumeClaim
-metadata:
-  annotations:
-    volume.beta.kubernetes.io/storage-provisioner: kubernetes.io/gce-pd
-  name: cmon-proxy-pvc
-  namespace: ccx-staging
-spec:
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: 60Gi
-  storageClassName: standard
----
 apiVersion: v1
 kind: Service
 metadata:
@@ -69,7 +55,7 @@ spec:
       value: /certs/tls.crt
     - name: TLS_KEY_FILE
       value: /certs/tls.key
-    image: eu.gcr.io/brave-night-121210/cmon-proxy-staging:build-1
+    image: eu.gcr.io/brave-night-121210/cmon-proxy-staging:latest
     imagePullPolicy: Always
     name: cmon-proxy
     ports:
