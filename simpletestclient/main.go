@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 
 	"github.com/severalnines/cmon-proxy/cmon"
@@ -25,5 +26,10 @@ func main() {
 	//      req := api.GetAllClusterInfoRequest{}
 	//      req.Operation = "getAllClusterInfo"
 	res, err := client.GetAllClusterInfo(nil)
-	log.Println("%+v", res)
+	if err != nil {
+		log.Println(err)
+	} else {
+		x, _ := json.Marshal(res)
+		log.Println(string(x))
+	}
 }
