@@ -170,7 +170,7 @@ $ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/setpassword'  -d'{"old_p
     "username": "kedz"
   }
 }
-```json
+```
 
 ### Controllers status
 
