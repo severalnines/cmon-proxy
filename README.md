@@ -642,6 +642,7 @@ $ curl -k -XPOST 'https://localhost:19051/proxy/backups/status' -d'{}' | jq
   }
   /* ... */
 }
+```
 
 ### Backup schedules list
 
