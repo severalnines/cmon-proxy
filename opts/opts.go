@@ -15,7 +15,7 @@ var Opts = struct {
 	BaseDir:      ".",
 }
 
-func init() {
+func Init() {
 	if _, err := flags.Parse(&Opts); err != nil {
 		zap.L().Sugar().Fatalf("Failed to parse command line options: %s", err.Error())
 	}

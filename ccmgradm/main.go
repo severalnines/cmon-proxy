@@ -34,6 +34,7 @@ func reloadDaemon() error {
 }
 
 func main() {
+	opts.Init()
 	fmt.Println("ClusterControl Manager - admin CLI v1.0 beta")
 	command := ""
 	if len(os.Args) > 1 {

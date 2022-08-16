@@ -109,6 +109,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) {
 
 // Start is starting the service
 func Start() {
+	opts.Init()
 	if !opts.Opts.DebugWebRpc {
 		gin.SetMode(gin.ReleaseMode)
 	}
