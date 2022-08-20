@@ -1,4 +1,5 @@
 package cmon
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package cmon
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"github.com/severalnines/cmon-proxy/cmon/api"
@@ -23,8 +23,10 @@ func (client *Client) GetAlarms(clusterId uint64) (*api.GetAlarmsReply, error) {
 			ClusterID: clusterId,
 		},
 	}
-	if err := api.CheckClusterID(req); err != nil {
-		return nil, err
+	if clusterId > 0 {
+		if err := api.CheckClusterID(req); err != nil {
+			return nil, err
+		}
 	}
 	res := &api.GetAlarmsReply{}
 	if err := client.Request(api.ModuleAlarm, req, res); err != nil {
