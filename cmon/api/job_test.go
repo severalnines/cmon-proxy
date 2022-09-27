@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,10 +10,11 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestJobSpec_UnmarshalJSON(t *testing.T) {
@@ -44,4 +46,70 @@ func TestJobSpec_UnmarshalJSON(t *testing.T) {
 	if s3.JobSpec.Command != "Galera Node Recovery" {
 		t.Errorf("expected 'Galera Node Recovery' got '%s'", s3.JobSpec.Command)
 	}
+}
+
+func TestJob_ProgressPercentInt_Unmarshal(t *testing.T) {
+	a := assert.New(t)
+
+	t.Run("empty", func(t *testing.T) {
+		j := Job{}
+
+		err := json.Unmarshal([]byte(`{}`), &j)
+
+		a.Nil(err)
+	})
+
+	t.Run("int number", func(t *testing.T) {
+		j := Job{}
+
+		err := json.Unmarshal([]byte(`{"progress_percent": 123}`), &j)
+
+		a.Nil(err)
+		a.Equal(123, j.ProgressPercentInt())
+	})
+
+	t.Run("int string", func(t *testing.T) {
+		j := Job{}
+
+		err := json.Unmarshal([]byte(`{"progress_percent": "124"}`), &j)
+
+		a.Nil(err)
+		a.Equal(124, j.ProgressPercentInt())
+	})
+
+	t.Run("float number", func(t *testing.T) {
+		j := Job{}
+
+		err := json.Unmarshal([]byte(`{"progress_percent": 125.6}`), &j)
+
+		a.Nil(err)
+		a.Equal(125, j.ProgressPercentInt())
+	})
+
+	t.Run("float string", func(t *testing.T) {
+		j := Job{}
+
+		err := json.Unmarshal([]byte(`{"progress_percent": "126.7"}`), &j)
+
+		a.Nil(err)
+		a.Equal(126, j.ProgressPercentInt())
+	})
+
+	t.Run("null", func(t *testing.T) {
+		j := Job{}
+
+		err := json.Unmarshal([]byte(`{"progress_percent": null}`), &j)
+
+		a.Nil(err)
+		a.Equal(0, j.ProgressPercentInt())
+	})
+
+	t.Run("zero string", func(t *testing.T) {
+		j := Job{}
+
+		err := json.Unmarshal([]byte(`{"progress_percent": "0"}`), &j)
+
+		a.Nil(err)
+		a.Equal(0, j.ProgressPercentInt())
+	})
 }

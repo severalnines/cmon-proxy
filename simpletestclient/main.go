@@ -1,4 +1,5 @@
 package main
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package main
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"encoding/json"
@@ -28,9 +28,9 @@ func main() {
 	client := cmon.NewClient(&config.CmonInstance{Url: "https://127.0.0.1:9501", Username: "kedz", Password: "password"}, 30)
 	err := client.Authenticate()
 	if err != nil {
-		log.Println("%+v", err)
+		log.Printf("%+v\n", err)
 		res, err := client.Ping()
-		log.Println("%+v  %+v", err, res)
+		log.Printf("%+v  %+v\n", err, res)
 		return
 	}
 	//      req := api.GetAllClusterInfoRequest{}
