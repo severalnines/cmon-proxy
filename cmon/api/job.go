@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,10 +10,12 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 type GetJobInstancesRequest struct {
@@ -91,23 +94,23 @@ type Job struct {
 	*WithUser      `json:",inline"`
 	*WithGroup     `json:",inline"`
 
-	CanBeAborted    bool     `json:"can_be_aborted,omitempty"`
-	CanBeDeleted    bool     `json:"can_be_deleted,omitempty"`
-	Created         NullTime `json:"created,omitempty"`
-	Ended           NullTime `json:"ended,omitempty"`
-	ExitCode        int64    `json:"exit_code,omitempty"`
-	IPAddress       string   `json:"ip_address,omitempty"`
-	JobID           uint64   `json:"job_id,omitempty"`
-	ParentJobID     uint64   `json:"parent_job_id,omitempty"`
-	RPCVersion      string   `json:"rpc_version,omitempty"`
-	Started         NullTime `json:"started,omitempty"`
-	Status          string   `json:"status,omitempty"`
-	StatusText      string   `json:"status_text,omitempty"`
-	Title           string   `json:"title,omitempty"`
-	Recurrence      string   `json:"recurrence,omitempty"`
-	JobSpec         *JobSpec `json:"job_spec,omitempty"`
-	HasProgress     bool     `json:"has_progress"`
-	ProgressPercent int      `json:"progress_percent"`
+	CanBeAborted    bool            `json:"can_be_aborted,omitempty"`
+	CanBeDeleted    bool            `json:"can_be_deleted,omitempty"`
+	Created         NullTime        `json:"created,omitempty"`
+	Ended           NullTime        `json:"ended,omitempty"`
+	ExitCode        int64           `json:"exit_code,omitempty"`
+	IPAddress       string          `json:"ip_address,omitempty"`
+	JobID           uint64          `json:"job_id,omitempty"`
+	ParentJobID     uint64          `json:"parent_job_id,omitempty"`
+	RPCVersion      string          `json:"rpc_version,omitempty"`
+	Started         NullTime        `json:"started,omitempty"`
+	Status          string          `json:"status,omitempty"`
+	StatusText      string          `json:"status_text,omitempty"`
+	Title           string          `json:"title,omitempty"`
+	Recurrence      string          `json:"recurrence,omitempty"`
+	JobSpec         *JobSpec        `json:"job_spec,omitempty"`
+	HasProgress     bool            `json:"has_progress"`
+	ProgressPercent jsoniter.Number `json:"progress_percent"`
 }
 
 func (j *Job) Command() string {
@@ -186,4 +189,17 @@ type CreateClusterJobData struct {
 
 type CreateClusterJobNode struct {
 	Hostname string `json:"hostname"`
+}
+
+func (j *Job) ProgressPercentInt() int {
+	if j.ProgressPercent == "" {
+		return 0
+	}
+	if n, err := j.ProgressPercent.Int64(); err == nil {
+		return int(n)
+	}
+	if n, err := j.ProgressPercent.Float64(); err == nil {
+		return int(math.Floor(n))
+	}
+	return 0
 }

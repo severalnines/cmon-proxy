@@ -1,4 +1,5 @@
 package cmon
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package cmon
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"fmt"
@@ -60,7 +60,7 @@ func (client *Client) GetJobInstances(req *api.GetJobInstancesRequest) (*api.Get
 	return res, nil
 }
 
-//GetLastJobs returns the jobs for the specified clusters from the last N hours, and we may have some data already from the past
+// GetLastJobs returns the jobs for the specified clusters from the last N hours, and we may have some data already from the past
 func (client *Client) GetLastJobs(clusterIds []uint64, lastNhours int, haveBefore ...time.Time) ([]*api.Job, error) {
 	perPage := int64(32)
 	req := &api.GetJobInstancesManyRequest{
@@ -175,7 +175,7 @@ func (client *Client) CreateJobInstanceWait(
 				// send job progress if progress is defined
 				progress(
 					gjr.Job.HasProgress,
-					gjr.Job.ProgressPercent,
+					gjr.Job.ProgressPercentInt(),
 					gjr.Job.StatusText)
 			}
 			switch gjr.Job.Status {
