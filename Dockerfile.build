@@ -1,7 +1,7 @@
 ARG BUILD_NUMBER
 
 # build and test
-FROM eu.gcr.io/brave-night-121210/bar-go-builder:latest AS build
+FROM eu.gcr.io/brave-night-121210/ccx-go-builder:latest AS build
 RUN mkdir /src
 ADD ./ /src
 WORKDIR /src

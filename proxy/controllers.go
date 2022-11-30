@@ -1,4 +1,5 @@
 package proxy
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package proxy
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"net/http"
@@ -173,4 +173,26 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 	}()
 
 	ctx.JSON(http.StatusOK, cmonapi.NewError(cmonapi.RequestStatusOk, "The controller is removed."))
+}
+
+func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, reqBytes []byte) {
+	// do we need this here? it could do (re-)auth and things like that
+	// p.r.Ping()
+
+	for _, addr := range p.r.Urls() {
+		c := p.r.Cmon(addr)
+		if c == nil || c.Client == nil {
+			continue
+		}
+
+		if c.Client.ControllerID() == controllerId {
+			// Do it
+		}
+	}
+
+	// in case we didn't found
+	var resp cmonapi.WithResponseData
+	resp.RequestStatus = cmonapi.RequestStatusObjectNotFound
+	resp.ErrorString = "couldn't find controller with the specified id"
+	ctx.JSON(http.StatusNotFound, resp)
 }

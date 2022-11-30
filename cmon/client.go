@@ -75,10 +75,9 @@ func NewClient(instance *config.CmonInstance, timeout int) *Client {
 }
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
-func (client *Client) Request(module string, req, res interface{}, noAutoAuth ...bool) error {
+func (client *Client) RequestBytes(module string, reqBytes, resBytes []byte, noAutoAuth ...bool) error {
 	// for regular requests we may want to auto reauthenticate
 	autoAuth := len(noAutoAuth) < 1 || !noAutoAuth[0]
-
 	client.lastRequestStatus = ""
 
 	if autoAuth && client.ses == nil {
@@ -87,10 +86,6 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 		}
 	}
 	uri := client.buildURI(module)
-	reqBytes, err := json.Marshal(req)
-	if err != nil {
-		return err
-	}
 	request, err := http.NewRequest(
 		http.MethodPost,
 		uri,
@@ -112,14 +107,18 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 		return err
 	}
 
-	rb, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %+v", err)
-	}
-
 	if opts.Opts.DebugCmonRpc {
 		zap.L().Sugar().Debugf("Reply from cmon %s:\n%s",
-			uri, string(rb))
+			uri, string(resBytes))
+	}
+
+	// whenever we do an authentication lets save/update the cmon's version as well
+	if request.URL != nil && strings.Contains(request.URL.Path, "auth") {
+		// obtain the server version number
+		if server := strings.Split(response.Header.Get("Server"), "/"); len(server) > 1 {
+			// Server: cmon/1.8.2 -> 1.8.2
+			client.serverVersion = strings.Trim(server[1], "\r\n\t '\"")
+		}
 	}
 
 	client.saveSessionFromResponse(response)
@@ -129,7 +128,22 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 			return err
 		}
 		// after auth, we must go with no auto auth
-		return client.Request(module, req, res, true)
+		return client.Request(module, reqBytes, resBytes, true)
+	}
+
+	return nil
+}
+
+// Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
+func (client *Client) Request(module string, req, res interface{}, noAutoAuth ...bool) error {
+	var respBytes []byte
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	err = client.RequestBytes(module, reqBytes, respBytes, noAutoAuth...)
+	if err != nil {
+		return err
 	}
 
 	// this part might be not efficient, lets think about this later
@@ -137,20 +151,14 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 	case *api.AuthenticateRequest:
 		// obtain controller ID
 		var ctrlID api.WithControllerID
-		json.Unmarshal(rb, &ctrlID)
+		json.Unmarshal(respBytes, &ctrlID)
 		client.controllerID = ctrlID.ControllerID
-
-		// obtain the server version number
-		if server := strings.Split(response.Header.Get("Server"), "/"); len(server) > 1 {
-			// Server: cmon/1.8.2 -> 1.8.2
-			client.serverVersion = strings.Trim(server[1], "\r\n\t '\"")
-		}
 	}
 	var respData api.WithResponseData
-	json.Unmarshal(rb, &respData)
+	json.Unmarshal(respBytes, &respData)
 	client.lastRequestStatus = respData.RequestStatus
 
-	return json.Unmarshal(rb, res)
+	return json.Unmarshal(respBytes, res)
 }
 
 // Authenticate does RPCv2 authentication.

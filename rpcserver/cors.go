@@ -1,4 +1,5 @@
 package rpcserver
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package rpcserver
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"net/http"
@@ -32,6 +32,6 @@ func Middleware(ctx *gin.Context) {
 
 // Options handles all options request
 func Options(ctx *gin.Context) {
-	ctx.Header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE")
+	ctx.Header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,HEAD")
 	ctx.Status(http.StatusOK)
 }

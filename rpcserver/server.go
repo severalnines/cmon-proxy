@@ -1,4 +1,5 @@
 package rpcserver
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,10 +10,11 @@ package rpcserver
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -104,7 +106,9 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) {
 
 	// and redirect anything to index.html
 	s.NoRoute(func(c *gin.Context) {
-		if c.Request == nil && c.Request.URL == nil && strings.HasPrefix(c.Request.URL.Path, "/proxy") {
+		if c.Request == nil && c.Request.URL == nil &&
+			strings.HasPrefix(c.Request.URL.Path, "/proxy") &&
+			!strings.HasPrefix(c.Request.URL.Path, "/v2") {
 			var resp cmonapi.WithResponseData
 			resp.RequestStatus = cmonapi.RequestStatusObjectNotFound
 			resp.ErrorString = "path not found"
@@ -149,7 +153,7 @@ func Start() {
 		c.Next()
 	})
 	s.OPTIONS("*any", func(c *gin.Context) {
-		c.Header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE")
+		c.Header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,HEAD")
 		c.Status(http.StatusOK)
 	})
 	s.Use(session.Sessions(cfg))
@@ -169,6 +173,42 @@ func Start() {
 
 	// to serve the static files
 	serveFrontend(s, cfg)
+
+	s.Use(func(ctx *gin.Context) {
+		if ctx.Request == nil || ctx.Request.URL == nil ||
+			!strings.HasPrefix(ctx.Request.URL.Path, "/v2") {
+			ctx.Next()
+			return
+		}
+		// Proxy requests to cmon (must have controller_id)
+		var controllerId cmonapi.WithControllerID
+		jsonData, err := ioutil.ReadAll(ctx.Request.Body)
+		if err == nil {
+			err = json.Unmarshal(jsonData, &controllerId)
+		}
+		if err != nil {
+			var resp cmonapi.WithResponseData
+			resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+			resp.ErrorString = "couldn't read request body"
+			ctx.JSON(http.StatusBadRequest, resp)
+			ctx.Abort()
+			return
+		}
+		if len(controllerId.ControllerID) < 1 {
+			var resp cmonapi.WithResponseData
+			resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+			resp.ErrorString = "missing controller_id from request"
+			ctx.JSON(http.StatusBadRequest, resp)
+			ctx.Abort()
+			return
+		}
+		method := ctx.Request.Method
+
+		fmt.Println("PATH:", ctx.Request.URL.Path, "METHOD:", method, "DATA:", string(jsonData))
+		// TODO continue from here
+		ctx.JSON(http.StatusOK, string(jsonData))
+		ctx.Abort()
+	})
 
 	// aggregating APIs for WEB UI v0
 	p := s.Group("/proxy")
