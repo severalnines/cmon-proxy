@@ -11,6 +11,7 @@ package proxy
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -176,8 +177,15 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 }
 
 func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, reqBytes []byte) {
+	var err error
 	// do we need this here? it could do (re-)auth and things like that
 	// p.r.Ping()
+
+	authenticatedUserName := "<anonymous>"
+	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
+		authenticatedUserName = authenticatedUser.Username
+	}
+	fmt.Println("User", authenticatedUserName, "calls", ctx.Request.URL.Path)
 
 	for _, addr := range p.r.Urls() {
 		c := p.r.Cmon(addr)
@@ -186,13 +194,25 @@ func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, r
 		}
 
 		if c.Client.ControllerID() == controllerId {
-			// Do it
+			var resBytes []byte
+			err = c.Client.RequestBytes(ctx.Request.URL.Path, reqBytes, resBytes, false)
+			if err != nil {
+				break
+			}
+			// return the data as it is
+			ctx.Data(http.StatusOK, "application/json", resBytes)
+			break
 		}
 	}
 
 	// in case we didn't found
 	var resp cmonapi.WithResponseData
-	resp.RequestStatus = cmonapi.RequestStatusObjectNotFound
-	resp.ErrorString = "couldn't find controller with the specified id"
+	if err == nil {
+		resp.RequestStatus = cmonapi.RequestStatusObjectNotFound
+		resp.ErrorString = "couldn't find controller with the specified id"
+	} else {
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "error while communicating to cmon:" + err.Error()
+	}
 	ctx.JSON(http.StatusNotFound, resp)
 }

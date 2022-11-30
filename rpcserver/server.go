@@ -14,7 +14,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -189,7 +188,7 @@ func Start() {
 		if err != nil {
 			var resp cmonapi.WithResponseData
 			resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
-			resp.ErrorString = "couldn't read request body"
+			resp.ErrorString = "couldn't read request body: " + err.Error()
 			ctx.JSON(http.StatusBadRequest, resp)
 			ctx.Abort()
 			return
@@ -204,9 +203,7 @@ func Start() {
 		}
 		method := ctx.Request.Method
 
-		fmt.Println("PATH:", ctx.Request.URL.Path, "METHOD:", method, "DATA:", string(jsonData))
-		// TODO continue from here
-		ctx.JSON(http.StatusOK, string(jsonData))
+		proxy.RPCProxyRequest(ctx, controllerId.ControllerID, method, jsonData)
 		ctx.Abort()
 	})
 
