@@ -1,4 +1,5 @@
 package config
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package config
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"bytes"
@@ -40,12 +40,14 @@ type ProxyUser struct {
 	PasswordHash string `yaml:"passwordhash,omitempty" json:"passwordhash,omitempty"`
 	FirstName    string `yaml:"firstname,omitempty" json:"firstname,omitempty"`
 	LastName     string `yaml:"lastname,omitempty" json:"lastname,omitempty"`
+	LdapUser     bool   `yaml:"ldap,omitempty" json:"ldap,omitempty"`
 }
 
 type CmonInstance struct {
 	Url         string `yaml:"url" json:"url"`
 	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
-	Username    string `yaml:"username,omitempty" json:"username,omitempty`
+	UseLdap     bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
+	Username    string `yaml:"username,omitempty" json:"username,omitempty"`
 	Password    string `yaml:"password,omitempty" json:"password,omitempty"`
 	Keyfile     string `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
 	FrontendUrl string `yaml:"frontend_url,omitempty" json:"frontend_url,omitempty"`
@@ -73,11 +75,13 @@ func (cmon *CmonInstance) Verify() error {
 	if cmon == nil || len(cmon.Url) < 3 {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
 	}
-	if len(cmon.Username) < 1 {
-		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing username")
-	}
-	if len(cmon.Password) < 1 && len(cmon.Keyfile) < 1 {
-		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing password or keyfile")
+	if !cmon.UseLdap {
+		if len(cmon.Username) < 1 {
+			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing username")
+		}
+		if len(cmon.Password) < 1 && len(cmon.Keyfile) < 1 {
+			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing password or keyfile")
+		}
 	}
 	return nil
 }
@@ -274,8 +278,10 @@ func (user *ProxyUser) Validate() error {
 	if user == nil || len(user.Username) < 1 {
 		return fmt.Errorf("invalid username")
 	}
-	if len(user.EmailAddress) > 0 && !strings.Contains(user.EmailAddress, "@") {
-		return fmt.Errorf("invalid e-mail")
+	if !user.LdapUser {
+		if len(user.EmailAddress) > 0 && !strings.Contains(user.EmailAddress, "@") {
+			return fmt.Errorf("invalid e-mail")
+		}
 	}
 	// maybe add other validators later on... eg passwordhash
 	return nil

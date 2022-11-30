@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,7 +10,6 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
@@ -18,6 +18,7 @@ import (
 type LoginRequest struct {
 	Username string `json:"username,omitempty"`
 	Password string `json:"password,omitempty"`
+	LdapOnly bool   `json:"ldap_only,omitempty"`
 }
 
 type LoginResponse struct {

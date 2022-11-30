@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,13 +10,13 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 // AuthenticateRequest the one to star authentication (key or password based)
 type AuthenticateRequest struct {
 	*WithOperation `json:",inline"`
 
 	UserName string `json:"user_name"`
 	Password string `json:"password"`
+	LdapOnly bool   `json:"ldap_only,omitempty"`
 }
 
 // Authenticate2Request is requested for key based authentication
