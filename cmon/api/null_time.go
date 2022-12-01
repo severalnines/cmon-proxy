@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package api
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"encoding/json"
@@ -32,7 +32,7 @@ func (nt *NullTime) String() string {
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (nt *NullTime) UnmarshalJSON(b []byte) error {
-	if b == nil || string(b) == "" {
+	if len(b) < 1 || string(b) == "\"\"" {
 		nt.T = time.Time{}
 		return nil
 	}
