@@ -68,7 +68,7 @@ type Config struct {
 	TlsKey          string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
 	SessionTtl      int64           `yaml:"session_ttl" json:"session_ttl"`
 
-	mtx *sync.RWMutex
+	mtx sync.RWMutex
 }
 
 func (cmon *CmonInstance) Verify() error {
@@ -130,7 +130,6 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 		}
 	}
 
-	config.mtx = &sync.RWMutex{}
 	config.Filename = filename
 
 	// a default value for docker...

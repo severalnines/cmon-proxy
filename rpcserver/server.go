@@ -17,12 +17,10 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	ginzap "github.com/gin-contrib/zap"
@@ -34,6 +32,10 @@ import (
 	"github.com/severalnines/cmon-proxy/proxy"
 	"github.com/severalnines/cmon-proxy/rpcserver/session"
 	"go.uber.org/zap"
+)
+
+var (
+	httpServer *http.Server
 )
 
 type GinWriteInterceptor struct {
@@ -121,20 +123,14 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) {
 }
 
 // Start is starting the service
-func Start() {
-	opts.Init()
-	if !opts.Opts.DebugWebRpc {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
-	cfg, err := config.Load(path.Join(opts.Opts.BaseDir, "ccmgr.yaml"))
-	if err != nil {
-		// we have nice default values from ::Load() method
-		zap.L().Sugar().Warnf("configfile problem: %s", err.Error())
-	}
-
-	// get logger only after we have lodaded the configuration
+func Start(cfg *config.Config) {
+	// get logger
 	log := zap.L()
+
+	if httpServer != nil {
+		log.Sugar().Fatalln("rpcserver is already running")
+		return
+	}
 
 	s := gin.New()
 	s.Use(ginzap.RecoveryWithZap(log, true))
@@ -287,30 +283,13 @@ func Start() {
 		}
 	}
 
-	hs := &http.Server{
+	httpServer = &http.Server{
 		Handler:      s,
 		Addr:         ":" + strconv.Itoa(cfg.Port),
 		ReadTimeout:  time.Second * 180,
 		WriteTimeout: time.Second * 180,
 		IdleTimeout:  time.Second * 180,
 	}
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals,
-		os.Interrupt,
-		syscall.SIGTERM,
-		syscall.SIGHUP)
-	go func() {
-		ctx, cancel := context.WithTimeout(
-			context.Background(),
-			time.Second*5)
-		defer cancel()
-		for sig := range signals {
-			log.Sugar().Infof("Shutting down (%s)", sig.String())
-			if err := hs.Shutdown(ctx); err != nil && err != context.DeadlineExceeded {
-				log.Sugar().Fatalf("Failed to shutdown (%s): %s", sig.String(), err.Error())
-			}
-		}
-	}()
 
 	if _, err := os.Stat(cfg.TlsCert); os.IsNotExist(err) {
 		log.Info("Creating TLS certificate")
@@ -321,7 +300,29 @@ func Start() {
 	}
 
 	log.Sugar().Infof("Starting HTTPS Server on port %d", cfg.Port)
-	if err := hs.ListenAndServeTLS(cfg.TlsCert, cfg.TlsKey); err != nil && err != http.ErrServerClosed {
+	if err := httpServer.ListenAndServeTLS(cfg.TlsCert, cfg.TlsKey); err != nil && err != http.ErrServerClosed {
 		log.Sugar().Fatalf("HTTPS Server failure on port %d: %s", cfg.Port, err.Error())
 	}
+}
+
+func Stop() {
+	// get logger
+	log := zap.L()
+
+	if httpServer == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		time.Second*5)
+	defer cancel()
+
+	log.Sugar().Infof("Shutting down")
+	if err := httpServer.Shutdown(ctx); err != nil && err != context.DeadlineExceeded {
+		log.Sugar().Fatalf("Failed to shutdown: %s", err.Error())
+	}
+
+	httpServer.Close()
+	httpServer = nil
 }
