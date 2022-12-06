@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,7 +10,6 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 import (
 	"fmt"
 	"net/http"
@@ -19,20 +19,35 @@ import (
 )
 
 const (
-	ModuleAuth     = "auth"
-	ModuleAlarm    = "alarm"
-	ModuleClusters = "clusters"
-	ModuleBackup   = "backup"
-	ModuleJobs     = "jobs"
-	ModuleStat     = "stat"
+	ModuleAuth        = "auth"
+	ModuleAlarm       = "alarm"
+	ModuleConfig      = "config"
+	ModuleProc        = "proc"
+	ModuleRepos       = "repos"
+	ModuleDiscovery   = "discovery"
+	ModuleCloud       = "cloud"
+	ModuleReports     = "reports"
+	ModuleUsers       = "users"
+	ModuleMetatype    = "metatype"
+	ModuleImperative  = "imperative"
+	ModuleController  = "controller"
+	ModuleAudit       = "audit"
+	ModuleTree        = "tree"
+	ModuleMaintenance = "maintenance"
+	ModuleClusters    = "clusters"
+	ModuleBackup      = "backup"
+	ModuleJobs        = "jobs"
+	ModuleStat        = "stat"
 
-	RequestStatusOk             = "Ok"             // The request was successfully processed.
-	RequestStatusInvalidRequest = "InvalidRequest" // Something was fundamentally wrong with the request.
-	RequestStatusObjectNotFound = "ObjectNotFound" // The referenced object (e.g. the cluster) was not found.
-	RequestStatusTryAgain       = "TryAgain"       // The request can not at the moment processed.
-	RequestStatusUnknownError   = "UnknownError"   // The exact error could not be identified.
-	RequestStatusAccessDenied   = "AccessDenied"   // The authenticated user has insufficient rights.
-	RequestStatusAuthRequired   = "AuthRequired"   // The client has to Authenticate first.
+	RequestStatusOk              = "Ok"              // The request was successfully processed.
+	RequestStatusInvalidRequest  = "InvalidRequest"  // Something was fundamentally wrong with the request.
+	RequestStatusObjectNotFound  = "ObjectNotFound"  // The referenced object (e.g. the cluster) was not found.
+	RequestStatusTryAgain        = "TryAgain"        // The request can not at the moment processed.
+	RequestStatusClusterNotFound = "ClusterNotFound" // The cluster not found.
+	RequestStatusUnknownError    = "UnknownError"    // The exact error could not be identified.
+	RequestStatusAccessDenied    = "AccessDenied"    // The authenticated user has insufficient rights.
+	RequestStatusAuthRequired    = "AuthRequired"    // The client has to Authenticate first.
+	RequestStatusRedirect        = "Redirect"        // In case of cmon HA, the followers returns this.
 )
 
 var (
@@ -48,6 +63,9 @@ func init() {
 	dbHostClassNames = make(map[string]bool)
 	dbHostClassNames["CmonMySqlHost"] = true
 	dbHostClassNames["CmonGaleraHost"] = true
+	dbHostClassNames["CmonElasticHost"] = true
+	dbHostClassNames["CmonRedisHost"] = true
+	dbHostClassNames["CmonRedisSentinelHost"] = true
 	dbHostClassNames["CmonGroupReplHost"] = true
 	dbHostClassNames["CmonMongoHost"] = true
 	dbHostClassNames["CmonNdbHost"] = true
@@ -85,12 +103,14 @@ func RequestStatusToStatusCode(requestStatus string) int {
 	switch requestStatus {
 	case RequestStatusInvalidRequest:
 		return http.StatusBadRequest
-	case RequestStatusObjectNotFound:
+	case RequestStatusObjectNotFound, RequestStatusClusterNotFound:
 		return http.StatusNotFound
 	case RequestStatusTryAgain:
 		return http.StatusTooEarly // FIXME, just playing here
 	case RequestStatusUnknownError:
 		return http.StatusInternalServerError
+	case RequestStatusRedirect:
+		return http.StatusTemporaryRedirect
 	case RequestStatusAccessDenied, RequestStatusAuthRequired:
 		return http.StatusUnauthorized
 	case RequestStatusOk:
