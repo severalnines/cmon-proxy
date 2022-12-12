@@ -1,4 +1,4 @@
-package proxy
+package multi
 
 // Copyright 2022 Severalnines AB
 //
@@ -19,7 +19,7 @@ import (
 	"github.com/severalnines/cmon-proxy/cmon"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/proxy/api"
+	"github.com/severalnines/cmon-proxy/multi/api"
 )
 
 func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {

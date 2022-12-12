@@ -1,4 +1,4 @@
-package proxy
+package multi
 
 // Copyright 2022 Severalnines AB
 //
@@ -21,8 +21,8 @@ import (
 	"github.com/rs/xid"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/proxy/api"
-	"github.com/severalnines/cmon-proxy/proxy/router"
+	"github.com/severalnines/cmon-proxy/multi/api"
+	"github.com/severalnines/cmon-proxy/multi/router"
 	"github.com/severalnines/cmon-proxy/rpcserver/session"
 
 	"go.uber.org/zap"

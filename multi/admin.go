@@ -1,4 +1,4 @@
-package proxy
+package multi
 
 // Copyright 2022 Severalnines AB
 //

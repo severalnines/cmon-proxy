@@ -1,4 +1,4 @@
-package proxy
+package multi
 
 // Copyright 2022 Severalnines AB
 //
@@ -18,7 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
-	"github.com/severalnines/cmon-proxy/proxy/api"
+	"github.com/severalnines/cmon-proxy/multi/api"
 )
 
 // RPCClustersStatus constructs a high level reply of the cluster statuees
