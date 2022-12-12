@@ -196,7 +196,7 @@ func Start(cfg *config.Config) {
 				}
 			}
 			// okay we converted all URL query args into a JSON map
-			jsonData, _ = json.Marshal(jsonMap)
+			jsonData, err = json.Marshal(jsonMap)
 			method = "POST"
 			_ = json.Unmarshal(jsonData, &controllerId)
 		}
