@@ -196,13 +196,13 @@ func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, r
 		}
 
 		if c.Client.ControllerID() == controllerId {
-			resBytes, err := c.Client.RequestBytes(ctx.Request.URL.Path, reqBytes, false)
+			resBytes, err := c.Client.RequestBytes(ctx.Request.URL.EscapedPath(), reqBytes, false)
 			if err != nil {
 				break
 			}
 			// return the data as it is
 			ctx.Data(http.StatusOK, "application/json", resBytes)
-			break
+			return
 		}
 	}
 
