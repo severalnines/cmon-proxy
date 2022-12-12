@@ -196,8 +196,9 @@ func Start(cfg *config.Config) {
 				}
 			}
 			// okay we converted all URL query args into a JSON map
-			jsonData, err = json.Marshal(jsonMap)
+			jsonData, _ = json.Marshal(jsonMap)
 			method = "POST"
+			_ = json.Unmarshal(jsonData, &controllerId)
 		}
 		if err != nil {
 			var resp cmonapi.WithResponseData
