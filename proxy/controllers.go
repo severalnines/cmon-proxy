@@ -26,10 +26,10 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 	retval := api.ControllerStatusList{Controllers: make([]*api.ControllerStatus, 0, 16)}
 
 	// this will ping the controllers
-	p.r.Ping()
+	p.Router(ctx).Ping()
 
-	for _, addr := range p.r.Urls() {
-		c := p.r.Cmon(addr)
+	for _, addr := range p.Router(ctx).Urls() {
+		c := p.Router(ctx).Cmon(addr)
 		if c == nil {
 			continue
 		}
@@ -87,7 +87,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 }
 
 func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
-	client := cmon.NewClient(instance, p.r.Config.Timeout)
+	client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
 	var resp *cmonapi.PingResponse
 	err := client.Authenticate()
 	if err != nil {
@@ -142,15 +142,17 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 
 	resp.Controller = p.pingOne(req.Controller)
 
-	if err := p.r.Config.AddController(req.Controller, true); err != nil {
+	if err := p.Router(ctx).Config.AddController(req.Controller, true); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
 	}
 
-	// also call authenticate, this will add the new client, it can be done delayed in a thread
-	go func() {
-		p.r.Authenticate()
-	}()
+	if !req.Controller.UseLdap {
+		// also call authenticate, this will add the new client, it can be done delayed in a thread
+		go func() {
+			p.Router(nil).Authenticate()
+		}()
+	}
 
 	ctx.JSON(http.StatusOK, &resp)
 }
@@ -163,14 +165,14 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 		return
 	}
 
-	if err := p.r.Config.RemoveController(req.Url, true); err != nil {
+	if err := p.Router(ctx).Config.RemoveController(req.Url, true); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
 	}
 
 	// also call authenticate, this will drop the existing client, it can be done delayed in a thread
 	go func() {
-		p.r.Authenticate()
+		p.Router(ctx).Authenticate()
 	}()
 
 	ctx.JSON(http.StatusOK, cmonapi.NewError(cmonapi.RequestStatusOk, "The controller is removed."))
@@ -187,15 +189,14 @@ func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, r
 	}
 	fmt.Println("User", authenticatedUserName, "calls", ctx.Request.URL.Path)
 
-	for _, addr := range p.r.Urls() {
-		c := p.r.Cmon(addr)
+	for _, addr := range p.Router(ctx).Urls() {
+		c := p.Router(ctx).Cmon(addr)
 		if c == nil || c.Client == nil {
 			continue
 		}
 
 		if c.Client.ControllerID() == controllerId {
-			var resBytes []byte
-			err = c.Client.RequestBytes(ctx.Request.URL.Path, reqBytes, resBytes, false)
+			resBytes, err := c.Client.RequestBytes(ctx.Request.URL.Path, reqBytes, false)
 			if err != nil {
 				break
 			}

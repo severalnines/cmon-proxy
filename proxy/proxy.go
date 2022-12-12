@@ -1,4 +1,5 @@
 package proxy
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,13 +10,14 @@ package proxy
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 import (
 	"sync"
 
+	"github.com/gin-gonic/gin"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/proxy/api"
 	"github.com/severalnines/cmon-proxy/proxy/router"
+	"go.uber.org/zap"
 )
 
 var (
@@ -24,7 +26,8 @@ var (
 )
 
 type Proxy struct {
-	r *router.Router
+	cfg *config.Config
+	r   map[string]*router.Router
 }
 
 func init() {
@@ -33,13 +36,53 @@ func init() {
 }
 
 func New(cfg *config.Config) (*Proxy, error) {
+	// create the default router (for cmons with static/non-LDAP login)
 	r, err := router.New(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return &Proxy{r: r}, nil
+
+	retval := &Proxy{
+		cfg: cfg,
+		r:   make(map[string]*router.Router)}
+
+	retval.r[router.DefaultRouter] = r
+
+	return retval, nil
 }
 
 func (p *Proxy) Authenticate() {
-	p.r.Authenticate()
+	if p == nil || p.r == nil {
+		return
+	}
+	// authenticate with the cmons with the static/non-LDAP credentials
+	if defaultRouter, found := p.r[router.DefaultRouter]; found {
+		defaultRouter.Authenticate()
+	}
+}
+
+// refreshes all controllers (after add/remove)
+func (p *Proxy) Refresh() {
+	for _, router := range p.r {
+		// this manages the add/removals as well
+		router.Authenticate()
+	}
+}
+
+func (p *Proxy) Router(ctx *gin.Context) *router.Router {
+	// get logger
+	log := zap.L()
+
+	if isLDAP, ldapUsername := isLDAPSession(ctx); isLDAP {
+		if router, found := p.r[ldapUsername]; found {
+			return router
+		}
+	}
+	if defaultRouter, found := p.r[router.DefaultRouter]; found {
+		return defaultRouter
+	}
+
+	// this can't really happen.. unless we are shutting down ?
+	log.Sugar().Fatalln("No router available to handle RPC sessions")
+	return nil
 }

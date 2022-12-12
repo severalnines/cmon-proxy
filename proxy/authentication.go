@@ -1,4 +1,5 @@
 package proxy
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package proxy
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"fmt"
@@ -22,6 +22,7 @@ import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/proxy/api"
+	"github.com/severalnines/cmon-proxy/proxy/router"
 	"github.com/severalnines/cmon-proxy/rpcserver/session"
 
 	"go.uber.org/zap"
@@ -65,6 +66,18 @@ func cleanupOldSessions() {
 	for _, sessionId := range invalidate {
 		delete(sesss, sessionId)
 	}
+}
+
+func isLDAPSession(ctx *gin.Context) (isLDAPSession bool, ldapUsername string) {
+	if ctx == nil {
+		return false, ""
+	}
+	isLDAPSession = false
+	if user := getUserForSession(ctx); user != nil && user.LdapUser {
+		isLDAPSession = true
+		ldapUsername = user.Username
+	}
+	return
 }
 
 // retrieves the ProxyUser object for the actual session
@@ -155,7 +168,7 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 		}
 	}
 
-	user, err := p.r.Config.GetUser(req.Username)
+	user, err := p.r[router.DefaultRouter].Config.GetUser(req.Username)
 	if err != nil {
 		resp.RequestStatus = cmonapi.RequestStatusAccessDenied
 		resp.ErrorString = fmt.Sprintf("user error: %s", err.Error())
@@ -238,12 +251,12 @@ func (p *Proxy) RPCAuthUpdateUserHandler(ctx *gin.Context) {
 		} else {
 			// we do not allow updating password from this request
 			req.User.PasswordHash = ""
-			if err := p.r.Config.UpdateUser(req.User); err != nil {
+			if err := p.r[router.DefaultRouter].Config.UpdateUser(req.User); err != nil {
 				resp.RequestStatus = cmonapi.RequestStatusUnknownError
 				resp.ErrorString = "failed to update user: " + err.Error()
 			} else {
 				// also update the user in session
-				updatedUser, _ := p.r.Config.GetUser(req.User.Username)
+				updatedUser, _ := p.r[router.DefaultRouter].Config.GetUser(req.User.Username)
 				setUserForSession(ctx, updatedUser)
 				// return the updated user instance
 				resp.User = updatedUser.Copy(false)
@@ -289,7 +302,7 @@ func (p *Proxy) RPCAuthSetPasswordHandler(ctx *gin.Context) {
 			resp.ErrorString = ""
 
 			u.SetPassword(req.NewPassword)
-			if err := p.r.Config.UpdateUser(u); err != nil {
+			if err := p.r[router.DefaultRouter].Config.UpdateUser(u); err != nil {
 				resp.RequestStatus = cmonapi.RequestStatusUnknownError
 				resp.ErrorString = "failed to update user: " + err.Error()
 			} else {

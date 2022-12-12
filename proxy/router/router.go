@@ -1,4 +1,5 @@
 package router
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package router
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"fmt"
@@ -44,6 +44,10 @@ type Cmon struct {
 	Backups               []*api.Backup
 	mtx                   *sync.Mutex
 }
+
+const (
+	DefaultRouter = ":cmon-proxy-default:"
+)
 
 type Router struct {
 	Config *config.Config

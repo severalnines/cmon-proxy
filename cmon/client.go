@@ -75,14 +75,14 @@ func NewClient(instance *config.CmonInstance, timeout int) *Client {
 }
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
-func (client *Client) RequestBytes(module string, reqBytes, resBytes []byte, noAutoAuth ...bool) error {
+func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ...bool) (resBytes []byte, err error) {
 	// for regular requests we may want to auto reauthenticate
 	autoAuth := len(noAutoAuth) < 1 || !noAutoAuth[0]
 	client.lastRequestStatus = ""
 
 	if autoAuth && client.ses == nil {
 		if err := client.Authenticate(); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	uri := client.buildURI(module)
@@ -91,7 +91,7 @@ func (client *Client) RequestBytes(module string, reqBytes, resBytes []byte, noA
 		uri,
 		bytes.NewBuffer(reqBytes))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if opts.Opts.DebugCmonRpc {
@@ -104,13 +104,13 @@ func (client *Client) RequestBytes(module string, reqBytes, resBytes []byte, noA
 	}
 	response, err := client.http.Do(request)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	defer response.Body.Close()
 	resBytes, err = ioutil.ReadAll(response.Body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if opts.Opts.DebugCmonRpc {
@@ -131,23 +131,22 @@ func (client *Client) RequestBytes(module string, reqBytes, resBytes []byte, noA
 
 	if autoAuth && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
 		if err := client.Authenticate(); err != nil {
-			return err
+			return nil, err
 		}
 		// after auth, we must go with no auto auth
-		return client.Request(module, reqBytes, resBytes, true)
+		return client.RequestBytes(module, reqBytes, true)
 	}
 
-	return nil
+	return resBytes, nil
 }
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
 func (client *Client) Request(module string, req, res interface{}, noAutoAuth ...bool) error {
-	var respBytes []byte
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
-	err = client.RequestBytes(module, reqBytes, respBytes, noAutoAuth...)
+	respBytes, err := client.RequestBytes(module, reqBytes, noAutoAuth...)
 	if err != nil {
 		return err
 	}

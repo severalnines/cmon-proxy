@@ -1,4 +1,5 @@
 package proxy
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package proxy
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"fmt"
@@ -40,9 +40,9 @@ func (p *Proxy) RPCJobsStatus(ctx *gin.Context) {
 		ByClusterType:         make(map[string]*api.JobsStatus),
 	}
 
-	p.r.GetLastJobs(false)
-	for _, url := range p.r.Urls() {
-		data := p.r.Cmon(url)
+	p.Router(ctx).GetLastJobs(false)
+	for _, url := range p.Router(ctx).Urls() {
+		data := p.Router(ctx).Cmon(url)
 		if data == nil || data.Clusters == nil {
 			continue
 		}
@@ -111,10 +111,10 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 	resp.Jobs = make([]*api.JobExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.r.GetLastJobs(false)
+	p.Router(ctx).GetLastJobs(false)
 
-	for _, url := range p.r.Urls() {
-		data := p.r.Cmon(url)
+	for _, url := range p.Router(ctx).Urls() {
+		data := p.Router(ctx).Cmon(url)
 		if data == nil || data.Jobs == nil {
 			continue
 		}

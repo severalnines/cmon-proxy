@@ -1,4 +1,5 @@
 package proxy
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package proxy
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"fmt"
@@ -26,12 +26,12 @@ func (p *Proxy) RPCAdminReload(ctx *gin.Context) {
 		fmt.Sprintf("[AUDIT] Configuration reload requested (source %s / %s)",
 			ctx.ClientIP(), ctx.Request.UserAgent()))
 
-	if newConfig, err := config.Load(p.r.Config.Filename); newConfig != nil && err == nil {
+	if newConfig, err := config.Load(p.Router(ctx).Config.Filename); newConfig != nil && err == nil {
 		// replace the config
-		p.r.Config = newConfig
+		p.Router(ctx).Config = newConfig
 		// sync cmon clients with the new config
-		p.r.Sync()
-		p.r.GetAllClusterInfo(false)
+		p.Router(ctx).Sync()
+		p.Router(ctx).GetAllClusterInfo(false)
 	}
 
 	ctx.JSON(http.StatusOK, cmonapi.WithResponseData{

@@ -1,4 +1,5 @@
 package proxy
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package proxy
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"fmt"
@@ -41,11 +41,11 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 	}
 
 	// refresh clusters and backups too
-	p.r.GetAllClusterInfo(false)
-	p.r.GetBackups(false)
+	p.Router(ctx).GetAllClusterInfo(false)
+	p.Router(ctx).GetBackups(false)
 
-	for _, url := range p.r.Urls() {
-		data := p.r.Cmon(url)
+	for _, url := range p.Router(ctx).Urls() {
+		data := p.Router(ctx).Cmon(url)
 		if data == nil {
 			continue
 		}
@@ -148,9 +148,9 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 	resp.Backups = make([]*api.BackupExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.r.GetBackups(false)
-	for _, url := range p.r.Urls() {
-		data := p.r.Cmon(url)
+	p.Router(ctx).GetBackups(false)
+	for _, url := range p.Router(ctx).Urls() {
+		data := p.Router(ctx).Cmon(url)
 		if data == nil || data.Backups == nil {
 			continue
 		}
@@ -257,10 +257,10 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 	resp.Jobs = make([]*api.JobExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.r.GetBackups(false)
+	p.Router(ctx).GetBackups(false)
 
-	for _, url := range p.r.Urls() {
-		data := p.r.Cmon(url)
+	for _, url := range p.Router(ctx).Urls() {
+		data := p.Router(ctx).Cmon(url)
 		if data == nil || data.BackupSchedules == nil {
 			continue
 		}
