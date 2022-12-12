@@ -215,9 +215,13 @@ func Start(cfg *config.Config) {
 	// to serve the static files
 	serveFrontend(s, cfg)
 
-	s.POST("/v2/*any", forwardToCmon)
-	s.GET("/v2/*any", forwardToCmon)
-	//s.Use(forwardToCmon)
+	// Proxy any /v2 requests to the specified (by controller_id) cmon
+	v2 := s.Group("/v2")
+	{
+		v2.Use(proxy.RPCAuthMiddleware)
+		v2.POST("/*any", forwardToCmon)
+		v2.GET("/*any", forwardToCmon)
+	}
 
 	// aggregating APIs for WEB UI v0
 	p := s.Group("/proxy")
