@@ -296,7 +296,7 @@ func (client *Client) buildURI(module string) string {
 			Path:   "/v2/" + module,
 		}
 		// it might already have the full URL
-		if strings.HasSuffix(module, "/v2") {
+		if strings.HasPrefix(module, "/v2") {
 			u.Path = module
 		}
 		return u.String()
