@@ -92,7 +92,7 @@ password, it can be found in its log file.
 
 #### Login request
 
-LoginRequest struct: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/user.go#L8
+LoginRequest struct: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/user.go#L8
 
 ```bash
 curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/login'  -d'{"username":"admin","password":"7052369b1abd"}' -c cookies.jar
@@ -178,7 +178,7 @@ This endpoint will gives an oversview of the available configured cmon instances
 and their status and version informations.
 
 The reply structure can be found there:
-https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/controllerstatus.go#L24
+https://github.com/severalnines/cmon-proxy/blob/main/multi/api/controllerstatus.go#L24
 
 An example request and reply:
 ```bash
@@ -280,10 +280,28 @@ Returned fields:
 - "clusters_count": the number of clusters hosted by each controller (key is cmon URL)
 - "nodes_count": the number of hosts by each controller (key is cmon URL)
 
-For cluster states see https://github.com/severalnines/clustercontrol-enterprise/blob/master/src/cmoncluster.cpp#L3924
-For host states see https://intra.severalnines.com/cmon-docs/current/hosts.html
+The possible cluster states are:
+- CLUSTER_MGMD_NO_CONTACT: No contact to the management node.
+- CLUSTER_STARTED: There are no failed nodes, there are started nodes.
+- CLUSTER_NOT_STARTED: The cluster is failed to start.
+- CLUSTER_DEGRADED: There are running and there are failed nodes as well.
+- CLUSTER_FAILURE: Cluster is failed to start.
+- CLUSTER_SHUTTING_DOWN: Cluster is stopping now.
+- CLUSTER_RECOVERING: Cluster is recovering from an error.
+- CLUSTER_STARTING: Cluster is starting.
+- CLUSTER_UNKNOWN: Cluster state is not yet determined.
+- CLUSTER_STOPPED: The cluster is stopped by Cmon.
 
-Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/clustersoverview.go
+The possible host states are ( also see https://severalnines.com/downloads/cmon/cmon-docs/current/hosts.html ):
+- CmonHostUnknown: The status of the host is not yet found.
+- CmonHostOnline: The host is on-line, everything is ok with it, no errors or special conditions detected.
+- CmonHostOffLine: The host is off-line, can not be contacted and we have no detailed information about what happened.
+- CmonHostFailed: We have a connection to the host, but it is failed. We already know that the controller can not recover the host, manual intervention is required.
+- CmonHostRecovery: There was some error and the host is now recovering.
+- CmonHostShutDown: The host is deliberately shut down.
+
+
+Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/clustersoverview.go
 ```json
 {
   "cluster_states": {
@@ -307,9 +325,9 @@ Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api
 
 ### Clusters list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/clusterlist.go
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/clusterlist.go
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, state, cluster_type
@@ -343,9 +361,9 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/clusters/list' \
 
 ### Hosts list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/hostlist.go
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/hostlist.go
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, clusterid (yeah both as CmonHost has 'clusterid'), cluster_type,
@@ -432,9 +450,9 @@ $ curl -k 'https://localhost:19051/proxy/alarms/status' | jq
 
 ### Alarms list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/alarms.go
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/alarms.go
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, cluster_type, severity_name, type_name, hostname, component_name,
@@ -545,9 +563,9 @@ $ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/jobs/status'  -d'{"filters":[
 
 ### Jobs list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/jobs.go
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/jobs.go
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, cluster_type, job_command, tags
@@ -618,7 +636,7 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
 
 ### Backup status overview
 
-Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/backups.go
+Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/backups.go
 
 NOTE: tag filtration is possible
 
@@ -646,9 +664,9 @@ $ curl -k -XPOST 'https://localhost:19051/proxy/backups/status' -d'{}' | jq
 
 ### Backup schedules list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/jobs.go
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/jobs.go
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, cluster_type, tags
@@ -672,9 +690,9 @@ scheduled backup jobs only
 
 ### Backups list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/backups.go
+Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/backups.go
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/proxy/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, cluster_type, tags, backup_id, status, method
