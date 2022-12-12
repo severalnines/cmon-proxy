@@ -44,10 +44,10 @@ var (
 	sessIdKey = "s"
 )
 
-func cleanupOldSessions() {
+func cleanupOldSessions(p *Proxy) {
 	sesssMtx.Lock()
-	defer sesssMtx.Unlock()
 
+	usernames := make([]string, 0, len(sesss))
 	invalidate := make([]string, 0)
 	// collect the outdated logins
 	for sessionId, data := range sesss {
@@ -60,11 +60,37 @@ func cleanupOldSessions() {
 					fmt.Sprintf("[AUDIT] Logout '%s' (TTL)",
 						data.User.Username))
 			}
+		} else if data.User != nil {
+			// collect username from the active user sessions
+			usernames = append(usernames, data.User.Username)
 		}
+
 	}
 	// invalidate them, lets do also audit log
 	for _, sessionId := range invalidate {
 		delete(sesss, sessionId)
+	}
+
+	sesssMtx.Unlock()
+
+	if p == nil {
+		return
+	}
+
+	for username := range p.r {
+		hasSessionForUser := false
+		for _, loggedinUser := range usernames {
+			if loggedinUser == username {
+				hasSessionForUser = true
+				break
+			}
+		}
+		// delete routers for no longer logged in (LDAP?) users...
+		if !hasSessionForUser && username != router.DefaultRouter {
+			mtx.Lock()
+			delete(p.r, username)
+			mtx.Unlock()
+		}
 	}
 }
 
@@ -85,7 +111,6 @@ func getUserForSession(ctx *gin.Context) *config.ProxyUser {
 	if ctx == nil {
 		return nil
 	}
-	cleanupOldSessions()
 	s := sessions.Default(ctx)
 	// get the unique ID
 	sessionId, _ := s.Get(sessIdKey).(string)
@@ -135,6 +160,7 @@ func setUserForSession(ctx *gin.Context, user *config.ProxyUser) {
 
 // RPCAuthCheck is a middleware method
 func (p *Proxy) RPCAuthMiddleware(ctx *gin.Context) {
+	cleanupOldSessions(p)
 	user := getUserForSession(ctx)
 	if user == nil {
 		ctx.JSON(http.StatusUnauthorized,

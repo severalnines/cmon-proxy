@@ -64,8 +64,11 @@ func (p *Proxy) Authenticate() {
 // refreshes all controllers (after add/remove)
 func (p *Proxy) Refresh() {
 	for _, router := range p.r {
-		// this manages the add/removals as well
-		router.Authenticate()
+		theRouter := router
+		go func() {
+			// this manages the add/removals as well
+			theRouter.Authenticate()
+		}()
 	}
 }
 

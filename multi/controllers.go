@@ -147,12 +147,8 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 		return
 	}
 
-	if !req.Controller.UseLdap {
-		// also call authenticate, this will add the new client, it can be done delayed in a thread
-		go func() {
-			p.Router(nil).Authenticate()
-		}()
-	}
+	// it is going to refresh everything
+	p.Refresh()
 
 	ctx.JSON(http.StatusOK, &resp)
 }
@@ -170,10 +166,8 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 		return
 	}
 
-	// also call authenticate, this will drop the existing client, it can be done delayed in a thread
-	go func() {
-		p.Router(ctx).Authenticate()
-	}()
+	// it is going to refresh everything
+	p.Refresh()
 
 	ctx.JSON(http.StatusOK, cmonapi.NewError(cmonapi.RequestStatusOk, "The controller is removed."))
 }
