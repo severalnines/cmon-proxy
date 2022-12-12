@@ -107,6 +107,12 @@ func (client *Client) RequestBytes(module string, reqBytes, resBytes []byte, noA
 		return err
 	}
 
+	defer response.Body.Close()
+	resBytes, err = ioutil.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
+
 	if opts.Opts.DebugCmonRpc {
 		zap.L().Sugar().Debugf("Reply from cmon %s:\n%s",
 			uri, string(resBytes))
