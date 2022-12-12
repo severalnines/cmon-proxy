@@ -177,9 +177,27 @@ func Start(cfg *config.Config) {
 		}
 		// Proxy requests to cmon (must have controller_id)
 		var controllerId cmonapi.WithControllerID
+		method := ctx.Request.Method
 		jsonData, err := ioutil.ReadAll(ctx.Request.Body)
+
 		if err == nil {
 			err = json.Unmarshal(jsonData, &controllerId)
+		}
+		if len(jsonData) < 2 && len(ctx.Request.URL.Query()) > 0 {
+			// lets try to construct a POST request from URL query parameters
+			// (this is for testing / simplify)
+			jsonMap := make(map[string]interface{})
+			for param, args := range ctx.Request.URL.Query() {
+				if len(args) < 1 {
+					continue
+				}
+				if _, found := jsonMap[param]; !found {
+					jsonMap[param] = args[0]
+				}
+			}
+			// okay we converted all URL query args into a JSON map
+			jsonData, err = json.Marshal(jsonMap)
+			method = "POST"
 		}
 		if err != nil {
 			var resp cmonapi.WithResponseData
@@ -197,7 +215,6 @@ func Start(cfg *config.Config) {
 			ctx.Abort()
 			return
 		}
-		method := ctx.Request.Method
 
 		proxy.RPCProxyRequest(ctx, controllerId.ControllerID, method, jsonData)
 		ctx.Abort()
