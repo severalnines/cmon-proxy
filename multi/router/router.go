@@ -49,8 +49,15 @@ const (
 	DefaultRouter = ":cmon-proxy-default:"
 )
 
+type Ldap struct {
+	Use      bool
+	Username string
+	Password string
+}
+
 type Router struct {
 	Config *config.Config
+	Ldap   Ldap
 	cmons  map[string]*Cmon
 	mtx    *sync.RWMutex
 }
@@ -89,13 +96,30 @@ func (router *Router) Sync() {
 
 	// and create the new ones
 	for _, addr := range router.Config.ControllerUrls() {
-		if c, found := router.cmons[addr]; !found || c == nil {
-			if instance := router.Config.ControllerByUrl(addr); instance != nil {
+		if instance := router.Config.ControllerByUrl(addr); instance != nil {
+			actualConfig := &config.CmonInstance{
+				Url:         instance.Url,
+				Name:        instance.Name,
+				Username:    instance.Username,
+				UseLdap:     instance.UseLdap,
+				Keyfile:     instance.Keyfile,
+				Password:    instance.Password,
+				FrontendUrl: instance.FrontendUrl,
+			}
+			// in case of LDAP the credentials aren't stored in config, but in runtime only
+			if router.Ldap.Use && actualConfig.UseLdap {
+				actualConfig.Username = router.Ldap.Username
+				actualConfig.Password = router.Ldap.Password
+			}
+			if c, found := router.cmons[addr]; !found || c == nil {
 				router.cmons[addr] = &Cmon{
-					Client: cmon.NewClient(instance, router.Config.Timeout),
+					Client: cmon.NewClient(actualConfig, router.Config.Timeout),
 					mtx:    &sync.Mutex{},
 					Alarms: make(map[uint64]*api.GetAlarmsReply),
 				}
+			} else if c != nil && c.Client != nil {
+				// make sure clients always have the latest configuration
+				c.Client.Instance = actualConfig
 			}
 		}
 	}

@@ -175,6 +175,85 @@ func (p *Proxy) RPCAuthMiddleware(ctx *gin.Context) {
 	ctx.Set(userKey, user)
 }
 
+// Attempts to do LDAP login when there are any controllers
+// configured to use LDAP authentication
+// (call this only after we checked that there is no such local user)
+func (p *Proxy) ldapLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
+	// missing/incomplete configuration
+	if p == nil || p.cfg == nil || len(p.cfg.Instances) < 1 {
+		return false
+	}
+	// check if we have any cmon configured to use LDAP
+	useLdap := false
+	for _, cmon := range p.cfg.Instances {
+		if cmon != nil && cmon.UseLdap {
+			useLdap = true
+			break
+		}
+	}
+	if !useLdap {
+		return false
+	}
+	// create a router for this login attempt (if there is not already one)
+	r, found := p.r[req.Username]
+	if !found || r == nil {
+		var err error
+		r, err = router.New(p.cfg)
+		if err != nil {
+			fmt.Sprintf("Can't create router for LDAP login: %s", err.Error())
+			return false
+		}
+	}
+
+	// configure this router to use the specified LDAP credentials for LDAP enabled cmon instances
+	r.Ldap.Use = true
+	r.Ldap.Username = req.Username
+	r.Ldap.Password = req.Password
+
+	zap.L().Info(
+		fmt.Sprintf("[AUDIT] LDAP authentication attempt '%s' (source %s / %s)",
+			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
+
+	r.Sync()         // creates cmon clients
+	r.Authenticate() // attempts to authenticate
+
+	// check if any LDAP enabled cmon's has succeed
+	ldapSucceed := false
+	for _, addr := range r.Config.ControllerUrls() {
+		if cmon := r.Cmon(addr); cmon != nil && cmon.Client != nil && cmon.Client.Instance != nil && cmon.Client.Instance.UseLdap {
+			user := cmon.Client.User()
+			if user != nil {
+				ldapSucceed = true
+				// construct a syntetic LDAP user from the User object we got from cmon
+				setUserForSession(ctx, &config.ProxyUser{
+					Username:     user.UserName,
+					LdapUser:     true,
+					FirstName:    user.FirstName,
+					LastName:     user.LastName,
+					EmailAddress: user.EmailAddress,
+				})
+			}
+		}
+	}
+
+	// okay, keep this router as login succeed to some of the cmon's
+	if user := getUserForSession(ctx); ldapSucceed && user != nil {
+		p.r[req.Username] = r
+
+		// LDAP auth succeed, wohoo, return the syntetic proxy user
+		resp.RequestStatus = cmonapi.RequestStatusOk
+		resp.User = user
+
+		return true
+	}
+
+	zap.L().Info(
+		fmt.Sprintf("[AUDIT] LDAP authentication (user %s) has failed to all cmon instances. (source %s / %s)",
+			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
+
+	return false
+}
+
 // RPCLoginHandler handlers the login requests
 func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 	var req api.LoginRequest
@@ -196,16 +275,22 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 
 	user, err := p.r[router.DefaultRouter].Config.GetUser(req.Username)
 	if err != nil {
-		resp.RequestStatus = cmonapi.RequestStatusAccessDenied
-		resp.ErrorString = fmt.Sprintf("user error: %s", err.Error())
+		// ldapLogin returns true if it was okay and it sets the user for session
+		if !p.ldapLogin(ctx, &req, &resp) {
+			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
+			resp.ErrorString = fmt.Sprintf("user error: %s", err.Error())
+		}
 	}
 
+	// user might be nil and we may succeed in case of LDAP
 	if user != nil {
 		if err := user.ValidatePassword(req.Password); err != nil {
 			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
 			resp.ErrorString = fmt.Sprintf("password error: %s", err.Error())
 		} else {
+			resp.RequestStatus = cmonapi.RequestStatusOk
 			resp.User = user.Copy(false)
+
 			setUserForSession(ctx, user)
 		}
 	}
@@ -243,6 +328,9 @@ func (p *Proxy) RPCAuthLogoutHandler(ctx *gin.Context) {
 				proxyUser.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
 		// perform logout
 		setUserForSession(ctx, nil)
+
+		// also make sure we get rid of any unused routers
+		defer cleanupOldSessions(p)
 	}
 
 	var resp cmonapi.WithResponseData

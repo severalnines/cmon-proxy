@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,11 +9,6 @@ package api
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
-
-import (
-	"time"
-)
 
 type ListBackupsRequest struct {
 	*WithOperation `json:",inline"`
@@ -82,17 +78,17 @@ func (b *Backup) GetSize() int64 {
 type BackupData struct {
 	DB        string        `json:"db"`
 	Files     []*BackupFile `json:"files"`
-	StartTime time.Time     `json:"start_time"`
+	StartTime NullTime      `json:"start_time"`
 }
 
 type BackupFile struct {
 	*WithClassName `json:",inline"`
 
-	Created time.Time `json:"created"`
-	Hash    string    `json:"hash"`
-	Path    string    `json:"path"`
-	Size    int64     `json:"size"`
-	Type    string    `json:"type"`
+	Created NullTime `json:"created"`
+	Hash    string   `json:"hash"`
+	Path    string   `json:"path"`
+	Size    int64    `json:"size"`
+	Type    string   `json:"type"`
 }
 
 type BackupSchedule struct {
