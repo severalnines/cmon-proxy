@@ -214,7 +214,6 @@ func (p *Proxy) ldapLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 		fmt.Sprintf("[AUDIT] LDAP authentication attempt '%s' (source %s / %s)",
 			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
 
-	r.Sync()         // creates cmon clients
 	r.Authenticate() // attempts to authenticate
 
 	// check if any LDAP enabled cmon's has succeed

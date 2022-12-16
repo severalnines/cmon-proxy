@@ -177,6 +177,10 @@ func (client *Client) Authenticate() error {
 	}
 
 	client.lastRequestStatus = api.RequestStatusAuthRequired
+
+	if client.Instance.UseLdap {
+		return fmt.Errorf("LDAP authentication is required")
+	}
 	return fmt.Errorf("no password or keyfile is defined")
 }
 
