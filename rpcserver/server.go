@@ -260,6 +260,7 @@ func Start(cfg *config.Config) {
 			cmons.POST("/status", proxy.RPCControllerStatus)
 			cmons.POST("/test", proxy.RPCControllerTest)
 			cmons.POST("/add", proxy.RPCControllerAdd)
+			cmons.POST("/update", proxy.RPCControllerUpdate)
 			cmons.POST("/remove", proxy.RPCControllerRemove)
 		}
 

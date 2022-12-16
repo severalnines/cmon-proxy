@@ -134,6 +134,14 @@ func (p *Proxy) RPCControllerTest(ctx *gin.Context) {
 func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 	var req api.AddControllerRequest
 	var resp api.AddControllerResponse
+
+	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
+		if authenticatedUser.LdapUser {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("LDAP users cant add controllers"), http.StatusForbidden)
+			return
+		}
+	}
+
 	if err := ctx.BindJSON(&req); err != nil || req.Controller == nil {
 		cmonapi.CtxWriteError(ctx,
 			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "Invalid request."))
@@ -142,7 +150,39 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 
 	resp.Controller = p.pingOne(req.Controller)
 
-	if err := p.Router(ctx).Config.AddController(req.Controller, true); err != nil {
+	if err := p.Router(nil).Config.AddController(req.Controller, true); err != nil {
+		cmonapi.CtxWriteError(ctx, err)
+		return
+	}
+
+	// it is going to refresh everything
+	p.Refresh()
+
+	ctx.JSON(http.StatusOK, &resp)
+}
+
+func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
+	var req api.AddControllerRequest
+	var resp api.AddControllerResponse
+
+	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
+		if authenticatedUser.LdapUser {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("LDAP users cant update controllers"), http.StatusForbidden)
+			return
+		}
+	}
+
+	if err := ctx.BindJSON(&req); err != nil || req.Controller == nil {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "Invalid request."))
+		return
+	}
+
+	resp.Controller = p.pingOne(req.Controller)
+
+	// remove & add it again
+	p.Router(nil).Config.RemoveController(req.Controller.Url, false)
+	if err := p.Router(nil).Config.AddController(req.Controller, true); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
 	}
@@ -155,13 +195,21 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 
 func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 	var req api.RemoveControllerRequest
+
+	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
+		if authenticatedUser.LdapUser {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("LDAP users cant remove controllers"), http.StatusForbidden)
+			return
+		}
+	}
+
 	if err := ctx.BindJSON(&req); err != nil || len(req.Url) < 1 {
 		cmonapi.CtxWriteError(ctx,
 			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "Invalid request."))
 		return
 	}
 
-	if err := p.Router(ctx).Config.RemoveController(req.Url, true); err != nil {
+	if err := p.Router(nil).Config.RemoveController(req.Url, true); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
 	}

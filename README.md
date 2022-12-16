@@ -230,8 +230,10 @@ Test or add a controller, add will cause the configuration file to be updated as
 well (even in case of failures), so you might want to test first
 
 URLS:
-- proxy/controllers/test: to test a controller
+- proxy/controllers/test: to test a controller (in case of LDAP it only works
+  when the currently logged user is an LDAP user)
 - proxy/controllers/add: to add a new controller
+- proxy/controllers/update: update an existing controller
 
 The controller parameters can be seen here: https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L31
 
