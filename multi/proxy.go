@@ -89,3 +89,18 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 	log.Sugar().Fatalln("No router available to handle RPC sessions")
 	return nil
 }
+
+// In case of configuration re-load, lets apply it to all of the routers
+func (p *Proxy) UpdateConfig(cfg *config.Config) {
+	mtx.Lock()
+	p.cfg = cfg
+	for _, router := range p.r {
+		if router != nil {
+			router.Config = cfg
+		}
+	}
+	mtx.Unlock()
+
+	// then refresh all
+	p.Refresh()
+}

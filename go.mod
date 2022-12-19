@@ -3,6 +3,7 @@ module github.com/severalnines/cmon-proxy
 go 1.15
 
 require (
+	github.com/alexflint/go-arg v1.4.3 // indirect
 	github.com/gin-contrib/sessions v0.0.5
 	github.com/gin-contrib/zap v0.1.0
 	github.com/gin-gonic/gin v1.8.1

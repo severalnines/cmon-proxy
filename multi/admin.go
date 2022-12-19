@@ -28,10 +28,7 @@ func (p *Proxy) RPCAdminReload(ctx *gin.Context) {
 
 	if newConfig, err := config.Load(p.Router(ctx).Config.Filename); newConfig != nil && err == nil {
 		// replace the config
-		p.Router(ctx).Config = newConfig
-		// sync cmon clients with the new config
-		p.Router(ctx).Sync()
-		p.Router(ctx).GetAllClusterInfo(false)
+		p.UpdateConfig(newConfig)
 	}
 
 	ctx.JSON(http.StatusOK, cmonapi.WithResponseData{

@@ -227,6 +227,19 @@ func (cfg *Config) ControllerByUrl(url string) *CmonInstance {
 	return nil
 }
 
+// ControllerByUrlOrName returns a CmonInstance having the specified url or name
+func (cfg *Config) ControllerByUrlOrName(idString string) *CmonInstance {
+	cfg.mtx.RLock()
+	defer cfg.mtx.RUnlock()
+
+	for _, cmon := range cfg.Instances {
+		if cmon.Url == idString || cmon.Name == idString {
+			return cmon
+		}
+	}
+	return nil
+}
+
 // AddController adds a controller to the configuration and perists the config
 func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
 	if err := cmon.Verify(); err != nil {

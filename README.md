@@ -33,7 +33,7 @@ available port.
 At first startup you are gonna see an auto generated 'admin' user and password
 printed out, you may use this or change the password or even drop this user.
 
-### Manager users
+### Manager local admin users
 
 Currently the daemon stores the password hashes (PBKDF2 algo) in the
 configuration file, you can manage the users using the following commands (after
@@ -48,14 +48,66 @@ Lets find out your container ID/name first
 Then you can use the ccmgradm tool to manage the users:
 
     $ docker exec b6eca97d4982 ./ccmgradm
-    ClusterControl Manager - admin CLI v1.0 beta
+    ClusterControl Manager - admin CLI v1.1
     Usage:  ./ccmgradm adduser|setpassword|dropuser USERNAME [PASSWORD]
 
 Creating a user for example:
 
     $ docker exec b6eca97d4982 ./ccmgradm adduser myuser mypassword
-    ClusterControl Manager - admin CLI v1.0 beta
+    ClusterControl Manager - admin CLI v1.1
     Succeed, reloading daemon.
+ 
+### Manage controllers using CLI
+
+NOTE, new functionality, when registering controllers using LDAP authentication, you do not need
+to specify any static username and password, as the the cmon-proxy frontend authentication will
+be simply forwarded to the registered (and LDAP enabled) cmon instances, for example:
+
+     ccmgradm addcontroller -l --name LDAPONE ldap.myserver.tld:9501 --frontend-url https://ldap.myserver.tld
+
+List the currently registered controllers:
+
+     $ ccmgradm listcontrollers
+     ClusterControl Manager - admin CLI v1.1
+
+     Controllers from configuration:
+     * 127.0.0.01:9501 [kedz-workstation] Static user: admin
+     * 10.216.188.149:9501 [lxd-cmon] Static user: cmononlxd
+     * 10.216.188.111:9501 [cmon-authfail] Static user: authfail
+     * 10.216.111.243:123456 [cmonoff] *LDAP authentication*
+     * ldap.myserver.tld:9501 [LDAPONE] *LDAP authentication* Web-UI:https://ldap.myserver.tld
+     * test01:9501 [Test01] Static user: cmon
+     Succeed, reloading daemon.
+     
+Add or update controller (for update just use the 'updatecontroller' subcommand:
+
+     $ ccmgradm addcontroller --help
+     ClusterControl Manager - admin CLI v1.1
+     Usage: main addcontroller [--use-ldap] [--username USERNAME] [--password PASSWORD] [--name NAME] [--frontend-url FRONTEND-URL] [URL]
+
+     Positional arguments:
+       URL                    The controller's RPC(v2) URL
+
+     Options:
+       --use-ldap, -l         Use LDAP login to controller
+       --username USERNAME, -u USERNAME
+                              Static non-LDAP credentials
+       --password PASSWORD, -p PASSWORD
+                              Static non-LDAP credentials
+       --name NAME, -n NAME   Controller name (default: hostname from URL)
+       --frontend-url FRONTEND-URL, -f FRONTEND-URL
+                              The ClusterControl WEB UI URL of this controller
+       --help, -h             display this help and exit
+
+To drop a controller:
+
+     $ ccmgradm dropcontroller --help
+     ClusterControl Manager - admin CLI v1.1
+     Usage: main dropcontroller [URLORNAME]
+
+     Positional arguments:
+       URLORNAME              The controller name or URL from configuration.
+       --help, -h             display this help and exit
 
 ## Configuration
 

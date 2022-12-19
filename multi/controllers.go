@@ -13,6 +13,7 @@ package multi
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -79,7 +80,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 			if status.Status == api.Ok {
 				status.StatusMessage = "LDAP authentication ok."
 			} else if status.Status == api.AuthenticationError {
-				if len(status.StatusMessage) > 1 {
+				if len(status.StatusMessage) > 1 && !strings.HasPrefix(status.StatusMessage, "LDAP") {
 					status.StatusMessage = "LDAP: " + status.StatusMessage
 				} else {
 					status.StatusMessage = "LDAP authentication failed."
