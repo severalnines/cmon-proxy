@@ -410,6 +410,7 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 		EmailAddress: u.EmailAddress,
 		FirstName:    u.FirstName,
 		LastName:     u.LastName,
+		LdapUser:     u.LdapUser,
 	}
 	// by default we don't want to return password hashes to UI
 	if withCredentials {

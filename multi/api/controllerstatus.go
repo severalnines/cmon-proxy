@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package api
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 
@@ -40,6 +40,7 @@ type ControllerStatus struct {
 	FrontendUrl   string           `json:"frontend_url,omitempty"`
 	Version       string           `json:"version"`
 	StatusMessage string           `json:"status_message"`
+	Ldap          bool             `json:"ldap"`
 	Status        CmonStatus       `json:"status"`
 	LastUpdated   cmonapi.NullTime `json:"last_updated"`
 	LastSeen      cmonapi.NullTime `json:"last_seen"`
