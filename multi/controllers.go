@@ -44,6 +44,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 			status = &api.ControllerStatus{
 				Url:         addr,
 				FrontendUrl: c.Client.Instance.FrontendUrl,
+				Ldap:        c.Client.Instance.UseLdap,
 			}
 		}
 
@@ -112,6 +113,7 @@ func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 		Version:      client.ServerVersion(),
 		Url:          instance.Url,
 		Name:         instance.Name,
+		Ldap:         instance.UseLdap,
 		Status:       api.Ok,
 	}
 	if resp != nil && len(resp.Version) > 0 {
@@ -201,11 +203,18 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "Invalid request."))
 		return
 	}
+	if err := req.Controller.Verify(); err != nil {
+		cmonapi.CtxWriteError(ctx, err)
+	}
 
 	resp.Controller = p.pingOne(req.Controller)
 
 	// remove & add it again
-	p.Router(nil).Config.RemoveController(req.Controller.Url, false)
+	if err := p.Router(nil).Config.RemoveController(req.Controller.Url, false); err != nil {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "Controller not found ("+err.Error()+")"))
+		return
+	}
 	if err := p.Router(nil).Config.AddController(req.Controller, true); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
