@@ -86,6 +86,9 @@ func main() {
 
 	arg.MustParse(&args)
 
+	// most options require a config update as well
+	saveAndReload := true
+
 	// Load configuration
 	cfg, err := config.Load(path.Join(opts.Opts.BaseDir, configFile), true)
 	if err != nil {
@@ -234,6 +237,8 @@ func main() {
 		}
 	case args.ListControllers != nil:
 		{
+			// not need to save
+			saveAndReload = false
 			fmt.Println()
 			fmt.Println("Controllers from configuration:")
 			for _, url := range cfg.ControllerUrls() {
@@ -255,6 +260,11 @@ func main() {
 		}
 	default:
 		fmt.Println("Unknown subcommand, please see", os.Args[0], "--help for documentation.")
+	}
+
+	// exit when no need to save
+	if !saveAndReload {
+		return
 	}
 
 	if err := cfg.Save(); err != nil {
