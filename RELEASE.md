@@ -22,7 +22,7 @@ Enter credentials
 
 ## Build the docker image
 
-    make build
+    docker build -f Dockerfile.local . -t severalnines/clustercontrol-manager
 
 ## Optionally make sure it works on your local
 
