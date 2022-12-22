@@ -207,8 +207,6 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 		cmonapi.CtxWriteError(ctx, err)
 	}
 
-	resp.Controller = p.pingOne(req.Controller)
-
 	// remove & add it again
 	if err := p.Router(nil).Config.RemoveController(req.Controller.Url, false); err != nil {
 		cmonapi.CtxWriteError(ctx,
@@ -219,6 +217,8 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 		cmonapi.CtxWriteError(ctx, err)
 		return
 	}
+
+	resp.Controller = p.pingOne(req.Controller)
 
 	// it is going to refresh everything
 	p.Refresh()
