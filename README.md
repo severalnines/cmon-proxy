@@ -227,7 +227,7 @@ $ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/setpassword'  -d'{"old_p
 
 ### Controllers status
 
-This endpoint will gives an oversview of the available configured cmon instances
+This endpoint will gives an overview of the available configured cmon instances
 and their status and version informations.
 
 The reply structure can be found there:
