@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package api
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 type GetClusterInfoRequest struct {
 	*WithOperation `json:",inline"`
@@ -38,10 +38,34 @@ type GetAllClusterInfoRequest struct {
 	WithTags         bool `json:"with_tags,omitempty"`
 }
 
+type CmonLicense struct {
+	*WithClassName `json:",inline"`
+
+	Company        string `json:"company"`
+	DaysLeft       int    `json:"days_left"`
+	EmailAddress   string `json:"email_address"`
+	ExpirationDate string `json:"expiration_date"`
+	LicensedNodes  int    `json:"licensed_nodes"`
+	Type           string `json:"type"`
+	UsedNodes      int    `json:"used_nodes"`
+	ValidDate      bool   `json:"valid_date"`
+}
+
+type CmonLicenseCheck struct {
+	*WithClassName `json:",inline"`
+
+	ExpiresDays int    `json:"expires_days"`
+	HasLicense  bool   `json:"has_license"`
+	StatusText  string `json:"status_text"`
+}
+
 type GetAllClusterInfoResponse struct {
 	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
 	*WithTotal        `json:",inline"`
+
+	*CmonLicense      `json:"license"`
+	*CmonLicenseCheck `json:"license_check"`
 
 	Clusters []*Cluster
 }

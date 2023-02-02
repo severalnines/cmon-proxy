@@ -24,10 +24,27 @@ import (
 )
 
 func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
+	var req api.ControllerStatusRequest
+
+	/* check license is only possible via getAllClusterInfo call which might be slow
+	 * so we aren't doing it here by default, only if explicitly required,
+	 * however if the info is already available from cache the license info will be
+	 * included in the response anyways
+	 */
+	forceLicenseCheck := false
+	if err := ctx.BindJSON(&req); err == nil {
+		forceLicenseCheck = req.ForceLicenseCheck
+	}
+
 	retval := api.ControllerStatusList{Controllers: make([]*api.ControllerStatus, 0, 16)}
 
 	// this will ping the controllers
 	p.Router(ctx).Ping()
+
+	if forceLicenseCheck {
+		// make sure license info is re-freshed
+		p.Router(ctx).GetAllClusterInfo(false)
+	}
 
 	for _, addr := range p.Router(ctx).Urls() {
 		c := p.Router(ctx).Cmon(addr)
@@ -49,9 +66,15 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		}
 
 		status.Name = c.Client.Instance.Name
-		status.ControllerID = c.Client.ControllerID()
+		status.ControllerID = c.ControllerID()
 		status.Status = api.Ok
 		status.LastUpdated.T = time.Now()
+
+		// NOTE: license data is only available after getAllClusterInfo has been requested
+		if c.Clusters != nil && c.Clusters.CmonLicense != nil {
+			status.License = c.Clusters.CmonLicense
+			status.LicenseCheck = c.Clusters.CmonLicenseCheck
+		}
 
 		if c.PingError != nil {
 			status.Status = api.Failed

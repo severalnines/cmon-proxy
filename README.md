@@ -231,7 +231,10 @@ This endpoint will gives an oversview of the available configured cmon instances
 and their status and version informations.
 
 The reply structure can be found there:
-https://github.com/severalnines/cmon-proxy/blob/main/multi/api/controllerstatus.go#L24
+https://github.com/severalnines/cmon-proxy/blob/main/multi/api/controllerstatus.go#L40
+
+You may send a POST request here, in that way it is possible to define the 'force_license_check' flag.
+See https://github.com/severalnines/cmon-proxy/blob/main/multi/api/controllerstatus.go#L36 for exact details on the request arguments.
 
 An example request and reply:
 ```bash

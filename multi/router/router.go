@@ -255,7 +255,7 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 				WithOperation:    &api.WithOperation{Operation: "getAllClusterInfo"},
 				WithSheetInfo:    false,
 				WithDatabases:    false,
-				WithLicenseCheck: false,
+				WithLicenseCheck: true,
 				WithHosts:        true,
 				WithTags:         true,
 			})
@@ -379,10 +379,8 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 			if err != nil {
 				fmt.Println("ERROR???", err.Error())
 			}
-			if err == nil {
-				for _, job := range jobs {
-					updatedJobs = append(updatedJobs, job)
-				}
+			if err == nil && len(jobs) > 0 {
+				updatedJobs = append(updatedJobs, jobs...)
 			}
 		}()
 	}
@@ -527,10 +525,8 @@ func (router *Router) GetBackups(forceUpdate bool) {
 			syncChannel <- true
 
 			jobs, err := c.Client.GetBackupJobs(cids)
-			if err == nil {
-				for _, job := range jobs {
-					updatedJobs = append(updatedJobs, job)
-				}
+			if err == nil && len(jobs) > 0 {
+				updatedJobs = append(updatedJobs, jobs...)
 			}
 		}()
 	}
