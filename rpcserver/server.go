@@ -156,15 +156,15 @@ func forwardToCmon(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, resp)
 		return
 	}
-	if len(controllerId.ControllerID) < 1 {
+	if !controllerId.HasID() {
 		var resp cmonapi.WithResponseData
 		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
-		resp.ErrorString = "missing controller_id from request"
+		resp.ErrorString = "missing xid or controller_id from request"
 		ctx.JSON(http.StatusBadRequest, resp)
 		return
 	}
 
-	proxy.RPCProxyRequest(ctx, controllerId.ControllerID, method, jsonData)
+	proxy.RPCProxyRequest(ctx, controllerId.GetID(), method, jsonData)
 }
 
 // Start is starting the service

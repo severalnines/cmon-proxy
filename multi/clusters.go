@@ -107,7 +107,12 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 		if data == nil || data.Clusters == nil {
 			continue
 		}
-		if !api.PassFilter(req.Filters, "controller_id", data.ControllerID()) ||
+
+		controllerID := data.ControllerID()
+		xid := data.Xid()
+
+		if !api.PassFilter(req.Filters, "xid", xid) ||
+			!api.PassFilter(req.Filters, "controller_id", controllerID) ||
 			!api.PassFilter(req.Filters, "controller_url", url) {
 			continue
 		}
@@ -130,8 +135,9 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 
 			clus := &api.ClusterExt{
 				WithControllerID: &api.WithControllerID{
+					Xid:           xid,
 					ControllerURL: url,
-					ControllerID:  data.ControllerID(),
+					ControllerID:  controllerID,
 				},
 				Cluster: cluster.Copy(req.WithHosts, true),
 			}
@@ -199,7 +205,12 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 		if data == nil || data.Clusters == nil {
 			continue
 		}
-		if !api.PassFilter(req.Filters, "controller_id", data.ControllerID()) ||
+
+		controllerID := data.ControllerID()
+		xid := data.Xid()
+
+		if !api.PassFilter(req.Filters, "xid", xid) ||
+			!api.PassFilter(req.Filters, "controller_id", controllerID) ||
 			!api.PassFilter(req.Filters, "controller_url", url) {
 			continue
 		}
@@ -243,8 +254,9 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 
 				h := &api.HostExt{
 					WithControllerID: &api.WithControllerID{
+						Xid:           xid,
 						ControllerURL: url,
-						ControllerID:  data.ControllerID(),
+						ControllerID:  controllerID,
 					},
 					Host: host,
 				}

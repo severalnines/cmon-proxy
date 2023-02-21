@@ -20,6 +20,7 @@ import (
 	"time"
 
 	arg "github.com/alexflint/go-arg"
+	"github.com/rs/xid"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/opts"
 )
@@ -157,7 +158,7 @@ func main() {
 				fmt.Println("URL or name can not be empty.")
 				os.Exit(1)
 			}
-			cmon := cfg.ControllerByUrlOrName(args.DropController.UrlOrName)
+			cmon := cfg.ControllerById(args.DropController.UrlOrName)
 			if cmon == nil {
 				fmt.Println("Controller not found")
 				os.Exit(0) // ? maybe error ?
@@ -180,6 +181,7 @@ func main() {
 				os.Exit(1)
 			}
 			cmon = &config.CmonInstance{
+				Xid:         xid.New().String(),
 				Url:         args.AddController.Url,
 				Name:        args.AddController.Name,
 				UseLdap:     args.AddController.UseLdap,
@@ -206,6 +208,10 @@ func main() {
 			if cmon == nil {
 				fmt.Println("Couldn't find controller.")
 				os.Exit(1)
+			}
+			// make sure all instances have a valid internal ID
+			if len(cmon.Xid) < 4 {
+				cmon.Xid = xid.New().String()
 			}
 			// Name
 			if len(args.UpdateController.Name) > 0 {

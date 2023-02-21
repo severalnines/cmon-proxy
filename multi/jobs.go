@@ -118,7 +118,12 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 		if data == nil || data.Jobs == nil {
 			continue
 		}
-		if !api.PassFilter(req.Filters, "controller_id", data.ControllerID()) ||
+
+		controllerID := data.ControllerID()
+		xid := data.Xid()
+
+		if !api.PassFilter(req.Filters, "xid", xid) ||
+			!api.PassFilter(req.Filters, "controller_id", controllerID) ||
 			!api.PassFilter(req.Filters, "controller_url", url) {
 			continue
 		}
@@ -150,8 +155,9 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 			resp.Jobs = append(resp.Jobs,
 				&api.JobExt{
 					WithControllerID: &api.WithControllerID{
-						ControllerID:  data.ControllerID(),
+						ControllerID:  controllerID,
 						ControllerURL: url,
+						Xid:           xid,
 					},
 					Job: job,
 				},

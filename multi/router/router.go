@@ -98,6 +98,7 @@ func (router *Router) Sync() {
 	for _, addr := range router.Config.ControllerUrls() {
 		if instance := router.Config.ControllerByUrl(addr); instance != nil {
 			actualConfig := &config.CmonInstance{
+				Xid:         instance.Xid,
 				Url:         instance.Url,
 				Name:        instance.Name,
 				Username:    instance.Username,
@@ -386,6 +387,20 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 	}
 
 	wg.Wait()
+}
+
+func (cmon *Cmon) MatchesID(id string) bool {
+	return id == cmon.Xid() || id == cmon.ControllerID()
+}
+
+func (cmon *Cmon) Xid() string {
+	if cmon == nil {
+		return ""
+	}
+	cmon.mtx.Lock()
+	defer cmon.mtx.Unlock()
+
+	return cmon.Xid()
 }
 
 func (cmon *Cmon) ControllerID() string {

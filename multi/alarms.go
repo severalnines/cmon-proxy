@@ -127,9 +127,11 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 		if data == nil || len(data.Alarms) < 1 {
 			continue
 		}
-		controllerId := data.ControllerID()
+		xid := data.Xid()
+		controllerID := data.ControllerID()
 
-		if !api.PassFilter(req.Filters, "controller_id", controllerId) ||
+		if !api.PassFilter(req.Filters, "xid", xid) ||
+			!api.PassFilter(req.Filters, "controller_id", controllerID) ||
 			!api.PassFilter(req.Filters, "controller_url", url) {
 			continue
 		}
@@ -166,7 +168,7 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 					continue
 				}
 
-				resp.Add(alarm, url, controllerId)
+				resp.Add(alarm, url, controllerID, xid)
 			}
 		}
 	}

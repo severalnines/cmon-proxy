@@ -27,6 +27,8 @@ func (p *Proxy) RPCAdminReload(ctx *gin.Context) {
 			ctx.ClientIP(), ctx.Request.UserAgent()))
 
 	if newConfig, err := config.Load(p.Router(ctx).Config.Filename); newConfig != nil && err == nil {
+		// to make sure our fixups are executed on the (externally) updated config as well
+		newConfig.Upgrade()
 		// replace the config
 		p.UpdateConfig(newConfig)
 	}

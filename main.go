@@ -40,6 +40,8 @@ func main() {
 		zap.L().Sugar().Warnf("configfile problem: %s", err.Error())
 	}
 
+	config.Upgrade()
+
 	// Stop on signals
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals,

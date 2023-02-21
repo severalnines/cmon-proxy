@@ -154,7 +154,12 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 		if data == nil || data.Backups == nil {
 			continue
 		}
-		if !api.PassFilter(req.Filters, "controller_id", data.ControllerID()) ||
+
+		controllerID := data.ControllerID()
+		xid := data.Xid()
+
+		if !api.PassFilter(req.Filters, "xid", xid) ||
+			!api.PassFilter(req.Filters, "controller_id", controllerID) ||
 			!api.PassFilter(req.Filters, "controller_url", url) {
 			continue
 		}
@@ -187,7 +192,8 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 			b := &api.BackupExt{
 				WithControllerID: &api.WithControllerID{
 					ControllerURL: url,
-					ControllerID:  data.ControllerID(),
+					ControllerID:  controllerID,
+					Xid:           xid,
 				},
 				Backup: data.Backups[idx],
 			}
@@ -264,7 +270,12 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 		if data == nil || data.BackupSchedules == nil {
 			continue
 		}
-		if !api.PassFilter(req.Filters, "controller_id", data.ControllerID()) ||
+
+		xid := data.Xid()
+		controllerID := data.ControllerID()
+
+		if !api.PassFilter(req.Filters, "xid", data.Xid()) ||
+			!api.PassFilter(req.Filters, "controller_id", controllerID) ||
 			!api.PassFilter(req.Filters, "controller_url", url) {
 			continue
 		}
@@ -293,8 +304,9 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 			resp.Jobs = append(resp.Jobs,
 				&api.JobExt{
 					WithControllerID: &api.WithControllerID{
-						ControllerID:  data.ControllerID(),
+						ControllerID:  controllerID,
 						ControllerURL: url,
+						Xid:           xid,
 					},
 					Job: job,
 				},

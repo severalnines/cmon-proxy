@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/xid"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/logger"
 	"github.com/severalnines/cmon-proxy/opts"
@@ -44,6 +45,7 @@ type ProxyUser struct {
 }
 
 type CmonInstance struct {
+	Xid         string `yaml:"xid" json:"-"` // stored in config file, not required on FE side
 	Url         string `yaml:"url" json:"url"`
 	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
 	UseLdap     bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
@@ -101,6 +103,26 @@ func (cfg *Config) Save() error {
 	}
 
 	return ioutil.WriteFile(cfg.Filename, contents, 0644)
+}
+
+// Makes some upgrades between versions
+func (cfg *Config) Upgrade() {
+	if cfg == nil || len(cfg.Instances) < 1 {
+		return
+	}
+	changed := false
+	// make sure all instances have a local ID
+	for _, cmon := range cfg.Instances {
+		if len(cmon.Xid) < 4 {
+			cmon.Xid = xid.New().String()
+			changed = true
+		}
+	}
+	if changed && len(cfg.Filename) > 0 {
+		if err := cfg.Save(); err != nil {
+			zap.L().Warn("Couldn't save upgraded configuration file", zap.Error(err))
+		}
+	}
 }
 
 // Load loads the configuration from the specified file name
@@ -227,13 +249,13 @@ func (cfg *Config) ControllerByUrl(url string) *CmonInstance {
 	return nil
 }
 
-// ControllerByUrlOrName returns a CmonInstance having the specified url or name
-func (cfg *Config) ControllerByUrlOrName(idString string) *CmonInstance {
+// ControllerById returns a CmonInstance having the specified url or name
+func (cfg *Config) ControllerById(idString string) *CmonInstance {
 	cfg.mtx.RLock()
 	defer cfg.mtx.RUnlock()
 
 	for _, cmon := range cfg.Instances {
-		if cmon.Url == idString || cmon.Name == idString {
+		if cmon.Xid == idString || cmon.Url == idString || cmon.Name == idString {
 			return cmon
 		}
 	}
@@ -247,6 +269,11 @@ func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
 	}
 	if cfg.ControllerByUrl(cmon.Url) != nil {
 		return cmonapi.NewError(cmonapi.RequestStatusTryAgain, "duplicated URL")
+	}
+
+	// generate our internal IDs
+	if len(cmon.Xid) < 4 {
+		cmon.Xid = xid.New().String()
 	}
 
 	cfg.mtx.Lock()

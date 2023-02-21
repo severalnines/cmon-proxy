@@ -67,6 +67,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 
 		status.Name = c.Client.Instance.Name
 		status.ControllerID = c.ControllerID()
+		status.Xid = c.Xid()
 		status.Status = api.Ok
 		status.LastUpdated.T = time.Now()
 
@@ -132,6 +133,7 @@ func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 	}
 
 	retval := &api.ControllerStatus{
+		Xid:          instance.Xid,
 		ControllerID: client.ControllerID(),
 		Version:      client.ServerVersion(),
 		Url:          instance.Url,
@@ -293,7 +295,8 @@ func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, r
 			continue
 		}
 
-		if c.Client.ControllerID() == controllerId {
+		// this accepts both xid or controller_id
+		if c.MatchesID(controllerId) {
 			resBytes, err := c.Client.RequestBytes(ctx.Request.URL.EscapedPath(), reqBytes, false)
 			if err != nil {
 				break

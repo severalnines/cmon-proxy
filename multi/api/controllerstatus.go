@@ -38,6 +38,7 @@ type ControllerStatusRequest struct {
 }
 
 type ControllerStatus struct {
+	Xid           string                    `json:"xid"`
 	ControllerID  string                    `json:"controller_id"`
 	Name          string                    `json:"controller_name"`
 	Url           string                    `json:"url"`

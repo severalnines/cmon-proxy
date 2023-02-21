@@ -218,5 +218,17 @@ type WithGroup struct {
 }
 
 type WithControllerID struct {
+	Xid          string `json:"xid"`
 	ControllerID string `json:"controller_id"`
+}
+
+func (wci *WithControllerID) HasID() bool {
+	return len(wci.ControllerID) > 0 || len(wci.Xid) > 4
+}
+
+func (wci *WithControllerID) GetID() string {
+	if len(wci.Xid) > 4 {
+		return wci.Xid
+	}
+	return wci.ControllerID
 }

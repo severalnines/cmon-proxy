@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package api
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -43,7 +43,7 @@ type AlarmListReply struct {
 	LastUpdated  map[string]*cmonapi.NullTime `json:"last_updated"`
 }
 
-func (al *AlarmListReply) Add(alarm *cmonapi.Alarm, controllerUrl, controllerId string) {
+func (al *AlarmListReply) Add(alarm *cmonapi.Alarm, controllerUrl, controllerId, xid string) {
 	if len(al.Alarms) < 1 {
 		al.Alarms = make([]*AlarmExt, 0, 16)
 	}
@@ -51,6 +51,7 @@ func (al *AlarmListReply) Add(alarm *cmonapi.Alarm, controllerUrl, controllerId 
 		WithControllerID: &WithControllerID{
 			ControllerURL: controllerUrl,
 			ControllerID:  controllerId,
+			Xid:           xid,
 		},
 		Alarm: alarm.Copy(),
 	})
