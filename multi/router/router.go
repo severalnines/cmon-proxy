@@ -29,6 +29,7 @@ const (
 )
 
 type Cmon struct {
+	controllerID          string
 	Client                *cmon.Client
 	LastPing              time.Time
 	PingResponse          *api.PingResponse
@@ -397,8 +398,6 @@ func (cmon *Cmon) Xid() string {
 	if cmon == nil {
 		return ""
 	}
-	cmon.mtx.Lock()
-	defer cmon.mtx.Unlock()
 
 	return cmon.Xid()
 }
@@ -407,20 +406,26 @@ func (cmon *Cmon) ControllerID() string {
 	if cmon == nil {
 		return ""
 	}
-	cmon.mtx.Lock()
-	defer cmon.mtx.Unlock()
 
-	if cmon.PingResponse == nil {
-		if cmon.Client == nil {
-			return ""
+	if len(cmon.controllerID) < 1 {
+		// ID is not known yet
+		cmon.mtx.Lock()
+		defer cmon.mtx.Unlock()
+
+		if cmon.PingResponse == nil {
+			if cmon.Client == nil {
+				return ""
+			}
+
+			// return the controller ID from the parsed headers
+			cmon.controllerID = cmon.Client.ControllerID()
+		} else {
+			// return the controller ID from the last ping reply
+			cmon.controllerID = cmon.PingResponse.ControllerID
 		}
-
-		// return the controller ID from the parsed headers
-		return cmon.Client.ControllerID()
 	}
 
-	// return the controller ID from the last ping reply
-	return cmon.PingResponse.ControllerID
+	return cmon.controllerID
 }
 
 func (cmon *Cmon) ClusterIDs() []uint64 {
