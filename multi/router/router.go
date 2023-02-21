@@ -29,7 +29,6 @@ const (
 )
 
 type Cmon struct {
-	controllerID          string
 	Client                *cmon.Client
 	LastPing              time.Time
 	PingResponse          *api.PingResponse
@@ -44,6 +43,8 @@ type Cmon struct {
 	BackupSchedules       []*api.Job
 	Backups               []*api.Backup
 	mtx                   *sync.Mutex
+	// cache members
+	controllerID string
 }
 
 const (
@@ -395,11 +396,11 @@ func (cmon *Cmon) MatchesID(id string) bool {
 }
 
 func (cmon *Cmon) Xid() string {
-	if cmon == nil {
+	if cmon == nil || cmon.Client == nil || cmon.Client.Instance == nil {
 		return ""
 	}
 
-	return cmon.Xid()
+	return cmon.Client.Instance.Xid
 }
 
 func (cmon *Cmon) ControllerID() string {
