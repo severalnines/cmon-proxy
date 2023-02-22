@@ -15,8 +15,9 @@ type ListBackupsRequest struct {
 	*WithClusterID `json:",inline"`
 	*WithLimit     `json:",inline"`
 
-	Ascending bool  `json:"ascending"`
-	ParentID  int64 `json:"parent_id"`
+	Ascending           bool  `json:"ascending"`
+	ParentID            int64 `json:"parent_id"`
+	BackupRecordVersion int   `json:"backup_record_version"`
 }
 
 type ListBackupsResponse struct {
@@ -45,6 +46,12 @@ type RestoreBackupJobData struct {
 }
 
 type Backup struct {
+	HostLocations  []*BackupHostLocation  `json:"host_locations"`
+	CloudLocaitons []*BackupCloudLocation `json:"cloud_locations"`
+	Metadata       *BackupMetadata        `json:"metadata"`
+}
+
+type BackupMetadata struct {
 	*WithClassName `json:",inline"`
 
 	ID        uint64        `json:"id"`
@@ -59,11 +66,36 @@ type Backup struct {
 	Finished  NullTime      `json:"finished"`
 }
 
+type BackupLocation struct {
+	Type         string `json:"type"`
+	CreatedTime  string `json:"created_time"`
+	FinishedTime string `json:"finished_time"`
+	BeingDeleted bool   `json:"being_deleted"`
+	Retention    int    `json:"retention"`
+}
+
+type BackupHostLocation struct {
+	*BackupLocation `json:",inline"`
+
+	HostLocationUUID string `json:"host_location_uuid"`
+	RootDir          string `json:"root_dir"`
+	StorageHost      string `json:"storage_host"`
+}
+
+type BackupCloudLocation struct {
+	*BackupLocation   `json:",inline"`
+	CloudLocationUuid string `json:"cloud_location_uuid"`
+	BucketAndPath     string `json:"bucket_and_path"`
+	CredentialsId     int    `json:"credentials_id"`
+	Provider          string `json:"provider"`
+	StorageService    string `json:"storage_service"`
+}
+
 // GetSize returns a sum of backup files sizes.
 func (b *Backup) GetSize() int64 {
 	size := int64(0)
-	if b.Backups != nil {
-		for _, br := range b.Backups {
+	if b.Metadata.Backups != nil {
+		for _, br := range b.Metadata.Backups {
 			if br.Files == nil {
 				continue
 			}

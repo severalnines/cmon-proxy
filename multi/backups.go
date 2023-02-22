@@ -59,11 +59,11 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 
 		for _, backup := range data.Backups {
 			// tags filtration is possible here too
-			fn := func() []string { return data.ClusterTags(backup.ClusterID) }
+			fn := func() []string { return data.ClusterTags(backup.Metadata.ClusterID) }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
 				continue
 			}
-			clusterType := data.ClusterType(backup.ClusterID)
+			clusterType := data.ClusterType(backup.Metadata.ClusterID)
 
 			if resp.ByClusterType[clusterType] == nil {
 				resp.ByClusterType[clusterType] = &api.BackupOverview{
@@ -72,10 +72,10 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 				}
 			}
 
-			resp.BackupCounts[backup.Status]++
-			resp.ByClusterType[clusterType].BackupCounts[backup.Status]++
+			resp.BackupCounts[backup.Metadata.Status]++
+			resp.ByClusterType[clusterType].BackupCounts[backup.Metadata.Status]++
 
-			resp.BackupCountsByController[url].BackupCounts[backup.Status]++
+			resp.BackupCountsByController[url].BackupCounts[backup.Metadata.Status]++
 
 			if resp.BackupCountsByController[url].ByClusterType[clusterType] == nil {
 				resp.BackupCountsByController[url].ByClusterType[clusterType] = &api.BackupOverview{
@@ -84,7 +84,7 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 				}
 			}
 
-			resp.BackupCountsByController[url].ByClusterType[clusterType].BackupCounts[backup.Status]++
+			resp.BackupCountsByController[url].ByClusterType[clusterType].BackupCounts[backup.Metadata.Status]++
 		}
 
 		schedsPerCluster := make(map[string]map[uint64]int)
@@ -168,23 +168,23 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 			T: data.LastBackupsRefresh,
 		}
 		for idx, backup := range data.Backups {
-			if !api.PassFilter(req.Filters, "backup_id", strconv.FormatUint(backup.ID, 10)) {
+			if !api.PassFilter(req.Filters, "backup_id", strconv.FormatUint(backup.Metadata.ID, 10)) {
 				continue
 			}
-			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(backup.ClusterID, 10)) {
+			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(backup.Metadata.ClusterID, 10)) {
 				continue
 			}
-			if !api.PassFilter(req.Filters, "status", backup.Status) {
+			if !api.PassFilter(req.Filters, "status", backup.Metadata.Status) {
 				continue
 			}
-			if !api.PassFilter(req.Filters, "method", backup.Method) {
+			if !api.PassFilter(req.Filters, "method", backup.Metadata.Method) {
 				continue
 			}
 			if !api.PassFilterLazy(req.Filters, "cluster_type",
-				func() string { return data.ClusterType(backup.ClusterID) }) {
+				func() string { return data.ClusterType(backup.Metadata.ClusterID) }) {
 				continue
 			}
-			fn := func() []string { return data.ClusterTags(backup.ClusterID) }
+			fn := func() []string { return data.ClusterTags(backup.Metadata.ClusterID) }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
 				continue
 			}
@@ -214,28 +214,28 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Backups[i].ClusterID < resp.Backups[j].ClusterID
+			return resp.Backups[i].Metadata.ClusterID < resp.Backups[j].Metadata.ClusterID
 		})
 	case "status":
 		sort.Slice(resp.Backups[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Backups[i].Status < resp.Backups[j].Status
+			return resp.Backups[i].Metadata.Status < resp.Backups[j].Metadata.Status
 		})
 	case "method":
 		sort.Slice(resp.Backups[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Backups[i].Method < resp.Backups[j].Method
+			return resp.Backups[i].Metadata.Method < resp.Backups[j].Metadata.Method
 		})
 	case "id", "backup_id":
 		sort.Slice(resp.Backups[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Backups[i].ID < resp.Backups[j].ID
+			return resp.Backups[i].Metadata.ID < resp.Backups[j].Metadata.ID
 		})
 	}
 
