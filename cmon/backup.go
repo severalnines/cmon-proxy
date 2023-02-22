@@ -23,6 +23,7 @@ func (client *Client) ListBackups(req *api.ListBackupsRequest) (*api.ListBackups
 	if req.WithClusterID == nil || req.WithClusterID.ClusterID < 1 {
 		return nil, fmt.Errorf("invalid cluster id")
 	}
+	req.BackupRecordVersion = 2
 	res := &api.ListBackupsResponse{}
 	if err := client.Request(api.ModuleBackup, req, res); err != nil {
 		return nil, err
@@ -47,6 +48,7 @@ func (client *Client) GetLastBackups(clusterIds []uint64, lastNdays int, haveBef
 	retval := make([]*api.Backup, 0, len(clusterIds)*10)
 	timestamp := time.Now().Add(time.Hour * time.Duration(-lastNdays*24))
 
+	req.BackupRecordVersion = 2
 	for _, req.ClusterID = range clusterIds {
 		// start from page 0
 		req.Offset = 0
@@ -66,12 +68,12 @@ func (client *Client) GetLastBackups(clusterIds []uint64, lastNdays int, haveBef
 			for _, backup := range res.Backups {
 				count := len(retval)
 				// to avoid duplicates, skip already seen backups
-				if count > 0 && retval[count-1].ID <= backup.ID {
+				if count > 0 && retval[count-1].Metadata.ID <= backup.Metadata.ID {
 					continue
 				}
 
 				// okay, this job is too old, stop now
-				if backup.Created.T.Before(timestamp) {
+				if backup.Metadata.Created.T.Before(timestamp) {
 					endReached = true
 					break
 				}

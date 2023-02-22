@@ -32,7 +32,7 @@ type BackupOverview struct {
 	ByClusterType map[string]*BackupOverview `json:"by_cluster_type,omitempty"`
 }
 
-// BackupExt is a cmon Job extended by controller ID / URL fields
+// BackupExt is a cmon Backup extended by controller ID / URL fields
 type BackupExt struct {
 	*WithControllerID
 	*api.Backup
