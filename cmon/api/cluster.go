@@ -81,6 +81,10 @@ type Cluster struct {
 	State                 string      `json:"state"`
 	MaintenanceModeActive bool        `json:"maintenance_mode_active"`
 	Tags                  []string    `json:"tags,omitempty"`
+	ClusterAutoRecovery   bool        `json:"cluster_auto_recovery"`
+	NodeAutoRecovery      bool        `json:"node_auto_recovery"`
+	Vendor                string      `json:"vendor"`
+	Version               string      `json:"version"`
 }
 
 // IsSSLEnabled return true if all hosts in cluster have ssl_certs.server.ssl_enabled
@@ -103,6 +107,10 @@ func (c *Cluster) Copy(withHosts, removeController bool) *Cluster {
 		Databases:             c.Databases,
 		Tags:                  c.Tags,
 		MaintenanceModeActive: c.MaintenanceModeActive,
+		ClusterAutoRecovery:   c.ClusterAutoRecovery,
+		NodeAutoRecovery:      c.NodeAutoRecovery,
+		Vendor:                c.Vendor,
+		Version:               c.Version,
 	}
 	if c.WithClassName != nil {
 		retval.WithClassName = &WithClassName{ClassName: c.ClassName}
