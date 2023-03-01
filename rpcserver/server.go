@@ -294,6 +294,16 @@ func Start(cfg *config.Config) {
 			logs.POST("/list", proxy.RPCLogsList)
 		}
 
+		audit := p.Group("/audit")
+		audit.Use(proxy.RPCAuditEntryList)
+		{
+			// jobs.GET("/status", proxy.RPCJobsStatus)
+			// jobs.POST("/status", proxy.RPCJobsStatus)
+
+			audit.GET("/list", proxy.RPCAuditEntryList)
+			audit.POST("/list", proxy.RPCAuditEntryList)
+		}
+
 		backups := p.Group("/backups")
 		backups.Use(proxy.RPCAuthMiddleware)
 		{

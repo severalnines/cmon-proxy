@@ -104,9 +104,9 @@ import (
 // 	ctx.JSON(http.StatusOK, resp)
 // }
 
-// RPCLogsList returns the list of logs
-func (p *Proxy) RPCLogsList(ctx *gin.Context) {
-	var req api.LogListRequest
+// RPCAuditEntryList returns the list of audit entries
+func (p *Proxy) RPCAuditEntryList(ctx *gin.Context) {
+	var req api.AuditEntryListRequest
 
 	if ctx.Request.Method == http.MethodPost {
 		if err := ctx.BindJSON(&req); err != nil {
@@ -116,15 +116,15 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 		}
 	}
 
-	resp := &api.LogListReply{
+	resp := &api.AuditEntryListReply{
 		LastUpdated: make(map[string]*cmonapi.NullTime),
-		Logs:        make([]*api.LogExt, 0),
+		Entries:     make([]*api.AuditEntryExt, 0),
 	}
 
-	p.Router(ctx).GetLogs(false)
+	p.Router(ctx).GetAuditEntries(false)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || len(data.Logs) < 1 {
+		if data == nil || len(data.AuditEntries) < 1 {
 			continue
 		}
 		controllerId := data.ControllerID()
@@ -134,13 +134,13 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 			continue
 		}
 
-		logs := data.Logs
+		auditEntries := data.AuditEntries
 
-		if logs[0] != nil && logs[0].WithResponseData != nil {
-			resp.LastUpdated[url] = &logs[0].RequestProcessed
+		if auditEntries[0] != nil && auditEntries[0].WithResponseData != nil {
+			resp.LastUpdated[url] = &auditEntries[0].RequestProcessed
 		}
 
-		for cid, clusterLogs := range logs {
+		for cid, clusterAuditEntries := range auditEntries {
 			if !api.PassFilter(req.Filters, "cluster_id", fmt.Sprintf("%d", cid)) {
 				continue
 			}
@@ -152,7 +152,7 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
 				continue
 			}
-			for _, log := range clusterLogs.Logs {
+			for _, entry := range clusterAuditEntries.AuditEntries {
 				// if !api.PassFilter(req.Filters, "severity_name", alarm.SeverityName) {
 				// 	continue
 				// }
@@ -166,7 +166,7 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 				// 	continue
 				// }
 
-				resp.Add(log, url, controllerId)
+				resp.Add(entry, url, controllerId)
 			}
 		}
 	}
@@ -174,30 +174,30 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 	// handle sorting && pagination
 	resp.Page = req.Page
 	resp.PerPage = req.PerPage
-	resp.Total = uint64(len(resp.Logs))
+	resp.Total = uint64(len(resp.Entries))
 	// sort first
 	order, desc := req.GetOrder()
 	switch order {
-	case "created":
-		sort.Slice(resp.Logs[:], func(i, j int) bool {
+	case "report_ts":
+		sort.Slice(resp.Entries[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Logs[i].Created.T.Before(resp.Logs[j].Created.T)
+			return resp.Entries[i].ReportTs.T.Before(resp.Entries[j].ReportTs.T)
 		})
 	case "cluster_id":
-		sort.Slice(resp.Logs[:], func(i, j int) bool {
+		sort.Slice(resp.Entries[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Logs[i].LogSpecifics.ClusterID < resp.Logs[j].LogSpecifics.ClusterID
+			return resp.Entries[i].ClusterID < resp.Entries[j].ClusterID
 		})
-	case "severity":
-		sort.Slice(resp.Logs[:], func(i, j int) bool {
+	case "entry_type":
+		sort.Slice(resp.Entries[:], func(i, j int) bool {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Logs[i].Severity < resp.Logs[j].Severity
+			return resp.Entries[i].EntryType < resp.Entries[j].EntryType
 		})
 		// case "type_name":
 		// 	sort.Slice(resp.Alarms[:], func(i, j int) bool {
@@ -224,7 +224,7 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 	if req.ListRequest.PerPage > 0 {
 		// then handle the pagination
 		from, to := api.Paginate(req.ListRequest, int(resp.Total))
-		resp.Logs = resp.Logs[from:to]
+		resp.Entries = resp.Entries[from:to]
 	}
 
 	ctx.JSON(http.StatusOK, resp)

@@ -40,7 +40,7 @@ type LogSpecifics struct {
 
 // LogOrigins struct.
 type LogOrigins struct {
-	SenderBinary int64  `json:"sender_binary"`
+	SenderBinary string `json:"sender_binary"`
 	SenderFile   string `json:"sender_file"`
 	SenderLine   int64  `json:"sender_line"`
 	SenderPid    int64  `json:"sender_pid"`
@@ -50,11 +50,12 @@ type LogOrigins struct {
 
 func (a *Log) Copy() *Log {
 	return &Log{
-		LogId:        a.LogId,
-		LogClass:     a.LogClass,
-		Created:      a.Created,
-		Severity:     a.Severity,
+		LogId:    a.LogId,
+		LogClass: a.LogClass,
+		Created:  a.Created,
+		Severity: a.Severity,
+
 		LogSpecifics: a.LogSpecifics,
-		LogOrigins:   a.LogOrigins,
+		// LogOrigins:   a.LogOrigins,
 	}
 }

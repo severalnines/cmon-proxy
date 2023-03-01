@@ -35,6 +35,7 @@ type Cmon struct {
 	Clusters              *api.GetAllClusterInfoResponse
 	Alarms                map[uint64]*api.GetAlarmsReply
 	Logs                  map[uint64]*api.GetLogsReply
+	AuditEntries          map[uint64]*api.GetAuditEntriesReply
 	GetClustersErrCounter int
 	GetClustersErr        error
 	PingError             error
@@ -387,6 +388,60 @@ func (router *Router) GetLogs(forceUpdate bool) {
 
 		c.mtx.Lock()
 		c.Logs = updatedLogs
+		c.mtx.Unlock()
+	}
+
+	wg.Wait()
+}
+
+func (router *Router) GetAuditEntries(forceUpdate bool) {
+	// make sure we have clusters data
+	router.GetAllClusterInfo(false)
+
+	wg := &sync.WaitGroup{}
+	syncChannel := make(chan bool, parallelLevel)
+	mtx := &sync.Mutex{}
+
+	for _, addr := range router.Urls() {
+		c := router.Cmon(addr)
+		if c == nil {
+			continue
+		}
+		var lastUpdated time.Time
+		if len(c.AuditEntries) > 0 {
+			for _, reply := range c.AuditEntries {
+				if reply != nil && reply.WithResponseData != nil {
+					lastUpdated = reply.RequestProcessed.T
+					break
+				}
+			}
+		}
+		if !forceUpdate &&
+			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
+			continue
+		}
+
+		updatedAuditEntries := make(map[uint64]*api.GetAuditEntriesReply)
+
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+				<-syncChannel
+			}()
+			syncChannel <- true
+
+			for _, cid := range c.ClusterIDs() {
+				if entries, _ := c.Client.GetAuditEntries(cid); entries != nil {
+					mtx.Lock()
+					updatedAuditEntries[cid] = entries
+					mtx.Unlock()
+				}
+			}
+		}()
+
+		c.mtx.Lock()
+		c.AuditEntries = updatedAuditEntries
 		c.mtx.Unlock()
 	}
 
