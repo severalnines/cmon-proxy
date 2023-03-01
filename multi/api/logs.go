@@ -14,19 +14,6 @@ import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 )
 
-// type AlarmsOverview struct {
-// 	// Alarm counts by severity
-// 	AlarmCounts map[string]int `json:"alarms_count"`
-// 	// Alarm counts by type
-// 	AlarmTypes map[string]int `json:"alarm_types"`
-
-// 	// Alarm counts by controller
-// 	AlarmCountsByController map[string]*AlarmsOverview `json:"by_controller,omitempty"`
-
-// 	// for the "technology" filters
-// 	ByClusterType map[string]*AlarmsOverview `json:"by_cluster_type,omitempty"`
-// }
-
 // LogExt is a cmon log extended by controller ID / URL fields
 type LogExt struct {
 	*WithControllerID

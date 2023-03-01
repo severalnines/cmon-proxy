@@ -20,90 +20,6 @@ import (
 	"github.com/severalnines/cmon-proxy/multi/api"
 )
 
-// // RPCAlarmsOverview gives a high level overview of all cluster alarms
-// func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
-// 	var req api.SimpleFilteredRequest
-
-// 	if ctx.Request.Method == http.MethodPost {
-// 		if err := ctx.BindJSON(&req); err != nil {
-// 			cmonapi.CtxWriteError(ctx,
-// 				cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
-// 					fmt.Sprint("Invalid request:", err.Error())))
-// 			return
-// 		}
-// 	}
-
-// 	resp := &api.AlarmsOverview{
-// 		AlarmCounts:             make(map[string]int),
-// 		AlarmTypes:              make(map[string]int),
-// 		AlarmCountsByController: make(map[string]*api.AlarmsOverview),
-// 		ByClusterType:           make(map[string]*api.AlarmsOverview),
-// 	}
-
-// 	p.Router(ctx).GetAlarms(false)
-// 	for _, url := range p.Router(ctx).Urls() {
-// 		data := p.Router(ctx).Cmon(url)
-// 		if data == nil || data.Clusters == nil {
-// 			continue
-// 		}
-
-// 		countsByCtrl := &api.AlarmsOverview{
-// 			AlarmCounts: make(map[string]int),
-// 			AlarmTypes:  make(map[string]int),
-// 		}
-// 		// iterate by clusterIds... one by one..
-// 		for cid, clusterAlarms := range data.Alarms {
-// 			// tags filtration is possible here too
-// 			fn := func() []string { return data.ClusterTags(cid) }
-// 			if !api.PassTagsFilterLazy(req.Filters, fn) {
-// 				continue
-// 			}
-
-// 			clusterType := data.ClusterType(cid)
-// 			if stat, found := resp.ByClusterType[clusterType]; !found || stat == nil {
-// 				resp.ByClusterType[clusterType] =
-// 					&api.AlarmsOverview{
-// 						AlarmCounts:             make(map[string]int),
-// 						AlarmTypes:              make(map[string]int),
-// 						AlarmCountsByController: make(map[string]*api.AlarmsOverview),
-// 					}
-// 			}
-
-// 			if x, found := resp.ByClusterType[clusterType].AlarmCountsByController[url]; !found || x == nil {
-// 				resp.ByClusterType[clusterType].AlarmCountsByController[url] =
-// 					&api.AlarmsOverview{
-// 						AlarmCounts: make(map[string]int),
-// 						AlarmTypes:  make(map[string]int),
-// 					}
-// 			}
-
-// 			for _, alarm := range clusterAlarms.Alarms {
-// 				if alarm == nil {
-// 					// sometimes cmon returns null alarm in the list
-// 					// this should just protect from panics
-// 					continue
-// 				}
-
-// 				resp.AlarmCounts[alarm.SeverityName]++
-// 				resp.AlarmTypes[alarm.TypeName]++
-
-// 				resp.ByClusterType[clusterType].AlarmCounts[alarm.SeverityName]++
-// 				resp.ByClusterType[clusterType].AlarmTypes[alarm.TypeName]++
-
-// 				countsByCtrl.AlarmCounts[alarm.SeverityName]++
-// 				countsByCtrl.AlarmTypes[alarm.TypeName]++
-
-// 				resp.ByClusterType[clusterType].AlarmCountsByController[url].AlarmCounts[alarm.SeverityName]++
-// 				resp.ByClusterType[clusterType].AlarmCountsByController[url].AlarmTypes[alarm.TypeName]++
-// 			}
-// 		}
-
-// 		resp.AlarmCountsByController[url] = countsByCtrl
-// 	}
-
-// 	ctx.JSON(http.StatusOK, resp)
-// }
-
 // RPCLogsList returns the list of logs
 func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 	var req api.LogListRequest
@@ -199,27 +115,6 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 			}
 			return resp.Logs[i].Severity < resp.Logs[j].Severity
 		})
-		// case "type_name":
-		// 	sort.Slice(resp.Alarms[:], func(i, j int) bool {
-		// 		if desc {
-		// 			i, j = j, i
-		// 		}
-		// 		return resp.Alarms[i].TypeName < resp.Alarms[j].TypeName
-		// 	})
-		// case "hostname":
-		// 	sort.Slice(resp.Alarms[:], func(i, j int) bool {
-		// 		if desc {
-		// 			i, j = j, i
-		// 		}
-		// 		return resp.Alarms[i].Hostname < resp.Alarms[j].Hostname
-		// 	})
-		// case "component_name":
-		// 	sort.Slice(resp.Alarms[:], func(i, j int) bool {
-		// 		if desc {
-		// 			i, j = j, i
-		// 		}
-		// 		return resp.Alarms[i].ComponentName < resp.Alarms[j].ComponentName
-		// 	})
 	}
 	if req.ListRequest.PerPage > 0 {
 		// then handle the pagination
