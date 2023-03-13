@@ -94,9 +94,9 @@ type Distribution struct {
 type ReplicationSlave struct {
 	MasterClusterId     CmonInt `json:"master_cluster_id,omitempty"`
 	MasterHost          string  `json:"master_host,omitempty"`
-	MasterPort          string  `json:"master_port,omitempty"`
+	MasterPort          CmonInt `json:"master_port,omitempty"`
 	PrevMasterHost      string  `json:"prev_master_host,omitempty"`
-	PrevMasterPort      string  `json:"prev_master_port,omitempty"`
+	PrevMasterPort      CmonInt `json:"prev_master_port,omitempty"`
 	SecondsBehindMaster CmonInt `json:"seconds_behind_master,omitempty"`
 
 	// redis

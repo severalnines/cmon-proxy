@@ -13,11 +13,13 @@ package api
 type GetLogsRequest struct {
 	*WithOperation `json:",inline"`
 	*WithClusterID `json:",inline"`
+	*WithLimit     `json:",inline"`
 }
 
 type GetLogsReply struct {
 	*WithControllerID `json:",inline"`
 	*WithResponseData `json:",inline"`
+	*WithTotal        `json:",inline"`
 
 	Logs []*Log `json:"log_entries"`
 }
