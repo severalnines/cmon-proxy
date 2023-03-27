@@ -13,6 +13,7 @@ package api
 type GetAuditEntriesRequest struct {
 	*WithOperation `json:",inline"`
 	*WithClusterID `json:",inline"`
+	*WithLimit     `json:",inline"`
 }
 
 type GetAuditEntriesReply struct {

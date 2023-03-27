@@ -22,6 +22,7 @@ func (client *Client) GetLogs(clusterId uint64) (*api.GetLogsReply, error) {
 		WithClusterID: &api.WithClusterID{
 			ClusterID: clusterId,
 		},
+		WithLimit: &api.WithLimit{Limit: 100},
 	}
 	if clusterId > 0 {
 		if err := api.CheckClusterID(req); err != nil {

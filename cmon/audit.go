@@ -22,6 +22,7 @@ func (client *Client) GetAuditEntries(clusterId uint64) (*api.GetAuditEntriesRep
 		WithClusterID: &api.WithClusterID{
 			ClusterID: clusterId,
 		},
+		WithLimit: &api.WithLimit{Limit: 100},
 	}
 	if clusterId > 0 {
 		if err := api.CheckClusterID(req); err != nil {
