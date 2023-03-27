@@ -37,6 +37,7 @@ const (
 	ModuleClusters    = "clusters"
 	ModuleBackup      = "backup"
 	ModuleJobs        = "jobs"
+	ModuleLog         = "log"
 	ModuleStat        = "stat"
 
 	RequestStatusOk              = "Ok"              // The request was successfully processed.
