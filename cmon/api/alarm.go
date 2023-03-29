@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package api
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"strings"
@@ -38,6 +38,7 @@ type Alarm struct {
 	Recommendation string   `json:"recommendation"`
 	SeverityName   string   `json:"severity_name"`
 	TypeName       string   `json:"type_name"`
+	Ignored        int      `json:"ignored"`
 }
 
 // GetSeverity returns alarm severity.
@@ -57,5 +58,6 @@ func (a *Alarm) Copy() *Alarm {
 		Recommendation: a.Recommendation,
 		SeverityName:   a.SeverityName,
 		TypeName:       a.TypeName,
+		Ignored:        a.Ignored,
 	}
 }

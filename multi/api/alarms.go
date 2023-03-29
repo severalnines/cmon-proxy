@@ -25,6 +25,8 @@ type AlarmsOverview struct {
 
 	// for the "technology" filters
 	ByClusterType map[string]*AlarmsOverview `json:"by_cluster_type,omitempty"`
+
+	ByCluster map[string]*AlarmsOverview `json:"by_cluster,omitempty"`
 }
 
 // AlarmExt is a cmon alarm extended by controller ID / URL fields
@@ -33,8 +35,14 @@ type AlarmExt struct {
 	*cmonapi.Alarm
 }
 
+type AlarmOverviewRequest struct {
+	ForceUpdateRequest    `json:",inline"`
+	SimpleFilteredRequest `json:",inline"`
+}
+
 type AlarmListRequest struct {
-	ListRequest `json:",inline"`
+	ForceUpdateRequest `json:",inline"`
+	ListRequest        `json:",inline"`
 }
 
 type AlarmListReply struct {

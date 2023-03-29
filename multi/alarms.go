@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -22,7 +23,7 @@ import (
 
 // RPCAlarmsOverview gives a high level overview of all cluster alarms
 func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
-	var req api.SimpleFilteredRequest
+	var req api.AlarmOverviewRequest
 
 	if ctx.Request.Method == http.MethodPost {
 		if err := ctx.BindJSON(&req); err != nil {
@@ -38,18 +39,21 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 		AlarmTypes:              make(map[string]int),
 		AlarmCountsByController: make(map[string]*api.AlarmsOverview),
 		ByClusterType:           make(map[string]*api.AlarmsOverview),
+		ByCluster:               make(map[string]*api.AlarmsOverview),
 	}
 
-	p.Router(ctx).GetAlarms(false)
+	p.Router(ctx).GetAlarms(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
 		if data == nil || data.Clusters == nil {
 			continue
 		}
+		xid := data.Xid()
 
 		countsByCtrl := &api.AlarmsOverview{
 			AlarmCounts: make(map[string]int),
 			AlarmTypes:  make(map[string]int),
+			ByCluster:   make(map[string]*api.AlarmsOverview),
 		}
 		// iterate by clusterIds... one by one..
 		for cid, clusterAlarms := range data.Alarms {
@@ -69,8 +73,16 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 					}
 			}
 
-			if x, found := resp.ByClusterType[clusterType].AlarmCountsByController[url]; !found || x == nil {
-				resp.ByClusterType[clusterType].AlarmCountsByController[url] =
+			if x, found := resp.ByClusterType[clusterType].AlarmCountsByController[xid]; !found || x == nil {
+				resp.ByClusterType[clusterType].AlarmCountsByController[xid] =
+					&api.AlarmsOverview{
+						AlarmCounts: make(map[string]int),
+						AlarmTypes:  make(map[string]int),
+					}
+			}
+
+			if bc, found := countsByCtrl.ByCluster[strconv.FormatUint(cid, 10)]; !found || bc == nil {
+				countsByCtrl.ByCluster[strconv.FormatUint(cid, 10)] =
 					&api.AlarmsOverview{
 						AlarmCounts: make(map[string]int),
 						AlarmTypes:  make(map[string]int),
@@ -83,6 +95,9 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 					// this should just protect from panics
 					continue
 				}
+				if !api.PassFilter(req.Filters, "ignored", fmt.Sprintf("%d", alarm.Ignored)) {
+					continue
+				}
 
 				resp.AlarmCounts[alarm.SeverityName]++
 				resp.AlarmTypes[alarm.TypeName]++
@@ -92,13 +107,23 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 
 				countsByCtrl.AlarmCounts[alarm.SeverityName]++
 				countsByCtrl.AlarmTypes[alarm.TypeName]++
+				countsByCtrl.ByCluster[strconv.FormatUint(cid, 10)].AlarmCounts[alarm.SeverityName]++
+				countsByCtrl.ByCluster[strconv.FormatUint(cid, 10)].AlarmTypes[alarm.TypeName]++
 
-				resp.ByClusterType[clusterType].AlarmCountsByController[url].AlarmCounts[alarm.SeverityName]++
-				resp.ByClusterType[clusterType].AlarmCountsByController[url].AlarmTypes[alarm.TypeName]++
+				resp.ByClusterType[clusterType].AlarmCountsByController[xid].AlarmCounts[alarm.SeverityName]++
+				resp.ByClusterType[clusterType].AlarmCountsByController[xid].AlarmTypes[alarm.TypeName]++
+
+				//@TODO: keeping bc backwards compatibility, remove when url is not used as id in HYDRA
+				resp.ByClusterType[clusterType].AlarmCountsByController[url] = resp.ByClusterType[clusterType].AlarmCountsByController[xid]
+
 			}
 		}
 
+		resp.AlarmCountsByController[xid] = countsByCtrl
+
+		//@TODO: keeping bc backwards compatibility, remove when url is not used as id in HYDRA
 		resp.AlarmCountsByController[url] = countsByCtrl
+
 	}
 
 	ctx.JSON(http.StatusOK, resp)
@@ -121,7 +146,7 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 		Alarms:      make([]*api.AlarmExt, 0),
 	}
 
-	p.Router(ctx).GetAlarms(false)
+	p.Router(ctx).GetAlarms(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
 		if data == nil || len(data.Alarms) < 1 {
@@ -167,6 +192,9 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 				if !api.PassFilter(req.Filters, "component_name", alarm.ComponentName) {
 					continue
 				}
+				if !api.PassFilter(req.Filters, "ignored", fmt.Sprintf("%d", alarm.Ignored)) {
+					continue
+				}
 
 				resp.Add(alarm, url, controllerID, xid)
 			}
@@ -185,7 +213,7 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 			if desc {
 				i, j = j, i
 			}
-			return resp.Alarms[i].ClusterId < resp.Alarms[j].ClusterId
+			return resp.Alarms[i].Created.T.Before(resp.Alarms[j].Created.T)
 		})
 	case "cluster_id":
 		sort.Slice(resp.Alarms[:], func(i, j int) bool {
