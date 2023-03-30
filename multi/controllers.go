@@ -11,6 +11,7 @@ package multi
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -297,11 +298,23 @@ func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, r
 
 		// this accepts both xid or controller_id
 		if c.MatchesID(controllerId) {
-			resBytes, err := c.Client.RequestBytes(ctx.Request.URL.EscapedPath(), reqBytes, false)
+			var resBytes []byte
+			parsed := make(map[string]interface{})
+			resBytes, err = c.Client.RequestBytes(ctx.Request.URL.EscapedPath(), reqBytes, false)
 			if err != nil {
 				break
 			}
-			// return the data as it is
+			if err := json.Unmarshal(resBytes, &parsed); err != nil || len(parsed) < 1 {
+				// return the data as it is
+				ctx.Data(http.StatusOK, "application/json", resBytes)
+			}
+
+			// NOTE: controller_id must be already there set & sent by cmon
+			parsed["xid"] = c.Xid()
+			resBytes, err = json.Marshal(parsed)
+			if err != nil {
+				break
+			}
 			ctx.Data(http.StatusOK, "application/json", resBytes)
 			return
 		}
