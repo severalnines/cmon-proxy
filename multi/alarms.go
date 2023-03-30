@@ -23,7 +23,7 @@ import (
 
 // RPCAlarmsOverview gives a high level overview of all cluster alarms
 func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
-	var req api.AlarmOverviewRequest
+	var req api.AlarmsOverviewRequest
 
 	if ctx.Request.Method == http.MethodPost {
 		if err := ctx.BindJSON(&req); err != nil {

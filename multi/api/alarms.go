@@ -35,7 +35,7 @@ type AlarmExt struct {
 	*cmonapi.Alarm
 }
 
-type AlarmOverviewRequest struct {
+type AlarmsOverviewRequest struct {
 	ForceUpdateRequest    `json:",inline"`
 	SimpleFilteredRequest `json:",inline"`
 }
