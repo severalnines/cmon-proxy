@@ -543,6 +543,7 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 		if cmon, found := router.cmons[address]; found && cmon != nil && updated != nil {
 			cmon.mtx.Lock()
 			cmon.Jobs = updated.Jobs
+			cmon.LastJobsRefresh = updated.LastBackupsRefresh
 			cmon.mtx.Unlock()
 		}
 	}
@@ -708,6 +709,7 @@ func (router *Router) GetBackups(forceUpdate bool) {
 			cmon.mtx.Lock()
 			cmon.Backups = updated.Backups
 			cmon.BackupSchedules = updated.BackupSchedules
+			cmon.LastBackupsRefresh = updated.LastBackupsRefresh
 			cmon.mtx.Unlock()
 		}
 	}
