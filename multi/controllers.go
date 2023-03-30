@@ -304,7 +304,7 @@ func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, r
 			if err != nil {
 				break
 			}
-			if err := json.Unmarshal(resBytes, &parsed); err != nil || len(parsed) < 1 {
+			if err = json.Unmarshal(resBytes, &parsed); err != nil || len(parsed) < 1 {
 				// return the data as it is
 				ctx.Data(http.StatusOK, "application/json", resBytes)
 			}
