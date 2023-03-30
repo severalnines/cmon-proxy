@@ -1,6 +1,6 @@
 package router
 
-// Copyright 2022 Severalnines AB
+// Copyright 2022-2023 Severalnines AB
 //
 // This file is part of cmon-proxy.
 //
@@ -28,9 +28,18 @@ const (
 	parallelLevel = 4
 )
 
+const (
+	Ping = iota
+	Jobs
+	Logs
+	Audit
+	Backups
+	Alarms
+	Clusters
+)
+
 type Cmon struct {
 	Client                *cmon.Client
-	LastPing              time.Time
 	PingResponse          *api.PingResponse
 	Clusters              *api.GetAllClusterInfoResponse
 	Alarms                map[uint64]*api.GetAlarmsReply
@@ -39,11 +48,10 @@ type Cmon struct {
 	GetClustersErrCounter int
 	GetClustersErr        error
 	PingError             error
-	LastJobsRefresh       time.Time
 	Jobs                  []*api.Job
-	LastBackupsRefresh    time.Time
 	BackupSchedules       []*api.Job
 	Backups               []*api.Backup
+	LastUpdate            map[uint64]time.Time
 	mtx                   *sync.Mutex
 	// cache members
 	controllerID string
@@ -64,6 +72,33 @@ type Router struct {
 	Ldap   Ldap
 	cmons  map[string]*Cmon
 	mtx    *sync.RWMutex
+}
+
+func (c *Cmon) cacheValid(cacheKey uint64) bool {
+	if c == nil || c.LastUpdate == nil {
+		// nothing to do, invalid input, no need to update
+		return true
+	}
+	if val, found := c.LastUpdate[cacheKey]; !found || val.IsZero() {
+		// no cache key? it was never fetched
+		return false
+	}
+	if time.Since(c.LastUpdate[cacheKey]) > time.Duration(pingInterval)*time.Second {
+		// expired data
+		return false
+	}
+	// looks good
+	return true
+}
+
+func (c *Cmon) cacheUpdated(cacheKey uint64, t time.Time) {
+	if c == nil || c.LastUpdate == nil {
+		return
+	}
+	if t.IsZero() {
+		t = time.Now()
+	}
+	c.LastUpdate[cacheKey] = t
 }
 
 // New creates a new cmon router
@@ -118,9 +153,10 @@ func (router *Router) Sync() {
 			}
 			if c, found := router.cmons[addr]; !found || c == nil {
 				router.cmons[addr] = &Cmon{
-					Client: cmon.NewClient(actualConfig, router.Config.Timeout),
-					mtx:    &sync.Mutex{},
-					Alarms: make(map[uint64]*api.GetAlarmsReply),
+					Client:     cmon.NewClient(actualConfig, router.Config.Timeout),
+					mtx:        &sync.Mutex{},
+					Alarms:     make(map[uint64]*api.GetAlarmsReply),
+					LastUpdate: make(map[uint64]time.Time),
 				}
 			} else if c != nil && c.Client != nil {
 				// make sure clients always have the latest configuration
@@ -203,10 +239,11 @@ func (router *Router) Ping() {
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
+	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
-		if c == nil || time.Since(c.LastPing) < time.Duration(pingInterval)*time.Second {
+		if c == nil || c.cacheValid(Ping) {
 			continue
 		}
 
@@ -219,7 +256,6 @@ func (router *Router) Ping() {
 
 			mtx.Lock()
 			toCommit[address] = &Cmon{
-				LastPing:     time.Now(),
 				PingResponse: pingResp,
 				PingError:    err,
 			}
@@ -236,9 +272,9 @@ func (router *Router) Ping() {
 	for address, updated := range toCommit {
 		if cmon, found := router.cmons[address]; found && cmon != nil && updated != nil {
 			cmon.mtx.Lock()
-			cmon.LastPing = updated.LastPing
 			cmon.PingResponse = updated.PingResponse
 			cmon.PingError = updated.PingError
+			cmon.cacheUpdated(Ping, currentTime)
 			cmon.mtx.Unlock()
 		}
 	}
@@ -250,18 +286,15 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
+	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
 		if c == nil {
 			continue
 		}
-		var lastUpdated time.Time
-		if c.Clusters != nil && c.Clusters.WithResponseData != nil {
-			lastUpdated = c.Clusters.RequestProcessed.T
-		}
-		if !forceUpdate &&
-			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
+
+		if !forceUpdate && c.cacheValid(Clusters) {
 			continue
 		}
 
@@ -307,6 +340,7 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 			} else {
 				cmon.GetClustersErrCounter++
 			}
+			cmon.cacheUpdated(Clusters, currentTime)
 			cmon.mtx.Unlock()
 		}
 	}
@@ -321,23 +355,15 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
+	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
 		if c == nil {
 			continue
 		}
-		var lastUpdated time.Time
-		if len(c.Alarms) > 0 {
-			for _, reply := range c.Alarms {
-				if reply != nil && reply.WithResponseData != nil {
-					lastUpdated = reply.RequestProcessed.T
-					break
-				}
-			}
-		}
-		if !forceUpdate &&
-			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
+
+		if !forceUpdate && c.cacheValid(Alarms) {
 			continue
 		}
 
@@ -373,6 +399,7 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 		if cmon, found := router.cmons[address]; found && cmon != nil && updated != nil {
 			cmon.mtx.Lock()
 			cmon.Alarms = updated.Alarms
+			cmon.cacheUpdated(Alarms, currentTime)
 			cmon.mtx.Unlock()
 		}
 	}
@@ -387,23 +414,15 @@ func (router *Router) GetLogs(forceUpdate bool) {
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
+	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
 		if c == nil {
 			continue
 		}
-		var lastUpdated time.Time
-		if len(c.Logs) > 0 {
-			for _, reply := range c.Logs {
-				if reply != nil && reply.WithResponseData != nil {
-					lastUpdated = reply.RequestProcessed.T
-					break
-				}
-			}
-		}
-		if !forceUpdate &&
-			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
+
+		if !forceUpdate && c.cacheValid(Logs) {
 			continue
 		}
 
@@ -438,6 +457,7 @@ func (router *Router) GetLogs(forceUpdate bool) {
 		if cmon, found := router.cmons[address]; found && cmon != nil && updated != nil {
 			cmon.mtx.Lock()
 			cmon.Logs = updated.Logs
+			cmon.cacheUpdated(Logs, currentTime)
 			cmon.mtx.Unlock()
 		}
 	}
@@ -452,23 +472,15 @@ func (router *Router) GetAuditEntries(forceUpdate bool) {
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
+	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
 		if c == nil {
 			continue
 		}
-		var lastUpdated time.Time
-		if len(c.AuditEntries) > 0 {
-			for _, reply := range c.AuditEntries {
-				if reply != nil && reply.WithResponseData != nil {
-					lastUpdated = reply.RequestProcessed.T
-					break
-				}
-			}
-		}
-		if !forceUpdate &&
-			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
+
+		if !forceUpdate && c.cacheValid(Audit) {
 			continue
 		}
 
@@ -504,6 +516,7 @@ func (router *Router) GetAuditEntries(forceUpdate bool) {
 		if cmon, found := router.cmons[address]; found && cmon != nil && updated != nil {
 			cmon.mtx.Lock()
 			cmon.AuditEntries = updated.AuditEntries
+			cmon.cacheUpdated(Audit, currentTime)
 			cmon.mtx.Unlock()
 		}
 	}
@@ -518,6 +531,7 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
+	currentTime := time.Now()
 
 	// fetch jobs only from the last N hours
 	fetchJobHours := router.Config.FetchJobsHours
@@ -531,8 +545,7 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 		if c == nil {
 			continue
 		}
-		if !forceUpdate &&
-			(time.Since(c.LastJobsRefresh) < time.Duration(pingInterval)*time.Second) {
+		if !forceUpdate && c.cacheValid(Jobs) {
 			continue
 		}
 
@@ -545,16 +558,12 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 			}()
 			syncChannel <- true
 
-			mtx.Lock()
-			toCommit[address] = &Cmon{
-				LastJobsRefresh: time.Now(),
-			}
-			mtx.Unlock()
-
 			// get the jobs from last 12hours
 			if jobs, _ := c.Client.GetLastJobs(c.ClusterIDs(), fetchJobHours); jobs != nil {
 				mtx.Lock()
-				toCommit[address].Jobs = jobs
+				toCommit[address] = &Cmon{
+					Jobs: jobs,
+				}
 				mtx.Unlock()
 			}
 		}()
@@ -567,7 +576,7 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 		if cmon, found := router.cmons[address]; found && cmon != nil && updated != nil {
 			cmon.mtx.Lock()
 			cmon.Jobs = updated.Jobs
-			cmon.LastJobsRefresh = updated.LastBackupsRefresh
+			cmon.cacheUpdated(Jobs, currentTime)
 			cmon.mtx.Unlock()
 		}
 	}
@@ -681,6 +690,7 @@ func (router *Router) GetBackups(forceUpdate bool) {
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
+	currentTime := time.Now()
 
 	fetchBackupDays := router.Config.FetchBackupDays
 	if fetchBackupDays < 1 {
@@ -693,8 +703,8 @@ func (router *Router) GetBackups(forceUpdate bool) {
 		if c == nil {
 			continue
 		}
-		if !forceUpdate &&
-			(time.Since(c.LastBackupsRefresh) < time.Duration(pingInterval)*time.Second) {
+
+		if !forceUpdate && c.cacheValid(Backups) {
 			continue
 		}
 
@@ -703,9 +713,8 @@ func (router *Router) GetBackups(forceUpdate bool) {
 
 		mtx.Lock()
 		toCommit[address] = &Cmon{
-			Backups:            make([]*api.Backup, 0),
-			BackupSchedules:    make([]*api.Job, 0),
-			LastBackupsRefresh: time.Now(),
+			Backups:         make([]*api.Backup, 0),
+			BackupSchedules: make([]*api.Job, 0),
 		}
 		mtx.Unlock()
 
@@ -745,7 +754,7 @@ func (router *Router) GetBackups(forceUpdate bool) {
 			cmon.mtx.Lock()
 			cmon.Backups = updated.Backups
 			cmon.BackupSchedules = updated.BackupSchedules
-			cmon.LastBackupsRefresh = updated.LastBackupsRefresh
+			cmon.cacheUpdated(Backups, currentTime)
 			cmon.mtx.Unlock()
 		}
 	}

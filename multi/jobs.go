@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/multi/api"
+	"github.com/severalnines/cmon-proxy/multi/router"
 )
 
 func (p *Proxy) RPCJobsStatus(ctx *gin.Context) {
@@ -129,7 +130,7 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 		}
 
 		resp.LastUpdated[url] = &cmonapi.NullTime{
-			T: data.LastJobsRefresh,
+			T: data.LastUpdate[router.Jobs],
 		}
 		for _, job := range data.Jobs {
 			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(job.ClusterID, 10)) {
