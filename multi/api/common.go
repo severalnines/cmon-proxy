@@ -25,6 +25,10 @@ type WithControllerID struct {
 	ControllerURL string `json:"controller_url"`
 }
 
+type ForceUpdateRequest struct {
+	ForceUpdate bool `json:"force_update"`
+}
+
 type ListRequest struct {
 	Page    uint64    `json:"page"`
 	PerPage uint64    `json:"perPage"`
