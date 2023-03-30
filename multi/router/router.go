@@ -519,7 +519,6 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 		}
 
 		address := addr
-
 		wg.Add(1)
 		go func() {
 			defer func() {
@@ -529,19 +528,11 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 			syncChannel <- true
 
 			toCommit[address] = &Cmon{
-				Jobs:            make([]*api.Job, 0, 32),
 				LastJobsRefresh: time.Now(),
 			}
 
 			// get the jobs from last 12hours
-			cids := c.ClusterIDs()
-			jobs, err := c.Client.GetLastJobs(cids, fetchJobHours)
-			if err != nil {
-				fmt.Println("ERROR???", err.Error())
-			}
-			if err == nil && len(jobs) > 0 {
-				toCommit[address].Jobs = append(toCommit[address].Jobs, jobs...)
-			}
+			toCommit[address].Jobs, _ = c.Client.GetLastJobs(c.ClusterIDs(), fetchJobHours)
 		}()
 	}
 
