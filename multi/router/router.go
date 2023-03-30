@@ -199,6 +199,7 @@ func (router *Router) Authenticate() {
 
 // Ping pings the controllers to see their statuses
 func (router *Router) Ping() {
+	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
@@ -213,18 +214,19 @@ func (router *Router) Ping() {
 		wg.Add(1)
 		address := addr
 		go func() {
-			defer func() {
-				wg.Done()
-				<-syncChannel
-			}()
 			syncChannel <- true
 			pingResp, err := c.Client.Ping()
 
+			mtx.Lock()
 			toCommit[address] = &Cmon{
 				LastPing:     time.Now(),
 				PingResponse: pingResp,
 				PingError:    err,
 			}
+			mtx.Unlock()
+
+			wg.Done()
+			<-syncChannel
 		}()
 	}
 
@@ -244,6 +246,7 @@ func (router *Router) Ping() {
 }
 
 func (router *Router) GetAllClusterInfo(forceUpdate bool) {
+	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
@@ -267,10 +270,6 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 		// ping now
 		wg.Add(1)
 		go func() {
-			defer func() {
-				wg.Done()
-				<-syncChannel
-			}()
 			syncChannel <- true
 			listResp, err := c.Client.GetAllClusterInfo(&api.GetAllClusterInfoRequest{
 				WithOperation:    &api.WithOperation{Operation: "getAllClusterInfo"},
@@ -281,10 +280,15 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 				WithTags:         true,
 			})
 
+			mtx.Lock()
 			toCommit[address] = &Cmon{
 				Clusters:       listResp,
 				GetClustersErr: err,
 			}
+			mtx.Unlock()
+
+			wg.Done()
+			<-syncChannel
 		}()
 	}
 
@@ -313,6 +317,7 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 	// make sure we have clusters data
 	router.GetAllClusterInfo(false)
 
+	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
@@ -346,12 +351,16 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 			}()
 			syncChannel <- true
 
+			mtx.Lock()
 			toCommit[address] = &Cmon{
 				Alarms: make(map[uint64]*api.GetAlarmsReply),
 			}
+			mtx.Unlock()
 			for _, cid := range c.ClusterIDs() {
 				if alarms, _ := c.Client.GetAlarms(cid); alarms != nil {
+					mtx.Lock()
 					toCommit[address].Alarms[cid] = alarms
+					mtx.Unlock()
 				}
 			}
 		}()
@@ -374,6 +383,7 @@ func (router *Router) GetLogs(forceUpdate bool) {
 	// make sure we have clusters data
 	router.GetAllClusterInfo(false)
 
+	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
@@ -401,20 +411,23 @@ func (router *Router) GetLogs(forceUpdate bool) {
 
 		wg.Add(1)
 		go func() {
-			defer func() {
-				wg.Done()
-				<-syncChannel
-			}()
 			syncChannel <- true
 
+			mtx.Lock()
 			toCommit[address] = &Cmon{
 				Logs: make(map[uint64]*api.GetLogsReply),
 			}
+			mtx.Unlock()
 			for _, cid := range c.ClusterIDs() {
 				if logs, _ := c.Client.GetLogs(cid); logs != nil {
+					mtx.Lock()
 					toCommit[address].Logs[cid] = logs
+					mtx.Unlock()
 				}
 			}
+
+			wg.Done()
+			<-syncChannel
 		}()
 	}
 
@@ -435,8 +448,8 @@ func (router *Router) GetAuditEntries(forceUpdate bool) {
 	// make sure we have clusters data
 	router.GetAllClusterInfo(false)
 
+	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
-
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
 
@@ -469,12 +482,16 @@ func (router *Router) GetAuditEntries(forceUpdate bool) {
 			}()
 			syncChannel <- true
 
+			mtx.Lock()
 			toCommit[address] = &Cmon{
 				AuditEntries: make(map[uint64]*api.GetAuditEntriesReply),
 			}
+			mtx.Unlock()
 			for _, cid := range c.ClusterIDs() {
 				if entries, _ := c.Client.GetAuditEntries(cid); entries != nil {
+					mtx.Lock()
 					toCommit[address].AuditEntries[cid] = entries
+					mtx.Unlock()
 				}
 			}
 		}()
@@ -497,6 +514,7 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 	// make sure we have clusters data
 	router.GetAllClusterInfo(false)
 
+	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
@@ -527,12 +545,18 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 			}()
 			syncChannel <- true
 
+			mtx.Lock()
 			toCommit[address] = &Cmon{
 				LastJobsRefresh: time.Now(),
 			}
+			mtx.Unlock()
 
 			// get the jobs from last 12hours
-			toCommit[address].Jobs, _ = c.Client.GetLastJobs(c.ClusterIDs(), fetchJobHours)
+			if jobs, _ := c.Client.GetLastJobs(c.ClusterIDs(), fetchJobHours); jobs != nil {
+				mtx.Lock()
+				toCommit[address].Jobs = jobs
+				mtx.Unlock()
+			}
 		}()
 	}
 
@@ -653,6 +677,7 @@ func (router *Router) GetBackups(forceUpdate bool) {
 	// make sure we have clusters data
 	router.GetAllClusterInfo(false)
 
+	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, parallelLevel)
@@ -675,17 +700,24 @@ func (router *Router) GetBackups(forceUpdate bool) {
 
 		address := addr
 		clusterIDs := c.ClusterIDs()
+
+		mtx.Lock()
 		toCommit[address] = &Cmon{
 			Backups:            make([]*api.Backup, 0),
 			BackupSchedules:    make([]*api.Job, 0),
 			LastBackupsRefresh: time.Now(),
 		}
+		mtx.Unlock()
 
 		// Fetch the list of backups
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			toCommit[address].Backups, _ = c.Client.GetLastBackups(clusterIDs, fetchBackupDays)
+			if backups, _ := c.Client.GetLastBackups(clusterIDs, fetchBackupDays); backups != nil {
+				mtx.Lock()
+				toCommit[address].Backups = backups
+				mtx.Unlock()
+			}
 		}()
 
 		// and also pull/refresh the scheduled backup jobs
@@ -697,7 +729,11 @@ func (router *Router) GetBackups(forceUpdate bool) {
 			}()
 			syncChannel <- true
 
-			toCommit[address].BackupSchedules, _ = c.Client.GetBackupJobs(clusterIDs)
+			if schedules, _ := c.Client.GetBackupJobs(clusterIDs); schedules != nil {
+				mtx.Lock()
+				toCommit[address].BackupSchedules = schedules
+				mtx.Unlock()
+			}
 		}()
 	}
 
