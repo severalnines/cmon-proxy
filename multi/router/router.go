@@ -331,6 +331,14 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 				}
 			}
 		}
+
+		zap.L().Sugar().Info(
+			"ALARMS",
+			"forceUpdate", forceUpdate,
+			"lastUpdated", lastUpdated.String(),
+			"since", time.Since(lastUpdated).String(),
+			"cache valid", pingInterval, "s")
+
 		if !forceUpdate &&
 			(time.Since(lastUpdated) < time.Duration(pingInterval)*time.Second) {
 			continue
@@ -668,6 +676,14 @@ func (router *Router) GetBackups(forceUpdate bool) {
 		if c == nil {
 			continue
 		}
+
+		zap.L().Sugar().Info(
+			"BACKUP",
+			"forceUpdate", forceUpdate,
+			"lastUpdated", c.LastBackupsRefresh.String(),
+			"since", time.Since(c.LastBackupsRefresh).String(),
+			"cache valid", pingInterval, "s")
+
 		if !forceUpdate &&
 			(time.Since(c.LastBackupsRefresh) < time.Duration(pingInterval)*time.Second) {
 			continue
