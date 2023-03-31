@@ -30,7 +30,7 @@ type LogListReply struct {
 	LastUpdated  map[string]*cmonapi.NullTime `json:"last_updated"`
 }
 
-func (lo *LogListReply) Add(log *cmonapi.Log, controllerUrl, controllerId string) {
+func (lo *LogListReply) Add(log *cmonapi.Log, controllerUrl, controllerId string, xid string) {
 	if len(lo.Logs) < 1 {
 		lo.Logs = make([]*LogExt, 0, 16)
 	}
@@ -38,6 +38,7 @@ func (lo *LogListReply) Add(log *cmonapi.Log, controllerUrl, controllerId string
 		WithControllerID: &WithControllerID{
 			ControllerURL: controllerUrl,
 			ControllerID:  controllerId,
+			Xid:           xid,
 		},
 		Log: log.Copy(),
 	})
