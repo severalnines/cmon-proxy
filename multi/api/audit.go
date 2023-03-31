@@ -30,7 +30,7 @@ type AuditEntryListReply struct {
 	LastUpdated  map[string]*cmonapi.NullTime `json:"last_updated"`
 }
 
-func (ae *AuditEntryListReply) Add(entry *cmonapi.AuditEntry, controllerUrl, controllerId string) {
+func (ae *AuditEntryListReply) Add(entry *cmonapi.AuditEntry, controllerUrl, controllerId string, xid string) {
 	if len(ae.Entries) < 1 {
 		ae.Entries = make([]*AuditEntryExt, 0, 16)
 	}
@@ -38,6 +38,7 @@ func (ae *AuditEntryListReply) Add(entry *cmonapi.AuditEntry, controllerUrl, con
 		WithControllerID: &WithControllerID{
 			ControllerURL: controllerUrl,
 			ControllerID:  controllerId,
+			Xid:           xid,
 		},
 		AuditEntry: entry.Copy(),
 	})

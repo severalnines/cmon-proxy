@@ -44,8 +44,10 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 			continue
 		}
 		controllerId := data.ControllerID()
+		xid := data.Xid()
 
-		if !api.PassFilter(req.Filters, "controller_id", controllerId) ||
+		if !api.PassFilter(req.Filters, "xid", xid) ||
+			!api.PassFilter(req.Filters, "controller_id", controllerId) ||
 			!api.PassFilter(req.Filters, "controller_url", url) {
 			continue
 		}
@@ -82,7 +84,7 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 				// 	continue
 				// }
 
-				resp.Add(log, url, controllerId)
+				resp.Add(log, url, controllerId, xid)
 			}
 		}
 	}
