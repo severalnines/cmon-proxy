@@ -23,7 +23,7 @@ import (
 
 // RPCClustersStatus constructs a high level reply of the cluster statuees
 func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
-	var req api.SimpleFilteredRequest
+	var req api.ClustersOverviewRequest
 
 	if ctx.Request.Method == http.MethodPost {
 		if err := ctx.BindJSON(&req); err != nil {
@@ -42,7 +42,7 @@ func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
 		ByClusterType: make(map[string]*api.ClustersOverview),
 	}
 
-	p.Router(ctx).GetAllClusterInfo(false)
+	p.Router(ctx).GetAllClusterInfo(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
 		if data == nil || data.Clusters == nil {
