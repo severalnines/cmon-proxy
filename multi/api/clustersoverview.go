@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,17 +10,21 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 type ClustersOverview struct {
 	// an overview of all clusters status (map key: status string)
 	// for complete list see: https://github.com/severalnines/clustercontrol-enterprise/blob/master/src/cmoncluster.cpp#L3924
-	ClusterStatus map[string]int `json:"cluster_states"`
+	ClusterStatus map[string]int `json:"cluster_states,omitempty"`
 	// clusters count by controller (map key: URL)
-	ClustersCount map[string]int `json:"clusters_count"`
+	ClustersCount map[string]int `json:"clusters_count,omitempty"`
 	NodesCount    map[string]int `json:"nodes_count,omitempty"`
 	// the node states see:
 	NodeStates map[string]int `json:"node_states,omitempty"`
 
 	// for the "technology" filters
 	ByClusterType map[string]*ClustersOverview `json:"by_cluster_type,omitempty"`
+
+	// states for each controller
+	ByController map[string]*ClustersOverview `json:"by_controller,omitempty"`
+	// states by controller by cluster, only present inside by_controller
+	ByCluster map[string]*ClustersOverview `json:"by_cluster,omitempty"`
 }

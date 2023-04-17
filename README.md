@@ -11,7 +11,7 @@ NOTE: This writing assumes you have the docker image available at tag
 'severalnines/clustercontrol-manager'.
 
 Updated, it is not published/released from time-to-time to our dockerhub
-(manually for now): https://hub.docker.com/repository/docker/severalnines/clustercontrol-manager
+(manually for now): <https://hub.docker.com/repository/docker/severalnines/clustercontrol-manager>
 
 ### Configure custom SSL certificates
 
@@ -57,7 +57,7 @@ Creating a user for example:
     $ docker exec b6eca97d4982 ./ccmgradm adduser myuser mypassword
     ClusterControl Manager - admin CLI v1.1
     Succeed, reloading daemon.
- 
+
 ### Manage controllers using CLI
 
 NOTE, new functionality, when registering controllers using LDAP authentication, you do not need
@@ -79,7 +79,7 @@ List the currently registered controllers:
      * ldap.myserver.tld:9501 [LDAPONE] *LDAP authentication* Web-UI:https://ldap.myserver.tld
      * test01:9501 [Test01] Static user: cmon
      Succeed, reloading daemon.
-     
+
 Add or update controller (for update just use the 'updatecontroller' subcommand:
 
      $ ccmgradm addcontroller --help
@@ -114,10 +114,10 @@ To drop a controller:
 
 The daemon expects (for now) the configuration file located in the current
 working directory, its structure can be found here:
-https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L22
+<https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L22>
 
 An example configuration can be seen here:
-https://github.com/severalnines/cmon-proxy/blob/main/cmon-proxy.yaml.sample
+<https://github.com/severalnines/cmon-proxy/blob/main/cmon-proxy.yaml.sample>
 
 ### Confguration parameters related to Backups and Jobs
 
@@ -130,7 +130,6 @@ Specify how many days in the past cmon-proxy should look for backup data. Defaul
 Specify how many hours in the past cmon-proxy should look for jobs data. Default is 12 hours:
 
     fetch_jobs_hours: INT
-
 
 ## RPC endpoints
 
@@ -145,11 +144,12 @@ password, it can be found in its log file.
 
 #### Login request
 
-LoginRequest struct: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/user.go#L8
+LoginRequest struct: <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/user.go#L8>
 
 ```bash
 curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/login'  -d'{"username":"admin","password":"7052369b1abd"}' -c cookies.jar
 ```
+
 ```json
 {
   "request_created": "",
@@ -174,8 +174,9 @@ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/logout'  -d'{}' -b cookies
 If user is not logged in the request will throw a 401 HTTP status
 
 ```bash
-$ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/check'  -d'{}' -b cookies.jar
+curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/check'  -d'{}' -b cookies.jar
 ```
+
 ```json
 {
   "request_created": "",
@@ -192,11 +193,12 @@ $ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/check'  -d'{}' -b cookie
 Updating the ProxyUser object fields (you must send all, except passwordash it
 is going to be discarded by this request anyway, you can't udpate password using
 this request)
-ProxUser fields: https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L23
+ProxUser fields: <https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L23>
 
 ```bash
-$ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/update'  -d'{"user":{"username":"admin","email":"kedz@kedz.eu"}}' -b cookies.jar | jq
+curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/update'  -d'{"user":{"username":"admin","email":"kedz@kedz.eu"}}' -b cookies.jar | jq
 ```
+
 ```json
 {
   "request_created": "",
@@ -212,8 +214,9 @@ $ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/update'  -d'{"user":{"us
 #### Update user password
 
 ```bash
-$ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/setpassword'  -d'{"old_password":"7052369b1abd","new_password":"password"}' -b cookies.jar | jq
+curl -XPOST -k 'https://home.kedz.eu:19051/proxy/auth/setpassword'  -d'{"old_password":"7052369b1abd","new_password":"password"}' -b cookies.jar | jq
 ```
+
 ```json
 {
   "request_created": "",
@@ -231,12 +234,13 @@ This endpoint will gives an overview of the available configured cmon instances
 and their status and version informations.
 
 The reply structure can be found there:
-https://github.com/severalnines/cmon-proxy/blob/main/multi/api/controllerstatus.go#L40
+<https://github.com/severalnines/cmon-proxy/blob/main/multi/api/controllerstatus.go#L40>
 
 You may send a POST request here, in that way it is possible to define the 'force_license_check' flag.
-See https://github.com/severalnines/cmon-proxy/blob/main/multi/api/controllerstatus.go#L36 for exact details on the request arguments.
+See <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/controllerstatus.go#L36> for exact details on the request arguments.
 
 An example request and reply:
+
 ```bash
 curl -k 'https://localhost:19051/proxy/controllers/status' | jq
 ```
@@ -286,15 +290,16 @@ Test or add a controller, add will cause the configuration file to be updated as
 well (even in case of failures), so you might want to test first
 
 URLS:
+
 - proxy/controllers/test: to test a controller (in case of LDAP it only works
   when the currently logged user is an LDAP user)
 - proxy/controllers/add: to add a new controller
 - proxy/controllers/update: update an existing controller
 
-The controller parameters can be seen here: https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L31
+The controller parameters can be seen here: <https://github.com/severalnines/cmon-proxy/blob/main/config/config.go#L31>
 
 ```bash
-$ curl -XPOST -k 'https://localhost:19051/proxy/controllers/test' -d'{"controller":{"url":"192.168.0.100:9501","name":"testadd","username":"someuser","password":"password"}}' | jq
+curl -XPOST -k 'https://localhost:19051/proxy/controllers/test' -d'{"controller":{"url":"192.168.0.100:9501","name":"testadd","username":"someuser","password":"password"}}' | jq
 ````
 
 ```json
@@ -316,7 +321,7 @@ This method can be used to remove a controller. Note the configuration will be
 updated too.
 
 ```bash
-$ curl -XPOST -k 'https://localhost:19051/proxy/controllers/remove' -d'{"url":"192.168.0.100:9501"}' | jq
+curl -XPOST -k 'https://localhost:19051/proxy/controllers/remove' -d'{"url":"192.168.0.100:9501"}' | jq
 ```
 
 ```json
@@ -329,16 +334,18 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/controllers/remove' -d'{"url":"1
 ### Clusters status overview
 
 ```bash
-$ curl -k -XPOST 'https://localhost:19051/proxy/clusters/status' -d'{"filters":[{"key":"tags", "matchall":["test","bitcoin"]}]}' | jq
+curl -k -XPOST 'https://localhost:19051/proxy/clusters/status' -d'{"filters":[{"key":"tags", "matchall":["test","bitcoin"]}]}' | jq
 ```
 
 Returned fields:
+
 - "cluster_states": count of clusters in certain cluster state
 - "node_states": count of node states in certain host status
 - "clusters_count": the number of clusters hosted by each controller (key is cmon URL)
 - "nodes_count": the number of hosts by each controller (key is cmon URL)
 
 The possible cluster states are:
+
 - CLUSTER_MGMD_NO_CONTACT: No contact to the management node.
 - CLUSTER_STARTED: There are no failed nodes, there are started nodes.
 - CLUSTER_NOT_STARTED: The cluster is failed to start.
@@ -350,7 +357,8 @@ The possible cluster states are:
 - CLUSTER_UNKNOWN: Cluster state is not yet determined.
 - CLUSTER_STOPPED: The cluster is stopped by Cmon.
 
-The possible host states are ( also see https://severalnines.com/downloads/cmon/cmon-docs/current/hosts.html ):
+The possible host states are ( also see <https://severalnines.com/downloads/cmon/cmon-docs/current/hosts.html> ):
+
 - CmonHostUnknown: The status of the host is not yet found.
 - CmonHostOnline: The host is on-line, everything is ok with it, no errors or special conditions detected.
 - CmonHostOffLine: The host is off-line, can not be contacted and we have no detailed information about what happened.
@@ -358,8 +366,8 @@ The possible host states are ( also see https://severalnines.com/downloads/cmon/
 - CmonHostRecovery: There was some error and the host is now recovering.
 - CmonHostShutDown: The host is deliberately shut down.
 
+Reply definition: <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/clustersoverview.go>
 
-Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/clustersoverview.go
 ```json
 {
   "cluster_states": {
@@ -377,15 +385,72 @@ Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/multi/api
   "node_states": {
     "CmonHostOnline": 190,
     "CmonHostShutDown": 1
+  },
+  "by_controller": {
+    "cfqb3bv6i1eb2e2qsrig": {
+      "cluster_states": {
+          "STARTED": 4
+      },
+      "node_states": {
+          "CmonHostOnline": 21
+      },
+      "by_cluster": {
+        "1": {
+            "node_states": {
+                "CmonHostOnline": 6
+            }
+        },
+        "2": {
+            "node_states": {
+                "CmonHostOnline": 3
+            }
+        },
+        "3": {
+            "node_states": {
+                "CmonHostOnline": 10
+            }
+        },
+        "4": {
+            "node_states": {
+                "CmonHostOnline": 2
+            }
+        }
+      }
+    },
+    "cgimqin6i1e1gkrk3700": {
+      "cluster_states": {
+          "STARTED": 3
+      },
+      "node_states": {
+          "CmonHostOnline": 15
+      },
+      "by_cluster": {
+        "1": {
+            "node_states": {
+                "CmonHostOnline": 3
+            }
+        },
+        "2": {
+            "node_states": {
+                "CmonHostOnline": 3
+            }
+        },
+        "3": {
+            "node_states": {
+                "CmonHostOnline": 9
+            }
+        }
+      }
+    }
   }
 }
 ```
 
 ### Clusters list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/clusterlist.go
+Request/reply structure: <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/clusterlist.go>
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go>
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, state, cluster_type
@@ -419,9 +484,9 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/clusters/list' \
 
 ### Hosts list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/hostlist.go
+Request/reply structure: <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/hostlist.go>
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go>
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, clusterid (yeah both as CmonHost has 'clusterid'), cluster_type,
@@ -476,7 +541,7 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/clusters/hosts' \
 ### Alarms overview
 
 ```bash
-$ curl -k 'https://localhost:19051/proxy/alarms/status' | jq
+curl -k 'https://localhost:19051/proxy/alarms/status' | jq
 ```
 
 ```json
@@ -508,9 +573,9 @@ $ curl -k 'https://localhost:19051/proxy/alarms/status' | jq
 
 ### Alarms list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/alarms.go
+Request/reply structure: <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/alarms.go>
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go>
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, cluster_type, severity_name, type_name, hostname, component_name,
@@ -549,7 +614,7 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' \
 ### Jobs status
 
 ```bash
-$ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/jobs/status'  -d'{"filters":[]}' | jq
+curl -XPOST -k 'https://home.kedz.eu:19051/proxy/jobs/status'  -d'{"filters":[]}' | jq
 ```
 
 ```json
@@ -621,15 +686,15 @@ $ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/jobs/status'  -d'{"filters":[
 
 ### Jobs list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/jobs.go
+Request/reply structure: <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/jobs.go>
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go>
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, cluster_type, job_command, tags
 
 ```bash
-$ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
+curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
 ```
 
 ```json
@@ -694,12 +759,12 @@ $ curl -XPOST -k 'https://localhost:19051/proxy/alarms/list' | jq
 
 ### Backup status overview
 
-Reply definition: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/backups.go
+Reply definition: <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/backups.go>
 
 NOTE: tag filtration is possible
 
 ```bash
-$ curl -k -XPOST 'https://localhost:19051/proxy/backups/status' -d'{}' | jq
+curl -k -XPOST 'https://localhost:19051/proxy/backups/status' -d'{}' | jq
 ```
 
 ```json
@@ -722,9 +787,9 @@ $ curl -k -XPOST 'https://localhost:19051/proxy/backups/status' -d'{}' | jq
 
 ### Backup schedules list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/jobs.go
+Request/reply structure: <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/jobs.go>
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go>
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, cluster_type, tags
@@ -735,6 +800,7 @@ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filte
 
 The reply is the same as in case of jobs list, but this one returns only the
 scheduled backup jobs only
+
 ```json
 {
   "jobs": [
@@ -748,9 +814,9 @@ scheduled backup jobs only
 
 ### Backups list
 
-Request/reply structure: https://github.com/severalnines/cmon-proxy/blob/main/multi/api/backups.go
+Request/reply structure: <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/backups.go>
 
-*PAGINATION* and sorting is possible, see ListRequest at https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go
+*PAGINATION* and sorting is possible, see ListRequest at <https://github.com/severalnines/cmon-proxy/blob/main/multi/api/common.go>
 
 Supported filter keys for this request: controller_id, controller_url,
 cluster_id, cluster_type, tags, backup_id, status, method
@@ -772,5 +838,3 @@ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filte
   ]
 }
 ```
-
-
