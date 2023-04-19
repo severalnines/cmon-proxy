@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,7 +10,6 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 )
@@ -18,6 +18,11 @@ import (
 type ClusterExt struct {
 	*WithControllerID
 	*cmonapi.Cluster
+}
+
+type ClustersOverviewRequest struct {
+	ForceUpdateRequest    `json:",inline"`
+	SimpleFilteredRequest `json:",inline"`
 }
 
 type ClusterListRequest struct {

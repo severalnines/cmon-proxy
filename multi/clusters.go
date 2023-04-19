@@ -23,7 +23,7 @@ import (
 
 // RPCClustersStatus constructs a high level reply of the cluster statuees
 func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
-	var req api.SimpleFilteredRequest
+	var req api.ClustersOverviewRequest
 
 	if ctx.Request.Method == http.MethodPost {
 		if err := ctx.BindJSON(&req); err != nil {
@@ -40,14 +40,16 @@ func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
 		NodesCount:    make(map[string]int),
 		NodeStates:    make(map[string]int),
 		ByClusterType: make(map[string]*api.ClustersOverview),
+		ByController:  make(map[string]*api.ClustersOverview),
 	}
 
-	p.Router(ctx).GetAllClusterInfo(false)
+	p.Router(ctx).GetAllClusterInfo(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
 		if data == nil || data.Clusters == nil {
 			continue
 		}
+		xid := data.Xid()
 		for _, cluster := range data.Clusters.Clusters {
 			// tags filtration is possible here too
 			fn := func() []string { return cluster.Tags }
@@ -73,11 +75,31 @@ func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
 			resp.NodesCount[url] += len(cluster.Hosts) - 1
 			resp.ByClusterType[cluster.ClusterType].NodesCount[url] += len(cluster.Hosts) - 1
 
+			// stats by controller
+			if resp.ByController[xid] == nil {
+				resp.ByController[xid] = &api.ClustersOverview{
+					ClusterStatus: make(map[string]int),
+					NodeStates:    make(map[string]int),
+					ByCluster:     make(map[string]*api.ClustersOverview),
+				}
+			}
+			resp.ByController[xid].ClusterStatus[cluster.State]++
+
+			// stats by cluster id
+			cidstr := strconv.FormatUint(cluster.ClusterID, 10)
+			if resp.ByController[xid].ByCluster[cidstr] == nil {
+				resp.ByController[xid].ByCluster[cidstr] = &api.ClustersOverview{
+					NodeStates: make(map[string]int),
+				}
+			}
+
 			for _, host := range cluster.Hosts {
 				if host.Nodetype == "controller" {
 					continue
 				}
 				resp.NodeStates[host.HostStatus]++
+				resp.ByController[xid].NodeStates[host.HostStatus]++
+				resp.ByController[xid].ByCluster[cidstr].NodeStates[host.HostStatus]++
 				resp.ByClusterType[cluster.ClusterType].NodeStates[host.HostStatus]++
 			}
 		}
