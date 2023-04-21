@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package api
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"github.com/severalnines/cmon-proxy/cmon/api"
@@ -39,7 +39,8 @@ type BackupExt struct {
 }
 
 type BackupListRequest struct {
-	ListRequest `json:",inline"`
+	ListRequest        `json:",inline"`
+	ForceUpdateRequest `json:",inline"`
 }
 
 type BackupListReply struct {

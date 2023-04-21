@@ -149,7 +149,7 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 	resp.Backups = make([]*api.BackupExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.Router(ctx).GetBackups(false)
+	p.Router(ctx).GetBackups(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
 		if data == nil || data.Backups == nil {
@@ -169,6 +169,9 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 			T: data.LastUpdate[router.Backups],
 		}
 		for idx, backup := range data.Backups {
+			if !api.PassFilter(req.Filters, "xid_cid", xid+"-"+strconv.FormatUint(backup.Metadata.ClusterID, 10)) {
+				continue
+			}
 			if !api.PassFilter(req.Filters, "backup_id", strconv.FormatUint(backup.Metadata.ID, 10)) {
 				continue
 			}
@@ -210,6 +213,13 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 	// sort first
 	order, desc := req.GetOrder()
 	switch order {
+	case "created":
+		sort.Slice(resp.Backups[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Backups[i].Metadata.Created.T.Before(resp.Backups[j].Metadata.Created.T)
+		})
 	case "cluster_id":
 		sort.Slice(resp.Backups[:], func(i, j int) bool {
 			if desc {
@@ -264,7 +274,7 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 	resp.Jobs = make([]*api.JobExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.Router(ctx).GetBackups(false)
+	p.Router(ctx).GetBackups(req.ForceUpdate)
 
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
@@ -285,6 +295,9 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 			T: data.LastUpdate[router.Jobs],
 		}
 		for _, job := range data.BackupSchedules {
+			if !api.PassFilter(req.Filters, "xid_cid", xid+"-"+strconv.FormatUint(job.ClusterID, 10)) {
+				continue
+			}
 			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(job.ClusterID, 10)) {
 				continue
 			}
