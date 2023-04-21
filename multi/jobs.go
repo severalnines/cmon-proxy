@@ -112,7 +112,7 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 	resp.Jobs = make([]*api.JobExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.Router(ctx).GetLastJobs(false)
+	p.Router(ctx).GetLastJobs(req.ForceUpdate)
 
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
