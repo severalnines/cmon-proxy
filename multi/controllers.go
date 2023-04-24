@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +23,7 @@ import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/multi/api"
+	"github.com/severalnines/cmon-proxy/multi/router"
 )
 
 func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
@@ -330,4 +332,86 @@ func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, r
 		resp.ErrorString = "error while communicating to cmon:" + err.Error()
 	}
 	ctx.JSON(http.StatusNotFound, resp)
+}
+
+func (p *Proxy) RPCProxyMany(ctx *gin.Context, xIds []string, method string, reqBytes []byte) {
+	var err error
+	// map if xid <-> cmon replies
+	var repliesMtx sync.Mutex
+	replies := make(map[string]json.RawMessage)
+
+	wg := &sync.WaitGroup{}
+	syncChannel := make(chan bool, router.ParallelLevel)
+
+	for _, addr := range p.Router(ctx).Urls() {
+		c := p.Router(ctx).Cmon(addr)
+		if c == nil || c.Client == nil {
+			continue
+		}
+
+		passesXidFilter := false
+		for _, xid := range xIds {
+			if c.MatchesID(xid) {
+				passesXidFilter = true
+				break
+			}
+		}
+		// this specific Cmon wasn't requested.. skip it
+		if !passesXidFilter {
+			continue
+		}
+
+		// paralell authentication to the cmons
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+				<-syncChannel
+			}()
+			syncChannel <- true
+
+			var resBytes []byte
+			parsed := make(map[string]interface{})
+			resBytes, err = c.Client.RequestBytes(ctx.Request.URL.EscapedPath(), reqBytes, false)
+			if err != nil {
+				var resp cmonapi.WithResponseData
+				if err != nil {
+					resp.RequestStatus = cmonapi.RequestStatusUnknownError
+					resp.ErrorString = "error while communicating to cmon:" + err.Error()
+				}
+				repliesMtx.Lock()
+				replies[c.Xid()], err = json.Marshal(parsed)
+				repliesMtx.Unlock()
+
+			}
+			if err = json.Unmarshal(resBytes, &parsed); err != nil || len(parsed) < 1 {
+				replyData := make(map[string]interface{})
+				replyData["xid"] = c.Xid()
+				replyData["data"] = resBytes // this isn't JSon just some RAW reply
+				repliesMtx.Lock()
+				replies[c.Xid()], err = json.Marshal(replyData)
+				repliesMtx.Unlock()
+			}
+
+			// NOTE: controller_id must be already there set & sent by cmon
+			parsed["xid"] = c.Xid()
+			repliesMtx.Lock()
+			replies[c.Xid()], err = json.Marshal(parsed)
+			repliesMtx.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	// add missing status where the reply is missing
+	for _, xid := range xIds {
+		if _, found := replies[xid]; !found {
+			replies[xid], _ = json.Marshal(&cmonapi.WithResponseData{
+				RequestStatus: cmonapi.RequestStatusObjectNotFound,
+				ErrorString:   "No cmon found by xid.",
+			})
+		}
+	}
+
+	multiReply, _ := json.Marshal(replies)
+	ctx.Data(http.StatusOK, "application/json", multiReply)
 }
