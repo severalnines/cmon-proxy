@@ -223,6 +223,10 @@ type WithControllerID struct {
 	ControllerID string `json:"controller_id"`
 }
 
+type WithMultiXIds struct {
+	Xids []string `json:"xids"`
+}
+
 func (wci *WithControllerID) HasID() bool {
 	return len(wci.ControllerID) > 0 || len(wci.Xid) > 4
 }

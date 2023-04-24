@@ -23,9 +23,9 @@ import (
 
 const (
 	// do not ping more frequent than every 30 seconds
-	pingInterval = 60
+	PingInterval = 60
 	// the max number of cmon requests made in parallel
-	parallelLevel = 4
+	ParallelLevel = 4
 )
 
 const (
@@ -83,7 +83,7 @@ func (c *Cmon) cacheValid(cacheKey uint64) bool {
 		// no cache key? it was never fetched
 		return false
 	}
-	if time.Since(c.LastUpdate[cacheKey]) > time.Duration(pingInterval)*time.Second {
+	if time.Since(c.LastUpdate[cacheKey]) > time.Duration(PingInterval)*time.Second {
 		// expired data
 		return false
 	}
@@ -202,7 +202,7 @@ func (router *Router) Authenticate() {
 	router.Sync()
 
 	wg := &sync.WaitGroup{}
-	syncChannel := make(chan bool, parallelLevel)
+	syncChannel := make(chan bool, ParallelLevel)
 
 	for _, addr := range router.Urls() {
 		cli := router.Client(addr)
@@ -238,7 +238,7 @@ func (router *Router) Ping() {
 	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
-	syncChannel := make(chan bool, parallelLevel)
+	syncChannel := make(chan bool, ParallelLevel)
 	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
@@ -285,7 +285,7 @@ func (router *Router) GetAllClusterInfo(forceUpdate bool) {
 	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
-	syncChannel := make(chan bool, parallelLevel)
+	syncChannel := make(chan bool, ParallelLevel)
 	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
@@ -354,7 +354,7 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
-	syncChannel := make(chan bool, parallelLevel)
+	syncChannel := make(chan bool, ParallelLevel)
 	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
@@ -413,7 +413,7 @@ func (router *Router) GetLogs(forceUpdate bool) {
 	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
-	syncChannel := make(chan bool, parallelLevel)
+	syncChannel := make(chan bool, ParallelLevel)
 	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
@@ -471,7 +471,7 @@ func (router *Router) GetAuditEntries(forceUpdate bool) {
 	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
-	syncChannel := make(chan bool, parallelLevel)
+	syncChannel := make(chan bool, ParallelLevel)
 	currentTime := time.Now()
 
 	for _, addr := range router.Urls() {
@@ -530,7 +530,7 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
-	syncChannel := make(chan bool, parallelLevel)
+	syncChannel := make(chan bool, ParallelLevel)
 	currentTime := time.Now()
 
 	// fetch jobs only from the last N hours
@@ -689,7 +689,7 @@ func (router *Router) GetBackups(forceUpdate bool) {
 	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
-	syncChannel := make(chan bool, parallelLevel)
+	syncChannel := make(chan bool, ParallelLevel)
 	currentTime := time.Now()
 
 	fetchBackupDays := router.Config.FetchBackupDays

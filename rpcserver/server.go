@@ -167,6 +167,47 @@ func forwardToCmon(ctx *gin.Context) {
 	proxy.RPCProxyRequest(ctx, controllerId.GetID(), method, jsonData)
 }
 
+func multiCmon(ctx *gin.Context) {
+	// Proxy requests to all cmons
+	var xids cmonapi.WithMultiXIds
+	method := ctx.Request.Method
+	jsonData, err := ioutil.ReadAll(ctx.Request.Body)
+
+	if err == nil {
+		err = json.Unmarshal(jsonData, &xids)
+	}
+
+	if len(jsonData) < 2 && len(ctx.Request.URL.Query()) > 0 {
+		// lets try to construct a POST request from URL query parameters
+		// (this is for testing / simplify)
+		jsonMap := make(map[string]interface{})
+		for param, args := range ctx.Request.URL.Query() {
+			if len(args) < 1 {
+				continue
+			}
+			if param == "xids" {
+				xids.Xids = strings.Split(args[0], ",")
+			}
+			if _, found := jsonMap[param]; !found {
+				jsonMap[param] = args[0]
+			}
+		}
+		// okay we converted all URL query args into a JSON map
+		jsonData, err = json.Marshal(jsonMap)
+		method = "POST"
+	}
+
+	if err != nil {
+		var resp cmonapi.WithResponseData
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "couldn't read request body: " + err.Error()
+		ctx.JSON(http.StatusBadRequest, resp)
+		return
+	}
+
+	proxy.RPCProxyMany(ctx, xids.Xids, method, jsonData)
+}
+
 // Start is starting the service
 func Start(cfg *config.Config) {
 	var err error
@@ -221,6 +262,13 @@ func Start(cfg *config.Config) {
 		v2.Use(proxy.RPCAuthMiddleware)
 		v2.POST("/*any", forwardToCmon)
 		v2.GET("/*any", forwardToCmon)
+	}
+
+	v2multi := s.Group("/v2multi")
+	{
+		v2multi.Use(proxy.RPCAuthMiddleware)
+		v2multi.POST("/*any", multiCmon)
+		v2multi.GET("/*any", multiCmon)
 	}
 
 	// aggregating APIs for WEB UI v0
