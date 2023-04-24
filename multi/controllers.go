@@ -286,11 +286,10 @@ func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, r
 	// do we need this here? it could do (re-)auth and things like that
 	// p.r.Ping()
 
-	authenticatedUserName := "<anonymous>"
-	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		authenticatedUserName = authenticatedUser.Username
-	}
-	fmt.Println("User", authenticatedUserName, "calls", ctx.Request.URL.Path)
+	//authenticatedUserName := "<anonymous>"
+	//if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
+	//	authenticatedUserName = authenticatedUser.Username
+	//}
 
 	for _, addr := range p.Router(ctx).Urls() {
 		c := p.Router(ctx).Cmon(addr)
@@ -343,22 +342,27 @@ func (p *Proxy) RPCProxyMany(ctx *gin.Context, xIds []string, method string, req
 	wg := &sync.WaitGroup{}
 	syncChannel := make(chan bool, router.ParallelLevel)
 
+	// change URL to the cmon RPC one
+	requestUrlFixed := strings.Replace(ctx.Request.URL.EscapedPath(), "/v2multi/", "/v2/", 1)
+
 	for _, addr := range p.Router(ctx).Urls() {
 		c := p.Router(ctx).Cmon(addr)
 		if c == nil || c.Client == nil {
 			continue
 		}
 
-		passesXidFilter := false
-		for _, xid := range xIds {
-			if c.MatchesID(xid) {
-				passesXidFilter = true
-				break
+		if len(xIds) > 0 {
+			passesXidFilter := false
+			for _, xid := range xIds {
+				if c.MatchesID(xid) {
+					passesXidFilter = true
+					break
+				}
 			}
-		}
-		// this specific Cmon wasn't requested.. skip it
-		if !passesXidFilter {
-			continue
+			// this specific Cmon wasn't requested.. skip it
+			if !passesXidFilter {
+				continue
+			}
 		}
 
 		// paralell authentication to the cmons
@@ -372,7 +376,7 @@ func (p *Proxy) RPCProxyMany(ctx *gin.Context, xIds []string, method string, req
 
 			var resBytes []byte
 			parsed := make(map[string]interface{})
-			resBytes, err = c.Client.RequestBytes(ctx.Request.URL.EscapedPath(), reqBytes, false)
+			resBytes, err = c.Client.RequestBytes(requestUrlFixed, reqBytes, false)
 			if err != nil {
 				var resp cmonapi.WithResponseData
 				if err != nil {
@@ -380,17 +384,21 @@ func (p *Proxy) RPCProxyMany(ctx *gin.Context, xIds []string, method string, req
 					resp.ErrorString = "error while communicating to cmon:" + err.Error()
 				}
 				repliesMtx.Lock()
-				replies[c.Xid()], err = json.Marshal(parsed)
+				replies[c.Xid()], err = json.Marshal(resp)
 				repliesMtx.Unlock()
 
-			}
-			if err = json.Unmarshal(resBytes, &parsed); err != nil || len(parsed) < 1 {
+				return
+
+			} else if err = json.Unmarshal(resBytes, &parsed); err != nil || len(parsed) < 1 {
 				replyData := make(map[string]interface{})
 				replyData["xid"] = c.Xid()
 				replyData["data"] = resBytes // this isn't JSon just some RAW reply
+
 				repliesMtx.Lock()
 				replies[c.Xid()], err = json.Marshal(replyData)
 				repliesMtx.Unlock()
+
+				return
 			}
 
 			// NOTE: controller_id must be already there set & sent by cmon
