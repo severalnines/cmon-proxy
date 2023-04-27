@@ -26,8 +26,9 @@ type ClustersOverviewRequest struct {
 }
 
 type ClusterListRequest struct {
-	ListRequest `json:",inline"`
-	WithHosts   bool `json:"with_hosts,omitempty"`
+	ListRequest        `json:",inline"`
+	WithHosts          bool `json:"with_hosts,omitempty"`
+	ForceUpdateRequest `json:",inline"`
 }
 
 type ClusterListReply struct {
