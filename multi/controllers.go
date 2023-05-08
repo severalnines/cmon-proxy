@@ -44,9 +44,9 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 	// this will ping the controllers
 	p.Router(ctx).Ping()
 
-	if forceLicenseCheck {
+	if forceLicenseCheck || req.ForceUpdate {
 		// make sure license info is re-freshed
-		p.Router(ctx).GetAllClusterInfo(false)
+		p.Router(ctx).GetAllClusterInfo(req.ForceUpdate)
 	}
 
 	for _, addr := range p.Router(ctx).Urls() {

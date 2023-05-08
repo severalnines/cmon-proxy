@@ -34,7 +34,8 @@ const (
 )
 
 type ControllerStatusRequest struct {
-	ForceLicenseCheck bool `json:"force_license_check"`
+	ForceUpdateRequest `json:",inline"`
+	ForceLicenseCheck  bool `json:"force_license_check"`
 }
 
 type ControllerStatus struct {
