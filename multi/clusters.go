@@ -123,7 +123,7 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 	resp.Clusters = make([]*api.ClusterExt, 0, 32)
 	resp.LastUpdated = make(map[string]*cmonapi.NullTime)
 
-	p.Router(ctx).GetAllClusterInfo(false)
+	p.Router(ctx).GetAllClusterInfo(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
 		if data == nil || data.Clusters == nil {
