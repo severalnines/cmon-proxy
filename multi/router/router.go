@@ -709,7 +709,6 @@ func (router *Router) GetBackups(forceUpdate bool) {
 		}
 
 		address := addr
-		clusterIDs := c.ClusterIDs()
 
 		mtx.Lock()
 		toCommit[address] = &Cmon{
@@ -722,7 +721,7 @@ func (router *Router) GetBackups(forceUpdate bool) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if backups, _ := c.Client.GetLastBackups(clusterIDs, fetchBackupDays); backups != nil {
+			if backups, _ := c.Client.GetLastBackups(nil, fetchBackupDays); backups != nil {
 				mtx.Lock()
 				toCommit[address].Backups = backups
 				mtx.Unlock()
@@ -738,7 +737,7 @@ func (router *Router) GetBackups(forceUpdate bool) {
 			}()
 			syncChannel <- true
 
-			if schedules, _ := c.Client.GetBackupJobs(clusterIDs); schedules != nil {
+			if schedules, _ := c.Client.GetBackupJobs(nil); schedules != nil {
 				mtx.Lock()
 				toCommit[address].BackupSchedules = schedules
 				mtx.Unlock()

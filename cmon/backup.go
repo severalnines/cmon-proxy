@@ -48,6 +48,11 @@ func (client *Client) GetLastBackups(clusterIds []uint64, lastNdays int, haveBef
 	retval := make([]*api.Backup, 0, len(clusterIds)*10)
 	timestamp := time.Now().Add(time.Hour * time.Duration(-lastNdays*24))
 
+	if len(clusterIds) < 1 {
+		// means request from all clusters
+		clusterIds = []uint64{0}
+	}
+
 	req.BackupRecordVersion = 2
 	for _, req.ClusterID = range clusterIds {
 		// start from page 0
