@@ -84,6 +84,13 @@ func (client *Client) GetLastJobs(clusterIds []uint64, lastNhours int, haveBefor
 			return nil, err
 		}
 		if res.RequestStatus != api.RequestStatusOk {
+			if res.RequestStatus == api.RequestStatusClusterNotFound ||
+				res.RequestStatus == api.RequestStatusObjectNotFound ||
+				res.RequestStatus == api.RequestStatusAccessDenied {
+				// cluster getting deleted or our access got revoked
+				// must not block the whole request -> just skip this cluster
+				break
+			}
 			return nil, api.NewErrorFromResponseData(res.WithResponseData)
 		}
 
