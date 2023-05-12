@@ -26,6 +26,12 @@ func (client *Client) GetBackupJobs(clusterIds []uint64) ([]*api.Job, error) {
 		WithClusterIDs: &api.WithClusterIDs{ClusterIDs: clusterIds},
 		ShowScheduled:  true, /* ask only scheduled jobs */
 	}
+
+	// do not send 'cluster_ids', we request all
+	if len(clusterIds) < 1 {
+		req.WithClusterIDs = nil
+	}
+
 	res := &api.GetJobInstancesResponse{}
 	if err := client.Request(api.ModuleJobs, req, res); err != nil {
 		return nil, err
@@ -72,6 +78,11 @@ func (client *Client) GetLastJobs(clusterIds []uint64, lastNhours int, haveBefor
 		},
 	}
 	req.Operation = "getJobInstances"
+
+	// do not send 'cluster_ids', we request all
+	if len(clusterIds) < 1 {
+		req.WithClusterIDs = nil
+	}
 
 	count := 0
 	retval := make([]*api.Job, 0, len(clusterIds)*10)
