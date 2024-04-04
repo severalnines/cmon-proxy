@@ -2,6 +2,7 @@
 .vscode
 *.cmd
 /build
+/cmake-build
 /ccmgr.log
 /ccmgr.yaml
 /server.crt

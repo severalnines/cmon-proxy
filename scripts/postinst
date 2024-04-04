@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload
+
+    if systemctl --quiet is-active cmon-proxy
+    then
+        systemctl restart cmon-proxy
+    else
+        systemctl enable cmon-proxy
+        systemctl start cmon-proxy
+    fi
+fi
+
+exit 0

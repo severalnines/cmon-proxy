@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl stop cmon-proxy
+    systemctl disable cmon-proxy
+fi
+
+exit 0
