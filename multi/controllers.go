@@ -236,7 +236,7 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 	}
 
 	// remove & add it again
-	if err := p.Router(nil).Config.RemoveController(req.Controller.Url, false); err != nil {
+	if err := p.Router(nil).Config.RemoveController(req.Controller.Xid, false); err != nil {
 		cmonapi.CtxWriteError(ctx,
 			cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "Controller not found ("+err.Error()+")"))
 		return

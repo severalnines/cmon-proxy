@@ -45,7 +45,7 @@ type ProxyUser struct {
 }
 
 type CmonInstance struct {
-	Xid         string `yaml:"xid" json:"-"` // stored in config file, not required on FE side
+	Xid         string `yaml:"xid" json:"xid"`
 	Url         string `yaml:"url" json:"url"`
 	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
 	UseLdap     bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
@@ -287,15 +287,15 @@ func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
 }
 
 // RemoveConroller removes a cmon instance from config file and persists the configuration
-func (cfg *Config) RemoveController(url string, persist bool) error {
-	if cfg.ControllerByUrl(url) == nil {
+func (cfg *Config) RemoveController(xid string, persist bool) error {
+	if cfg.ControllerById(xid) == nil {
 		return cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "controller not found")
 	}
 
 	cfg.mtx.Lock()
 	removeAt := -1
 	for idx, cmon := range cfg.Instances {
-		if cmon.Url == url {
+		if cmon.Xid == xid {
 			removeAt = idx
 			break
 		}
