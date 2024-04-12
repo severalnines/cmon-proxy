@@ -1,5 +1,8 @@
-.PHONY: ci getfrontendfiles build run
+.PHONY: ci getfrontendfiles build builder packages run
 
+DEB_PREFIX = /usr
+RPM_PREFIX = /usr
+BUILD_NUMBER := $(or $(BUILD_NUMBER),1)
 # make a ci build
 ci:
 	CGO_ENABLED=0 \
@@ -17,6 +20,21 @@ ci:
         -ldflags "-s -w -extldflags -static" \
         ./ccmgradm
 
+
+packages:
+	cmake . \
+		-Bcmake-build \
+		-DCMAKE_INSTALL_PREFIX=$(DEB_PREFIX) \
+		-DBUILDNUM=$(BUILD_NUMBER) \
+		-DCPACK_GENERATOR=DEB
+	make -C ./cmake-build package
+	cmake . \
+		-Bcmake-build \
+		-DCMAKE_INSTALL_PREFIX=$(RPM_PREFIX) \
+		-DBUILDNUM=$(BUILD_NUMBER) \
+		-DCPACK_GENERATOR=RPM
+	make -C ./cmake-build package
+
 getfrontendfiles:
 	-@docker rm -f cmonproxyfe
 	docker create -ti --name cmonproxyfe severalnines/cmon-proxy-fe:latest bash
@@ -27,7 +45,13 @@ getfrontendfiles:
 	echo "window.FEAS_ENV = { API_URL: '/proxy' };" > app/config.js
 
 build: 
-	docker build -t severalnines/cmon-proxy . -f Dockerfile.local
+	docker build -t severalnines/cmon-proxy . -f docker/Dockerfile.local
+
+builder:
+	docker buildx build --platform=linux/amd64  -t severalnines/cmon-proxy-builder . -f docker/Dockerfile.builder
+
+builder-push:
+	docker push severalnines/cmon-proxy-builder:latest
 
 run:
 	-@echo "Once started you can open UI at https://127.0.0.1:19051/ (accept the self-signed cert)"

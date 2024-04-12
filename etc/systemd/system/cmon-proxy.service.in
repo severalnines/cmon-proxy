@@ -1,0 +1,18 @@
+[Unit]
+Description=Severalnines CMON Proxy
+After=syslog.target
+After=network.target
+
+[Service]
+ExecStart=@CCMGR_PATH@ --basedir=/opt/ccmgr/
+PIDFile=/run/cmon-proxy.pid
+Restart=always
+User=root
+Group=root
+EnvironmentFile=-/etc/default/cmon-proxy.env
+ExecReload=/bin/kill -HUP $MAINPID
+WorkingDirectory=/usr/bin
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
