@@ -303,6 +303,8 @@ func (cfg *Config) RemoveController(xid string, persist bool) error {
 	if removeAt > -1 {
 		cfg.Instances[removeAt] = cfg.Instances[len(cfg.Instances)-1]
 		cfg.Instances = cfg.Instances[:len(cfg.Instances)-1]
+	} else {
+		return cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "controller not found")
 	}
 	cfg.mtx.Unlock()
 

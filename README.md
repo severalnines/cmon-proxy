@@ -302,6 +302,11 @@ The controller parameters can be seen here: <https://github.com/severalnines/cmo
 curl -XPOST -k 'https://localhost:19051/proxy/controllers/test' -d'{"controller":{"url":"192.168.0.100:9501","name":"testadd","username":"someuser","password":"password"}}' | jq
 ````
 
+##### for updating controller - xid needs to be used instead of url:
+```bash
+curl -XPOST -k 'https://localhost:19051/proxy/controllers/update' -d'{"controller":{"xid":"co163ho8ia90oenf0o2g","name":"testadd","username":"someuser","password":"password"}}' | jq
+````
+
 ```json
 {
   "controller": {
@@ -319,9 +324,10 @@ curl -XPOST -k 'https://localhost:19051/proxy/controllers/test' -d'{"controller"
 
 This method can be used to remove a controller. Note the configuration will be
 updated too.
+##### Note - removing controller requires using xid, not url
 
 ```bash
-curl -XPOST -k 'https://localhost:19051/proxy/controllers/remove' -d'{"url":"192.168.0.100:9501"}' | jq
+curl -XPOST -k 'https://localhost:19051/proxy/controllers/remove' -d'{"xid":"co163ho8ia90oenf0o2g"}' | jq
 ```
 
 ```json
