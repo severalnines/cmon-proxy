@@ -297,11 +297,11 @@ func (client *Client) buildURI(module string) string {
 		u := &url.URL{
 			Host:   parsed.Host,
 			Scheme: parsed.Scheme,
-			Path:   "/v2/" + module,
+			Path:   parsed.Path + "/v2/" + module,
 		}
 		// it might already have the full URL
 		if strings.HasPrefix(module, "/v2") {
-			u.Path = module
+			u.Path = parsed.Path + module
 		}
 		return u.String()
 	}

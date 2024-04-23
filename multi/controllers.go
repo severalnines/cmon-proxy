@@ -236,7 +236,7 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 	}
 
 	// remove & add it again
-	if err := p.Router(nil).Config.RemoveController(req.Controller.Url, false); err != nil {
+	if err := p.Router(nil).Config.RemoveController(req.Controller.Xid, false); err != nil {
 		cmonapi.CtxWriteError(ctx,
 			cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "Controller not found ("+err.Error()+")"))
 		return
@@ -264,13 +264,13 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 		}
 	}
 
-	if err := ctx.BindJSON(&req); err != nil || len(req.Url) < 1 {
+	if err := ctx.BindJSON(&req); err != nil || len(req.Xid) < 1 {
 		cmonapi.CtxWriteError(ctx,
 			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "Invalid request."))
 		return
 	}
 
-	if err := p.Router(nil).Config.RemoveController(req.Url, true); err != nil {
+	if err := p.Router(nil).Config.RemoveController(req.Xid, true); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
 	}
