@@ -50,6 +50,9 @@ build:
 builder:
 	docker buildx build --platform=linux/amd64  -t severalnines/cmon-proxy-builder . -f docker/Dockerfile.builder
 
+builder-run:
+	docker run -v "$(shell pwd):/code" -p 19051:19051 -it severalnines/cmon-proxy-builder
+
 builder-push:
 	docker push severalnines/cmon-proxy-builder:latest
 
