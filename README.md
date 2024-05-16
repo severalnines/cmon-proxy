@@ -119,17 +119,31 @@ working directory, its structure can be found here:
 An example configuration can be seen here:
 <https://github.com/severalnines/cmon-proxy/blob/main/cmon-proxy.yaml.sample>
 
-### Confguration parameters related to Backups and Jobs
-
-Configuration parameters are specified in ccmgr.yaml.
-
-Specify how many days in the past cmon-proxy should look for backup data. Default is 7 days:
-
-    fetch_backups_days: INT
-
-Specify how many hours in the past cmon-proxy should look for jobs data. Default is 12 hours:
-
-    fetch_jobs_hours: INT
+### Configuration ccmgr.yaml
+```yaml
+filename: ccmgr.yaml
+instances: # List of controller
+    - xid: chebjd8gfi863qqhrolg # Controller id. Generated automatically
+      url: hostname:9443/api # Controller api URL
+      name: Controller name
+      username: admin
+      password: password
+      frontend_url: http://hostname:9443/ # Url of Cluster Control web interface
+    - xid: cnoi4d3fo0o9e9m7hap0 # Controller id. Generated automatically
+      # ....
+timeout: 30 # request timeout in seconds. Default 30
+logfile: ccmgr.log # cmon proxy log file. Default ccmgr.log
+users: # Cmon proxy users, can be set via ccmgradm setpassword <username> <password>
+    - username: admin
+      passwordhash: <hash>
+frontend_path: /app # Path to static files that cmon proxy can serve
+port: 19051
+tls_cert: server.crt # Default server.crt can be set from env TLS_CERTIFICATE_FILE variable
+tls_key: server.key # Default server.key can be set from env TLS_KEY_FILE variable
+session_ttl: 3600000000000 # Session time to live in nanoseconds. Default 1 hour
+fetch_backups_days: 7 # How many days in the past cmon-proxy should look for backup data. Default is 7 days
+fetch_jobs_hours: 12 # How many hours in the past cmon-proxy should look for jobs data. Default is 12 hours
+```
 
 ## RPC endpoints
 
