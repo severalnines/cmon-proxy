@@ -102,6 +102,8 @@ func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ..
 	if client.ses != nil {
 		request.Header.Set("cookie", client.ses.String())
 	}
+	request.Header.Set("Expect", "100-continue")
+
 	response, err := client.http.Do(request)
 	if err != nil {
 		return nil, err
