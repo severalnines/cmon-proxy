@@ -31,6 +31,7 @@ import (
 type SessionData struct {
 	User  *config.ProxyUser
 	Login time.Time
+	LastActive time.Time
 }
 
 var (
@@ -45,53 +46,71 @@ var (
 )
 
 func cleanupOldSessions(p *Proxy) {
-	sesssMtx.Lock()
+    sesssMtx.Lock()
 
-	usernames := make([]string, 0, len(sesss))
-	invalidate := make([]string, 0)
-	// collect the outdated logins
-	for sessionId, data := range sesss {
-		if time.Since(data.Login) > session.SessionTTL {
-			invalidate = append(invalidate, sessionId)
+    usernames := make([]string, 0, len(sesss))
+    invalidate := make([]string, 0)
+    // Collect the outdated sessions
+    for sessionId, data := range sesss {
+        if time.Since(data.LastActive) > session.SessionTTL {
+            invalidate = append(invalidate, sessionId)
 
-			// audit log of server side logouts
-			if data.User != nil {
-				zap.L().Info(
-					fmt.Sprintf("[AUDIT] Logout '%s' (TTL)",
-						data.User.Username))
-			}
-		} else if data.User != nil {
-			// collect username from the active user sessions
-			usernames = append(usernames, data.User.Username)
-		}
+            // Audit log of server side logouts
+            if data.User != nil {
+                zap.L().Info("[AUDIT] Logout", zap.String("user", data.User.Username), zap.String("reason", "TTL"))
+            }
+        } else if data.User != nil {
+            // Collect username from the active user sessions
+            usernames = append(usernames, data.User.Username)
+        }
+    }
 
-	}
-	// invalidate them, lets do also audit log
-	for _, sessionId := range invalidate {
-		delete(sesss, sessionId)
-	}
+    // Invalidate outdated sessions
+    for _, sessionId := range invalidate {
+        delete(sesss, sessionId)
+    }
 
-	sesssMtx.Unlock()
+    sesssMtx.Unlock()
 
-	if p == nil {
-		return
-	}
+    if p == nil {
+        return
+    }
 
-	for username := range p.r {
-		hasSessionForUser := false
-		for _, loggedinUser := range usernames {
-			if loggedinUser == username {
-				hasSessionForUser = true
-				break
-			}
-		}
+    // Additional cleanup for user routers
+    for username := range p.r {
+        hasSessionForUser := false
+        for _, loggedinUser := range usernames {
+            if loggedinUser == username {
+                hasSessionForUser = true
+                break
+            }
+        }
 		// delete routers for no longer logged in (LDAP?) users...
-		if !hasSessionForUser && username != router.DefaultRouter {
-			mtx.Lock()
-			delete(p.r, username)
-			mtx.Unlock()
-		}
-	}
+        if !hasSessionForUser && username != router.DefaultRouter {
+            mtx.Lock()
+            delete(p.r, username)
+            mtx.Unlock()
+        }
+    }
+}
+
+func StartSessionCleanupScheduler(p *Proxy) {
+    ticker := time.NewTicker(30 * time.Minute)
+    go func() {
+        for range ticker.C {
+            cleanupOldSessions(p)
+        }
+    }()
+}
+
+func refreshSession(sessionId string) {
+    sesssMtx.Lock()
+    defer sesssMtx.Unlock()
+
+    if session, exists := sesss[sessionId]; exists {
+        session.LastActive = time.Now() // Update the last active time to the current time
+        sesss[sessionId] = session     // Put the updated session back into the map
+    }
 }
 
 func isLDAPSession(ctx *gin.Context) (isLDAPSession bool, ldapUsername string) {
@@ -154,13 +173,23 @@ func setUserForSession(ctx *gin.Context, user *config.ProxyUser) {
 	sesss[sessionId] = &SessionData{
 		User:  user,
 		Login: time.Now(),
+		LastActive: time.Now(),
 	}
 	ctx.Set(userKey, user)
 }
 
+func getSessionIdFromRequest(ctx *gin.Context) string {
+	s := sessions.Default(ctx) // Use the same session management library to obtain the session
+
+	// Attempt to retrieve the session ID stored under sessIdKey
+	if sessionId, ok := s.Get(sessIdKey).(string); ok && sessionId != "" {
+		return sessionId
+	}
+	return "" // Return an empty string if no session ID is found
+}
+
 // RPCAuthCheck is a middleware method
 func (p *Proxy) RPCAuthMiddleware(ctx *gin.Context) {
-	cleanupOldSessions(p)
 	user := getUserForSession(ctx)
 	if user == nil {
 		ctx.JSON(http.StatusUnauthorized,
@@ -308,6 +337,10 @@ func (p *Proxy) RPCAuthCheckHandler(ctx *gin.Context) {
 		RequestProcessed: cmonapi.NullTime{T: time.Now()},
 		RequestStatus:    cmonapi.RequestStatusAuthRequired,
 		ErrorString:      "not authenticated",
+	}
+	sessionId := getSessionIdFromRequest(ctx)
+	if sessionId != "" {
+		refreshSession(sessionId)
 	}
 
 	if u := getUserForSession(ctx); u != nil {

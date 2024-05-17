@@ -253,6 +253,8 @@ func Start(cfg *config.Config) {
 	// do initial connection to the nodes
 	proxy.Authenticate()
 
+	multi.StartSessionCleanupScheduler(proxy)
+
 	// to serve the static files
 	serveFrontend(s, cfg)
 

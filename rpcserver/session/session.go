@@ -1,4 +1,5 @@
 package session
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package session
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"crypto/rand"
@@ -55,10 +55,10 @@ func SessionDestroy(ctx *gin.Context) {
 func getStore(cfg *config.Config) sessions.Store {
 	var store sessions.Store
 	store = cookie.NewStore(getSessionKeys()...)
-	sTTL := time.Duration(cfg.SessionTtl)
+	// sTTL := time.Duration(cfg.SessionTtl)
 	store.Options(sessions.Options{
 		Domain:   domain,
-		MaxAge:   int(sTTL.Seconds()),
+		MaxAge:   0,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteNoneMode,

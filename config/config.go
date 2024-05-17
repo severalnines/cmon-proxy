@@ -68,7 +68,7 @@ type Config struct {
 	Port            int             `yaml:"port" json:"port"`
 	TlsCert         string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
 	TlsKey          string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
-	SessionTtl      int64           `yaml:"session_ttl" json:"session_ttl"`
+	SessionTtl      int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
 
 	mtx sync.RWMutex
 }
@@ -173,8 +173,8 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	if config.Port <= 0 {
 		config.Port = 19051
 	}
-	if config.SessionTtl <= int64(time.Hour) {
-		config.SessionTtl = int64(time.Hour)
+	if config.SessionTtl <= int64(30 * time.Minute) {
+		config.SessionTtl = int64(30 * time.Minute)
 	}
 
 	// some env vars are overriding main options
