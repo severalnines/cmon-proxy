@@ -74,6 +74,12 @@ type Router struct {
 	mtx    *sync.RWMutex
 }
 
+func (c *Cmon) InvalidateCache() {
+	c.mtx.Lock()
+	c.LastUpdate = make(map[uint64]time.Time)
+	c.mtx.Unlock()
+}
+
 func (c *Cmon) cacheValid(cacheKey uint64) bool {
 	if c == nil || c.LastUpdate == nil {
 		// nothing to do, invalid input, no need to update
