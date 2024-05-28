@@ -200,6 +200,7 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 					Xid:           xid,
 				},
 				Backup: data.Backups[idx],
+				Key: xid+"-"+strconv.FormatUint(backup.Metadata.ClusterID, 10),
 			}
 
 			resp.Backups = append(resp.Backups, b)
@@ -213,13 +214,6 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 	// sort first
 	order, desc := req.GetOrder()
 	switch order {
-	case "created":
-		sort.Slice(resp.Backups[:], func(i, j int) bool {
-			if desc {
-				i, j = j, i
-			}
-			return resp.Backups[i].Metadata.Created.T.Before(resp.Backups[j].Metadata.Created.T)
-		})
 	case "cluster_id":
 		sort.Slice(resp.Backups[:], func(i, j int) bool {
 			if desc {
@@ -247,6 +241,22 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 				i, j = j, i
 			}
 			return resp.Backups[i].Metadata.ID < resp.Backups[j].Metadata.ID
+		})
+	case "created":
+
+		sort.Slice(resp.Backups[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Backups[i].Metadata.Created.T.Before(resp.Backups[j].Metadata.Created.T)
+		})
+	default:
+		desc = true
+		sort.Slice(resp.Backups[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Backups[i].Metadata.Created.T.Before(resp.Backups[j].Metadata.Created.T)
 		})
 	}
 

@@ -36,6 +36,7 @@ type BackupOverview struct {
 type BackupExt struct {
 	*WithControllerID
 	*api.Backup
+	Key string 
 }
 
 type BackupListRequest struct {
