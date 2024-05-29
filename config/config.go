@@ -45,14 +45,16 @@ type ProxyUser struct {
 }
 
 type CmonInstance struct {
-	Xid         string `yaml:"xid" json:"xid"`
-	Url         string `yaml:"url" json:"url"`
-	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
-	UseLdap     bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
-	Username    string `yaml:"username,omitempty" json:"username,omitempty"`
-	Password    string `yaml:"password,omitempty" json:"password,omitempty"`
-	Keyfile     string `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
-	FrontendUrl string `yaml:"frontend_url,omitempty" json:"frontend_url,omitempty"`
+	Xid           string `yaml:"xid" json:"xid"`
+	Url           string `yaml:"url" json:"url"`
+	Name          string `yaml:"name,omitempty" json:"name,omitempty"`
+	UseLdap       bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
+	Username      string `yaml:"username,omitempty" json:"username,omitempty"`
+	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
+	Keyfile       string `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
+	FrontendUrl   string `yaml:"frontend_url,omitempty" json:"frontend_url,omitempty"`
+	CMONSshHost   string `yaml:"cmon_ssh_host,omitempty" json:"cmon_ssh_host,omitempty"`
+	CMONSshSecure bool   `yaml:"cmon_ssh_secure,omitempty" json:"cmon_ssh_secure,omitempty"`
 }
 
 // Config holds the configuration of cmon-proxy, it is pretty minimal now

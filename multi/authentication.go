@@ -331,6 +331,30 @@ func (p *Proxy) RPCAuthLogoutHandler(ctx *gin.Context) {
 		// also make sure we get rid of any unused routers
 		defer cleanupOldSessions(p)
 	}
+	// I wanted to logout in available controllers
+	// The reason for this was making ssh console session to terminate as well
+	// But it seems that logging out in cmon does not terminate ssh console session
+	// I think this could be useful so will just leave this commented for now
+	/**
+	@todo get back to this once this is addressed: https://severalnines.atlassian.net/browse/CLUS-4104
+	xids := make([]string, 0)
+	for _, addr := range p.Router(ctx).Urls() {
+		c := p.Router(ctx).Cmon(addr)
+		if c == nil {
+			continue
+		}
+		mtx.Lock()
+		instance := controllerStatusCache[addr]
+		mtx.Unlock()
+		value := c.Xid()
+		if instance.Status == api.Ok && value != "" {
+			xids = append(xids, value)
+		}
+	}
+	if len(xids) > 0 {
+		go p.RPCProxyMany(ctx, xids, "logout", make([]byte, 0))
+	}
+	*/
 
 	var resp cmonapi.WithResponseData
 	resp.RequestStatus = cmonapi.RequestStatusOk

@@ -11,14 +11,19 @@ package multi
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"go.uber.org/zap"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/severalnines/cmon-proxy/cmon"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
@@ -279,6 +284,114 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 	p.Refresh()
 
 	ctx.JSON(http.StatusOK, cmonapi.NewError(cmonapi.RequestStatusOk, "The controller is removed."))
+}
+
+func (p *Proxy) GetCmonById(controllerId string) (*router.Cmon, error) {
+	instance := p.Router(nil).Config.ControllerById(controllerId)
+	if instance == nil {
+		return nil, cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "Controller not found")
+
+	}
+	c := p.Router(nil).Cmon(instance.Url)
+	if c == nil {
+		return nil, cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "CMON object not found")
+	}
+
+	return c, nil
+}
+
+func (p *Proxy) CmonShhHttpProxyRequest(ctx *gin.Context) {
+	xid := ctx.Param("xid")
+
+	c, err := p.GetCmonById(xid)
+	if err != nil {
+		http.Error(ctx.Writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	scheme := "http"
+	host := c.Client.Instance.CMONSshHost
+	if host == "" {
+		host = c.Client.Instance.Url + "/v2/cmon-ssh"
+		scheme = "https"
+	}
+	if c.Client.Instance.CMONSshSecure {
+		scheme = "https"
+	}
+	target := scheme + "://" + host + ctx.Param("any")
+
+	targetURL, err := url.Parse(target)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Error parsing target URL"})
+		return
+	}
+
+	zap.L().Info(fmt.Sprintf("Target URL %v", targetURL))
+
+	// Create the reverse proxy
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.Director = func(req *http.Request) {
+		req.URL.Scheme = targetURL.Scheme
+		req.URL.Host = targetURL.Host
+		req.URL.Path = targetURL.Path
+		req.Header = ctx.Request.Header
+	}
+
+	// Modify the transport to ignore SSL verification
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+
+	// Modify response headers to remove the Location header
+	// Would be good to make this smarter in the feature, so can we replace location header according to request path
+	proxy.ModifyResponse = func(response *http.Response) error {
+		response.Header.Del("Location")
+		return nil
+	}
+
+	proxy.ServeHTTP(ctx.Writer, ctx.Request)
+}
+
+var upGrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+func (p *Proxy) CmonShhWsProxyRequest(ctx *gin.Context) {
+	xid := ctx.Param("xid")
+
+	c, err := p.GetCmonById(xid)
+	if err != nil {
+		http.Error(ctx.Writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	conn, err := upGrader.Upgrade(ctx.Writer, ctx.Request, nil)
+	if err != nil {
+		http.Error(ctx.Writer, "Could not open websocket connection", http.StatusBadRequest)
+		return
+	}
+
+	scheme := "ws"
+	host := c.Client.Instance.CMONSshHost
+	if host == "" {
+		host = c.Client.Instance.Url + "/v2/cmon-ssh/"
+		scheme = "wss"
+	}
+	if c.Client.Instance.CMONSshSecure {
+		scheme = "wss"
+	}
+	postfix := ctx.Param("any")
+	targetURL := scheme + "://" + host + postfix
+
+	err = c.Client.ProxyWebSocket(targetURL, http.Header{
+		"Origin": {ctx.Request.Header.Get("Origin")},
+	}, conn)
+	if err != nil {
+		http.Error(ctx.Writer, "Could not connect to target websocket", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, reqBytes []byte) {

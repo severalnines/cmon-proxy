@@ -256,6 +256,26 @@ func Start(cfg *config.Config) {
 	// to serve the static files
 	serveFrontend(s, cfg)
 
+	/**
+	this intends to be a new way of proxying requests to CMON,
+	instead of having param in GET or POST request we take xid from URL
+	@todo think about calling "forwardToCmon" handler here as well
+	*/
+	ssh := s.Group("/cmon/:xid/v2/")
+	{
+		ssh.Use(proxy.RPCAuthMiddleware)
+		// @todo if we want to call "forwardToCmon" in this group need to figure out the way to avoid routes conflict
+		ssh.GET("/cmon-ssh/*any", func(c *gin.Context) {
+			// could not find better to check if it is a websocket request or not
+			if c.GetHeader("Upgrade") == "websocket" {
+				proxy.CmonShhWsProxyRequest(c)
+			} else {
+				proxy.CmonShhHttpProxyRequest(c)
+			}
+		})
+
+	}
+
 	// Proxy any /v2 requests to the specified (by controller_id) cmon
 	v2 := s.Group("/v2")
 	{

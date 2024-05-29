@@ -137,14 +137,16 @@ func (router *Router) Sync() {
 	for _, addr := range router.Config.ControllerUrls() {
 		if instance := router.Config.ControllerByUrl(addr); instance != nil {
 			actualConfig := &config.CmonInstance{
-				Xid:         instance.Xid,
-				Url:         instance.Url,
-				Name:        instance.Name,
-				Username:    instance.Username,
-				UseLdap:     instance.UseLdap,
-				Keyfile:     instance.Keyfile,
-				Password:    instance.Password,
-				FrontendUrl: instance.FrontendUrl,
+				Xid:           instance.Xid,
+				Url:           instance.Url,
+				Name:          instance.Name,
+				Username:      instance.Username,
+				UseLdap:       instance.UseLdap,
+				Keyfile:       instance.Keyfile,
+				Password:      instance.Password,
+				FrontendUrl:   instance.FrontendUrl,
+				CMONSshHost:   instance.CMONSshHost,
+				CMONSshSecure: instance.CMONSshSecure,
 			}
 			// in case of LDAP the credentials aren't stored in config, but in runtime only
 			if router.Ldap.Use && actualConfig.UseLdap {
