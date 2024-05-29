@@ -287,6 +287,13 @@ func (client *Client) AuthenticateWithKey() error {
 	return nil
 }
 
+func (client *Client) ResetSession() {
+	client.mtx.Lock()
+	client.user = nil
+	client.ses = nil
+	client.mtx.Unlock()
+}
+
 func (client *Client) buildURI(module string) string {
 	urlStr := client.Instance.Url
 	if !strings.HasPrefix(urlStr, "https://") {

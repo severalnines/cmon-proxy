@@ -62,9 +62,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 
 		if status == nil {
 			status = &api.ControllerStatus{
-				Url:         addr,
-				FrontendUrl: c.Client.Instance.FrontendUrl,
-				Ldap:        c.Client.Instance.UseLdap,
+				Url: addr,
 			}
 		}
 
@@ -72,6 +70,8 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		status.ControllerID = c.ControllerID()
 		status.Xid = c.Xid()
 		status.Status = api.Ok
+		status.Ldap = c.Client.Instance.UseLdap
+		status.FrontendUrl = c.Client.Instance.FrontendUrl
 		status.LastUpdated.T = time.Now()
 
 		// NOTE: license data is only available after getAllClusterInfo has been requested
@@ -245,6 +245,16 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 		cmonapi.CtxWriteError(ctx, err)
 		return
 	}
+
+	c := p.Router(ctx).Cmon(req.Controller.Url)
+	if c == nil {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "CMON object not found"))
+		return
+	}
+
+	c.InvalidateCache()
+	c.Client.ResetSession()
 
 	resp.Controller = p.pingOne(req.Controller)
 
