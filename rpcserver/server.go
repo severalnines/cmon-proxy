@@ -276,6 +276,9 @@ func Start(cfg *config.Config) {
 	// aggregating APIs for WEB UI v0
 	p := s.Group("/proxy")
 	{
+
+		p.GET("/config", proxy.RPCConfigHandler)
+		p.POST("/config", proxy.RPCConfigHandler)
 		auth := p.Group("/auth")
 		{
 			auth.GET("/check", proxy.RPCAuthCheckHandler)
@@ -298,6 +301,9 @@ func Start(cfg *config.Config) {
 
 			clusters.GET("/list", proxy.RPCClustersList)
 			clusters.POST("/list", proxy.RPCClustersList)
+
+			clusters.GET("/missingSchedules", proxy.RPCClustersListMissingSchedules)
+			clusters.POST("/missingSchedules", proxy.RPCClustersListMissingSchedules)
 
 			clusters.GET("/hosts", proxy.RPCClustersHostList)
 			clusters.POST("/hosts", proxy.RPCClustersHostList)

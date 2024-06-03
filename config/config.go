@@ -195,6 +195,16 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 		config.Logfile = path.Join(opts.Opts.BaseDir, "ccmgr.log")
 	}
 
+	// default values for fetching backups
+	if config.FetchBackupDays < 1 {
+        config.FetchBackupDays = 7
+    }
+
+	// default values for fetching jobs
+	if config.FetchJobsHours < 1 {
+        config.FetchJobsHours = 12
+    }
+
 	// re-create the logger using the specified file name
 	loggerConfig := logger.DefaultConfig()
 	loggerConfig.LogFileName = config.Logfile

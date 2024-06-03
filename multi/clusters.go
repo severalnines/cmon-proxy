@@ -162,6 +162,7 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 					ControllerID:  controllerID,
 				},
 				Cluster: cluster.Copy(req.WithHosts, true),
+				Key: xid + "-" + strconv.FormatUint(cluster.ClusterID, 10),
 			}
 
 			resp.Clusters = append(resp.Clusters, clus)
@@ -196,6 +197,15 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 			}
 			return resp.Clusters[i].ClusterType < resp.Clusters[j].ClusterType
 		})
+		
+	default:
+		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Clusters[i].Key < resp.Clusters[j].Key
+		})
+
 	}
 	if req.ListRequest.PerPage > 0 {
 		// then handle the pagination
@@ -341,6 +351,125 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 		// then handle the pagination
 		from, to := api.Paginate(req.ListRequest, int(resp.Total))
 		resp.Hosts = resp.Hosts[from:to]
+	}
+
+	ctx.JSON(http.StatusOK, &resp)
+}
+
+func (p *Proxy) RPCClustersListMissingSchedules(ctx *gin.Context) {
+	var req api.ClusterListRequest
+	var resp api.ClusterListReply
+	if ctx.Request.Method == http.MethodPost {
+		if err := ctx.BindJSON(&req); err != nil {
+			cmonapi.CtxWriteError(ctx,
+				cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, fmt.Sprint("Invalid request:", err.Error())))
+			return
+		}
+	}
+
+	resp.Clusters = make([]*api.ClusterExt, 0, 32)
+
+	// Get all cluster info
+	p.Router(ctx).GetAllClusterInfo(req.ForceUpdate)
+	allClusters := make(map[string]*api.ClusterExt) // map to hold all clusters by xid-clusterID
+	for _, url := range p.Router(ctx).Urls() {
+		data := p.Router(ctx).Cmon(url)
+		if data == nil || data.Clusters == nil {
+			continue
+		}
+
+		for _, cluster := range data.Clusters.Clusters {
+			key := data.Xid() + "-" + strconv.FormatUint(cluster.ClusterID, 10)
+			allClusters[key] = &api.ClusterExt{
+				WithControllerID: &api.WithControllerID{
+					Xid:           data.Xid(),
+					ControllerURL: "",
+					ControllerID:  data.ControllerID(),
+				},
+				Cluster: cluster,
+				Key: key,
+			}
+		}
+	}
+
+	// Get all backup job info
+	p.Router(ctx).GetBackups(req.ForceUpdate)
+	clustersWithBackups := make(map[string]bool) // map to hold clusters that have backups by xid-clusterID
+	for _, url := range p.Router(ctx).Urls() {
+		data := p.Router(ctx).Cmon(url)
+		if data == nil || data.BackupSchedules == nil {
+			continue
+		}
+
+		for _, job := range data.BackupSchedules {
+			key := data.Xid() + "-" + strconv.FormatUint(job.ClusterID, 10)
+			clustersWithBackups[key] = true
+		}
+	}
+
+	// Filter clusters that are not in the clustersWithBackups map
+	for key, clusterWithXid := range allClusters {
+		if _, exists := clustersWithBackups[key]; !exists {
+			cluster := clusterWithXid.Cluster
+
+			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(cluster.ClusterID, 10)) {
+				continue
+			}
+			if !api.PassFilter(req.Filters, "state", cluster.State) {
+				continue
+			}
+			if !api.PassFilter(req.Filters, "cluster_type", cluster.ClusterType) {
+				continue
+			}
+			fn := func() []string { return cluster.Tags }
+			if !api.PassTagsFilterLazy(req.Filters, fn) {
+				continue
+			}
+
+			resp.Clusters = append(resp.Clusters, clusterWithXid)
+		}
+	}
+
+	// handle sorting && pagination
+	resp.Page = req.Page
+	resp.PerPage = req.PerPage
+	resp.Total = uint64(len(resp.Clusters))
+	// sort first
+	order, desc := req.GetOrder()
+	switch order {
+	case "cluster_id":
+		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Clusters[i].ClusterID < resp.Clusters[j].ClusterID
+		})
+	case "state":
+		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Clusters[i].State < resp.Clusters[j].State
+		})
+	case "cluster_type":
+		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Clusters[i].ClusterType < resp.Clusters[j].ClusterType
+		})
+	default:
+		sort.Slice(resp.Clusters[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Clusters[i].Key < resp.Clusters[j].Key
+		})
+	}
+	if req.ListRequest.PerPage > 0 {
+		// then handle the pagination
+		from, to := api.Paginate(req.ListRequest, int(resp.Total))
+		resp.Clusters = resp.Clusters[from:to]
 	}
 
 	ctx.JSON(http.StatusOK, &resp)

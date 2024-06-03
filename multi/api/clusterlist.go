@@ -18,6 +18,7 @@ import (
 type ClusterExt struct {
 	*WithControllerID
 	*cmonapi.Cluster
+	Key string 
 }
 
 type ClustersOverviewRequest struct {

@@ -215,6 +215,14 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 			}
 			return resp.Jobs[i].Created.T.Before(resp.Jobs[j].Created.T)
 		})
+	default:
+		desc = true
+		sort.Slice(resp.Jobs[:], func(i, j int) bool {
+			if desc {
+				i, j = j, i
+			}
+			return resp.Jobs[i].Created.T.Before(resp.Jobs[j].Created.T)
+		})
 	}
 	if req.ListRequest.PerPage > 0 {
 		// then handle the pagination
