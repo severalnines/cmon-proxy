@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/gorilla/websocket"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -140,6 +141,49 @@ func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ..
 	}
 
 	return resBytes, nil
+}
+
+func (client *Client) ProxyWebSocket(targetURL string, headers http.Header, conn *websocket.Conn) error {
+	if err := client.Authenticate(); err != nil {
+		return err
+	}
+	defer conn.Close()
+	u, _ := url.Parse(targetURL)
+
+	dialer := websocket.Dialer{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	if client.ses != nil {
+		headers.Set("cookie", client.ses.String())
+	}
+	targetConn, _, err := dialer.Dial(u.String(), headers)
+	if err != nil {
+		return fmt.Errorf("could not connect to target websocket: %v", err)
+	}
+	defer targetConn.Close()
+	go func() {
+		for {
+			messageType, p, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			err = targetConn.WriteMessage(messageType, p)
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	for {
+		messageType, p, err := targetConn.ReadMessage()
+		if err != nil {
+			return fmt.Errorf("error reading message from target: %v", err)
+		}
+		err = conn.WriteMessage(messageType, p)
+		if err != nil {
+			return fmt.Errorf("error writing message to client: %v", err)
+		}
+	}
 }
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
