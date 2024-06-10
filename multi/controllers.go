@@ -240,6 +240,12 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 		cmonapi.CtxWriteError(ctx, err)
 	}
 
+	c, err := p.GetCmonById(req.Controller.Xid)
+	if err != nil {
+		cmonapi.CtxWriteError(ctx, err)
+		return
+	}
+
 	// remove & add it again
 	if err := p.Router(nil).Config.RemoveController(req.Controller.Xid, false); err != nil {
 		cmonapi.CtxWriteError(ctx,
@@ -248,13 +254,6 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 	}
 	if err := p.Router(nil).Config.AddController(req.Controller, true); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
-		return
-	}
-
-	c := p.Router(ctx).Cmon(req.Controller.Url)
-	if c == nil {
-		cmonapi.CtxWriteError(ctx,
-			cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "CMON object not found"))
 		return
 	}
 
