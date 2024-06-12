@@ -103,6 +103,10 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 		}
 		for _, sched := range data.BackupSchedules {
 			clusterType := data.ClusterType(sched.ClusterID)
+			// It can happen that clusterType is empty string @see data.ClusterType()
+			if clusterType == "" {
+				continue
+			}
 			// tags filtration is possible here too
 			fn := func() []string { return data.ClusterTags(sched.ClusterID) }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
@@ -200,7 +204,7 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 					Xid:           xid,
 				},
 				Backup: data.Backups[idx],
-				Key: xid+"-"+strconv.FormatUint(backup.Metadata.ClusterID, 10),
+				Key:    xid + "-" + strconv.FormatUint(backup.Metadata.ClusterID, 10),
 			}
 
 			resp.Backups = append(resp.Backups, b)
