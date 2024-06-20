@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/gorilla/websocket"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -32,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/opts"
@@ -151,9 +151,6 @@ func (client *Client) GetReverseProxy(target string, headers http.Header) (*http
 		return nil, fmt.Errorf("Error parsing target URL")
 	}
 
-	if client.ses != nil {
-		headers.Set("cookie", client.ses.String())
-	}
 	// Create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	proxy.Director = func(req *http.Request) {
@@ -161,6 +158,9 @@ func (client *Client) GetReverseProxy(target string, headers http.Header) (*http
 		req.URL.Host = targetURL.Host
 		req.URL.Path = targetURL.Path
 		req.Header = headers
+		if client.ses != nil {
+			req.AddCookie(client.ses)
+		}
 	}
 
 	// Modify the transport to ignore SSL verification
