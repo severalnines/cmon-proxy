@@ -325,7 +325,7 @@ func (p *Proxy) CmonShhHttpProxyRequest(ctx *gin.Context) {
 	}
 	target := scheme + "://" + host + ctx.Param("any")
 
-	proxy, err := c.Client.GetReverseProxy(target, ctx.Request.Header)
+	proxy, err := c.Client.GetReverseProxy(target)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Error parsing target URL"})
 		return

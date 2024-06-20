@@ -144,23 +144,22 @@ func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ..
 	return resBytes, nil
 }
 
-func (client *Client) GetReverseProxy(target string, headers http.Header) (*httputil.ReverseProxy, error) {
+func (client *Client) GetReverseProxy(target string) (*httputil.ReverseProxy, error) {
 
 	targetURL, err := url.Parse(target)
 	if err != nil {
 		return nil, fmt.Errorf("Error parsing target URL")
 	}
 
-	if client.ses != nil {
-		headers.Set("cookie", client.ses.String())
-	}
 	// Create the reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	proxy.Director = func(req *http.Request) {
 		req.URL.Scheme = targetURL.Scheme
 		req.URL.Host = targetURL.Host
 		req.URL.Path = targetURL.Path
-		req.Header = headers
+		if client.ses != nil {
+			req.AddCookie(client.ses)
+		}
 	}
 
 	// Modify the transport to ignore SSL verification
