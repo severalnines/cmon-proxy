@@ -26,6 +26,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 	"sync"
@@ -141,6 +142,41 @@ func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ..
 	}
 
 	return resBytes, nil
+}
+
+func (client *Client) GetReverseProxy(target string, headers http.Header) (*httputil.ReverseProxy, error) {
+
+	targetURL, err := url.Parse(target)
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing target URL")
+	}
+
+	if client.ses != nil {
+		headers.Set("cookie", client.ses.String())
+	}
+	// Create the reverse proxy
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.Director = func(req *http.Request) {
+		req.URL.Scheme = targetURL.Scheme
+		req.URL.Host = targetURL.Host
+		req.URL.Path = targetURL.Path
+		req.Header = headers
+	}
+
+	// Modify the transport to ignore SSL verification
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+
+	// Modify response headers to remove the Location header
+	// Would be good to make this smarter in the feature, so can we replace location header according to request path
+	proxy.ModifyResponse = func(response *http.Response) error {
+		response.Header.Del("Location")
+		return nil
+	}
+
+	return proxy, nil
+
 }
 
 func (client *Client) ProxyWebSocket(targetURL string, headers http.Header, conn *websocket.Conn) error {
