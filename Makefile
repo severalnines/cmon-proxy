@@ -20,6 +20,9 @@ ci:
         -ldflags "-s -w -extldflags -static" \
         ./ccmgradm
 
+ci-docker:
+	docker run  --platform=linux/amd64 --rm -v "$(shell pwd):/code" -w /code -it severalnines/cmon-proxy-builder make ci
+
 
 packages:
 	cmake . \

@@ -11,13 +11,9 @@ package multi
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"go.uber.org/zap"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -329,35 +325,11 @@ func (p *Proxy) CmonShhHttpProxyRequest(ctx *gin.Context) {
 	}
 	target := scheme + "://" + host + ctx.Param("any")
 
-	targetURL, err := url.Parse(target)
+	proxy, err := c.Client.GetReverseProxy(target)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Error parsing target URL"})
 		return
 	}
-
-	zap.L().Info(fmt.Sprintf("Target URL %v", targetURL))
-
-	// Create the reverse proxy
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-	proxy.Director = func(req *http.Request) {
-		req.URL.Scheme = targetURL.Scheme
-		req.URL.Host = targetURL.Host
-		req.URL.Path = targetURL.Path
-		req.Header = ctx.Request.Header
-	}
-
-	// Modify the transport to ignore SSL verification
-	proxy.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-
-	// Modify response headers to remove the Location header
-	// Would be good to make this smarter in the feature, so can we replace location header according to request path
-	proxy.ModifyResponse = func(response *http.Response) error {
-		response.Header.Del("Location")
-		return nil
-	}
-
 	proxy.ServeHTTP(ctx.Writer, ctx.Request)
 }
 
