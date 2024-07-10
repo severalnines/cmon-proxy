@@ -13,16 +13,18 @@ package rpcserver
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/gzip"
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -86,40 +88,48 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 		c.ClientIP(), int64(elapsed/time.Millisecond), c.Copy().Writer.Status(), bodyWriter.responseBody.String())
 }
 
-func serveFrontend(s *gin.Engine, cfg *config.Config) {
-	s.StaticFS("/static", gin.Dir(path.Join(cfg.FrontendPath, "/static"), false))
-	s.StaticFS("/build", gin.Dir(path.Join(cfg.FrontendPath, "/build"), false))
-	err := filepath.Walk(cfg.FrontendPath, func(p string, info os.FileInfo, err error) error {
-		if info == nil || err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if strings.Contains(p, "/static/") || strings.Contains(p, "/build/") {
-			return nil
-		}
-		s.StaticFile(path.Base(p), p)
-		return nil
-	})
-	if err != nil {
-		zap.L().Sugar().Warnf("Can't serve static HTML files: %s", err.Error())
-	}
-
-	// and redirect anything to index.html
-	s.NoRoute(func(c *gin.Context) {
-		if c.Request == nil && c.Request.URL == nil &&
-			strings.HasPrefix(c.Request.URL.Path, "/proxy") &&
-			!strings.HasPrefix(c.Request.URL.Path, "/v2") {
-			var resp cmonapi.WithResponseData
-			resp.RequestStatus = cmonapi.RequestStatusObjectNotFound
-			resp.ErrorString = "path not found"
-
-			c.JSON(http.StatusNotFound, resp)
+func serveStaticOrIndex(c *gin.Context, cfg *config.Config) {
+	filePath := filepath.Join(cfg.FrontendPath, c.Request.URL.Path)
+	info, err := os.Stat(filePath)
+	if os.IsNotExist(err) {
+		indexPath := filepath.Join(cfg.FrontendPath, "index.html")
+		if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+			c.Next()
 			return
 		}
-		// everything else shall go to web
-		c.File(path.Join(cfg.FrontendPath, "index.html"))
+		c.File(indexPath)
+		c.Abort()
+		return
+	}
+	c.Header("Content-Length", fmt.Sprintf("%d", info.Size()))
+
+	lastModified := info.ModTime().UTC().Format(http.TimeFormat)
+	c.Header("Last-Modified", lastModified)
+
+	etag := generateETag(info)
+	c.Header("ETag", etag)
+
+	c.File(filePath)
+	c.Abort()
+}
+
+func generateETag(info os.FileInfo) string {
+	hash := md5.New()
+	hash.Write([]byte(fmt.Sprintf("%s-%d-%d", info.Name(), info.Size(), info.ModTime().Unix())))
+	return fmt.Sprintf(`"%x"`, hash.Sum(nil))
+}
+
+func serveFrontend(s *gin.Engine, cfg *config.Config) {
+	s.Use(gzip.Gzip(gzip.BestSpeed))
+	s.Use(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/proxy/") ||
+			strings.HasPrefix(c.Request.URL.Path, "/v2/") ||
+			strings.HasPrefix(c.Request.URL.Path, "/cmon/") {
+			c.Next()
+		} else {
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+			serveStaticOrIndex(c, cfg)
+		}
 	})
 }
 
