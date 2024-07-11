@@ -84,6 +84,7 @@ var (
 		Instances:       make([]*CmonInstance, 0),
 		FetchBackupDays: 7,
 		FetchJobsHours:  12,
+		Timeout:         30,
 	}
 )
 
@@ -197,9 +198,9 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 		config.TlsKey = v
 	}
 	if config.Port <= 0 {
-		config.Port = 19051
+		config.Port = defaults.Port
 	}
-	if config.SessionTtl <= int64(30*time.Minute) {
+	if config.SessionTtl <= defaults.SessionTtl {
 		config.SessionTtl = defaults.SessionTtl
 	}
 
