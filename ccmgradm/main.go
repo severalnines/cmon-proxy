@@ -226,17 +226,6 @@ func main() {
 	case args.Init != nil:
 		{
 			if args.Init.LocalCmon {
-				configFile := "/etc/cmon.cnf"
-				if len(args.Init.Config) > 0 {
-					configFile = args.Init.Config
-				}
-
-				cfgFile, err := ini.Load(configFile)
-				if err != nil {
-					fmt.Println("Error loading cmon.cnf file:", err.Error())
-					os.Exit(1)
-				}
-
 				cmonUrl := "127.0.0.1:9501"
 				if len(args.Init.Url) > 0 {
 					cmonUrl = args.Init.Url
@@ -250,17 +239,31 @@ func main() {
 					Xid:         xid.New().String(),
 					Url:         cmonUrl,
 					Name:        "local",
-					Local:       true,
+					UseCmonAuth: true,
 					FrontendUrl: "localhost",
 				}
 
-				rpcKey := cfgFile.Section("").Key("rpc_key").String()
-				if rpcKey == "" {
-					fmt.Println("Error, rpc_key not found in .cnf file.")
-					os.Exit(1)
+				// configFile := "/etc/cmon.cnf"
+				var cmonConfig string
+				var cfgFile *ini.File
+				if len(args.Init.Config) > 0 {
+					cmonConfig = args.Init.Config
 				}
-				cmon.Username = "ccrpc"
-				cmon.Password = rpcKey
+				if cmonConfig != "" {
+					cfgFile, err = ini.Load(configFile)
+					if err != nil {
+						fmt.Println("Error loading cmon.cnf file:", err.Error())
+						os.Exit(1)
+					}
+					rpcKey := cfgFile.Section("").Key("rpc_key").String()
+					if rpcKey == "" {
+						fmt.Println("Error, rpc_key not found in .cnf file.")
+						os.Exit(1)
+					}
+					cmon.Username = "ccrpc"
+					cmon.Password = rpcKey
+				}
+
 				if err := cfg.AddController(cmon, false); err != nil {
 					fmt.Println("Couldn't add controller:", err.Error())
 					os.Exit(1)

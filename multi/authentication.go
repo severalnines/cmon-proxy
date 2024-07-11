@@ -124,6 +124,17 @@ func isLDAPSession(ctx *gin.Context) (isLDAPSession bool, ldapUsername string) {
 	}
 	return
 }
+func isCMONSession(ctx *gin.Context) (isCMONSession bool, cmonUsername string) {
+	if ctx == nil {
+		return false, ""
+	}
+	isCMONSession = false
+	if user := getUserForSession(ctx); user != nil && user.CMONUser {
+		isCMONSession = true
+		cmonUsername = user.Username
+	}
+	return
+}
 
 // retrieves the ProxyUser object for the actual session
 func getUserForSession(ctx *gin.Context) *config.ProxyUser {
@@ -204,14 +215,14 @@ func (p *Proxy) RPCAuthMiddleware(ctx *gin.Context) {
 	ctx.Set(userKey, user)
 }
 
-func (p *Proxy) localCmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
+func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
 	if p == nil || p.cfg == nil || len(p.cfg.Instances) < 1 {
 		return false
 	}
 
 	var localCmon *config.CmonInstance
 	for _, cmon := range p.cfg.Instances {
-		if cmon != nil && cmon.Local {
+		if cmon != nil && cmon.UseCmonAuth {
 			localCmon = cmon
 			break
 		}
@@ -238,7 +249,7 @@ func (p *Proxy) localCmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *ap
 	r.LocalCMON.Password = req.Password
 
 	zap.L().Info(
-		fmt.Sprintf("[AUDIT] Local controller authentication attempt '%s' (source %s / %s)",
+		fmt.Sprintf("[AUDIT] CMON controller authentication attempt '%s' (source %s / %s)",
 			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
 
 	r.Authenticate() // attempts to authenticate
@@ -251,6 +262,7 @@ func (p *Proxy) localCmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *ap
 		// construct a synthetic user from the User object we got from cmon
 		setUserForSession(ctx, &config.ProxyUser{
 			Username:     user.UserName,
+			CMONUser:     true,
 			FirstName:    user.FirstName,
 			LastName:     user.LastName,
 			EmailAddress: user.EmailAddress,
@@ -268,8 +280,8 @@ func (p *Proxy) localCmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *ap
 	}
 
 	zap.L().Info(
-		fmt.Sprintf("[AUDIT] Local controller authentication (user %s) has failed to all cmon instances. (source %s / %s)",
-			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
+		fmt.Sprintf("[AUDIT] CMON controller authentication (user %s) has failed to controller (%s). (source %s / %s)",
+			req.Username, localCmon.Url, ctx.ClientIP(), ctx.Request.UserAgent()))
 
 	return false
 }
@@ -373,13 +385,13 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 
 	user, err := p.r[router.DefaultRouter].Config.GetUser(req.Username)
 	if err != nil {
-		var cmonLoginSucceed bool
-		cmonLoginSucceed = p.ldapLogin(ctx, &req, &resp)
-		if !cmonLoginSucceed {
-			cmonLoginSucceed = p.localCmonLogin(ctx, &req, &resp)
+		var externalLoginSucceed bool
+		externalLoginSucceed = p.ldapLogin(ctx, &req, &resp)
+		if !externalLoginSucceed {
+			externalLoginSucceed = p.cmonLogin(ctx, &req, &resp)
 		}
 		// if ldap or local cmon login returns true if it was okay and it sets the user for session
-		if !cmonLoginSucceed {
+		if !externalLoginSucceed {
 			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
 			resp.ErrorString = fmt.Sprintf("user error: %s", err.Error())
 		}

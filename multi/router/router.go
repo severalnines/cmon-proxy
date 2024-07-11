@@ -153,7 +153,7 @@ func (router *Router) Sync() {
 				Xid:           instance.Xid,
 				Url:           instance.Url,
 				Name:          instance.Name,
-				Local:         instance.Local,
+				UseCmonAuth:   instance.UseCmonAuth,
 				Username:      instance.Username,
 				UseLdap:       instance.UseLdap,
 				Keyfile:       instance.Keyfile,
@@ -166,7 +166,7 @@ func (router *Router) Sync() {
 			if router.Ldap.Use && actualConfig.UseLdap {
 				actualConfig.Username = router.Ldap.Username
 				actualConfig.Password = router.Ldap.Password
-			} else if router.LocalCMON.Use && actualConfig.Local {
+			} else if router.LocalCMON.Use && actualConfig.UseCmonAuth {
 				actualConfig.Username = router.LocalCMON.Username
 				actualConfig.Password = router.LocalCMON.Password
 			}
