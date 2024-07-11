@@ -42,13 +42,14 @@ type ProxyUser struct {
 	FirstName    string `yaml:"firstname,omitempty" json:"firstname,omitempty"`
 	LastName     string `yaml:"lastname,omitempty" json:"lastname,omitempty"`
 	LdapUser     bool   `yaml:"ldap,omitempty" json:"ldap,omitempty"`
+	CMONUser     bool   `yaml:"cmon,omitempty" json:"cmon,omitempty"`
 }
 
 type CmonInstance struct {
 	Xid           string `yaml:"xid" json:"xid"`
 	Url           string `yaml:"url" json:"url"`
 	Name          string `yaml:"name,omitempty" json:"name,omitempty"`
-	Local         bool   `yaml:"local,omitempty" json:"local,omitempty"`
+	UseCmonAuth   bool   `yaml:"use_cmon_auth,omitempty" json:"use_cmon_auth,omitempty"`
 	UseLdap       bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
 	Username      string `yaml:"username,omitempty" json:"username,omitempty"`
 	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
@@ -96,7 +97,7 @@ func (cmon *CmonInstance) Verify() error {
 	if cmon == nil || len(cmon.Url) < 3 {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
 	}
-	if !cmon.UseLdap {
+	if !cmon.UseLdap && !cmon.UseCmonAuth {
 		if len(cmon.Username) < 1 {
 			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing username")
 		}
@@ -494,6 +495,7 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 		FirstName:    u.FirstName,
 		LastName:     u.LastName,
 		LdapUser:     u.LdapUser,
+		CMONUser:     u.CMONUser,
 	}
 	// by default we don't want to return password hashes to UI
 	if withCredentials {
