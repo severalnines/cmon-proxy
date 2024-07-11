@@ -49,13 +49,13 @@ Lets find out your container ID/name first
 Then you can use the ccmgradm tool to manage the users:
 
     $ docker exec b6eca97d4982 ./ccmgradm
-    ClusterControl Manager - admin CLI v1.1
+    ClusterControl Manager - admin CLI v2.2
     Usage:  ./ccmgradm adduser|setpassword|dropuser USERNAME [PASSWORD]
 
 Creating a user for example:
 
     $ docker exec b6eca97d4982 ./ccmgradm adduser myuser mypassword
-    ClusterControl Manager - admin CLI v1.1
+    ClusterControl Manager - admin CLI v2.2
     Succeed, reloading daemon.
 
 ### Manage controllers using CLI
@@ -69,7 +69,7 @@ be simply forwarded to the registered (and LDAP enabled) cmon instances, for exa
 List the currently registered controllers:
 
      $ ccmgradm listcontrollers
-     ClusterControl Manager - admin CLI v1.1
+     ClusterControl Manager - admin CLI v2.2
 
      Controllers from configuration:
      * 127.0.0.01:9501 [kedz-workstation] Static user: admin
@@ -83,7 +83,7 @@ List the currently registered controllers:
 Add or update controller (for update just use the 'updatecontroller' subcommand:
 
      $ ccmgradm addcontroller --help
-     ClusterControl Manager - admin CLI v1.1
+     ClusterControl Manager - admin CLI v2.2
      Usage: main addcontroller [--use-ldap] [--username USERNAME] [--password PASSWORD] [--name NAME] [--frontend-url FRONTEND-URL] [URL]
 
      Positional arguments:
@@ -103,7 +103,7 @@ Add or update controller (for update just use the 'updatecontroller' subcommand:
 To drop a controller:
 
      $ ccmgradm dropcontroller --help
-     ClusterControl Manager - admin CLI v1.1
+     ClusterControl Manager - admin CLI v2.2
      Usage: main dropcontroller [URLORNAME]
 
      Positional arguments:

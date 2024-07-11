@@ -48,6 +48,7 @@ type CmonInstance struct {
 	Xid           string `yaml:"xid" json:"xid"`
 	Url           string `yaml:"url" json:"url"`
 	Name          string `yaml:"name,omitempty" json:"name,omitempty"`
+	Local         bool   `yaml:"local,omitempty" json:"local,omitempty"`
 	UseLdap       bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
 	Username      string `yaml:"username,omitempty" json:"username,omitempty"`
 	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
@@ -73,6 +74,21 @@ type Config struct {
 	SessionTtl      int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
 
 	mtx sync.RWMutex
+}
+
+var (
+	defaults = &Config{
+		FrontendPath:    "/app",
+		Port:            19051,
+		SessionTtl:      int64(30 * time.Minute),
+		Instances:       make([]*CmonInstance, 0),
+		FetchBackupDays: 7,
+		FetchJobsHours:  12,
+	}
+)
+
+func GetDefaults() *Config {
+	return defaults
 }
 
 func (cmon *CmonInstance) Verify() error {
@@ -161,13 +177,21 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 		config.FrontendPath = "/app"
 	}
 	if len(config.TlsCert) < 1 {
-		config.TlsCert = path.Join(opts.Opts.BaseDir, "server.crt")
+		if defaults.TlsCert != "" {
+			config.TlsCert = defaults.TlsCert
+		} else {
+			config.TlsCert = path.Join(opts.Opts.BaseDir, "server.crt")
+		}
 	}
 	if v := os.Getenv("TLS_CERTIFICATE_FILE"); v != "" {
 		config.TlsCert = v
 	}
 	if len(config.TlsKey) < 1 {
-		config.TlsKey = path.Join(opts.Opts.BaseDir, "server.key")
+		if defaults.TlsKey != "" {
+			config.TlsKey = defaults.TlsKey
+		} else {
+			config.TlsKey = path.Join(opts.Opts.BaseDir, "server.key")
+		}
 	}
 	if v := os.Getenv("TLS_KEY_FILE"); v != "" {
 		config.TlsKey = v
@@ -175,8 +199,8 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	if config.Port <= 0 {
 		config.Port = 19051
 	}
-	if config.SessionTtl <= int64(30 * time.Minute) {
-		config.SessionTtl = int64(30 * time.Minute)
+	if config.SessionTtl <= int64(30*time.Minute) {
+		config.SessionTtl = defaults.SessionTtl
 	}
 
 	// some env vars are overriding main options
@@ -186,26 +210,30 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 
 	// we don't want nulls
 	if config.Instances == nil {
-		config.Instances = make([]*CmonInstance, 0)
+		config.Instances = defaults.Instances
 	}
 	// default minimum timeout value
-	if config.Timeout <= 30 {
-		config.Timeout = 30
+	if config.Timeout <= defaults.Timeout {
+		config.Timeout = defaults.Timeout
 	}
 	// default configuration file name
 	if len(config.Logfile) < 1 {
-		config.Logfile = path.Join(opts.Opts.BaseDir, "ccmgr.log")
+		if defaults.Logfile != "" {
+			config.Logfile = defaults.Logfile
+		} else {
+			config.Logfile = path.Join(opts.Opts.BaseDir, "ccmgr.log")
+		}
 	}
 
 	// default values for fetching backups
 	if config.FetchBackupDays < 1 {
-        config.FetchBackupDays = 7
-    }
+		config.FetchBackupDays = defaults.FetchBackupDays
+	}
 
 	// default values for fetching jobs
 	if config.FetchJobsHours < 1 {
-        config.FetchJobsHours = 12
-    }
+		config.FetchJobsHours = defaults.FetchJobsHours
+	}
 
 	// re-create the logger using the specified file name
 	loggerConfig := logger.DefaultConfig()
@@ -471,4 +499,14 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 		c.PasswordHash = u.PasswordHash
 	}
 	return c
+}
+
+func (cfg *Config) SetPort(port int) error {
+	if cfg.Port != port {
+		cfg.mtx.Lock()
+		cfg.Port = port
+		cfg.mtx.Unlock()
+		return cfg.Save()
+	}
+	return nil
 }

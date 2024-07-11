@@ -24,16 +24,32 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	ProductionBaseDir = "/usr/share/ccmgr/"
+	ProductionLogFIle = "/var/log/ccmgr.log"
+)
+
+var (
+	production string
+)
+
 // entry point. no logic here.
 func main() {
 	logger.New(logger.DefaultConfig())
-	zap.L().Info("ClusterControl Manager v1.1")
+	zap.L().Info("ClusterControl Manager v2.2")
 
 	opts.Init()
 	if !opts.Opts.DebugWebRpc {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	if production == "true" {
+		if opts.Opts.BaseDir == opts.DefaultBaseDir {
+			opts.Opts.BaseDir = ProductionBaseDir
+		}
+		defaults := config.GetDefaults()
+		defaults.Logfile = ProductionLogFIle
+	}
 	config, err := config.Load(path.Join(opts.Opts.BaseDir, "ccmgr.yaml"))
 	if err != nil {
 		// we have nice default values from ::Load() method

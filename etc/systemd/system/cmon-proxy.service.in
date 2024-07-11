@@ -4,7 +4,7 @@ After=syslog.target
 After=network.target
 
 [Service]
-ExecStart=@CCMGR_PATH@ --basedir=/opt/ccmgr/
+ExecStart=@CCMGR_PATH@ --basedir=/usr/share/ccmgr/
 PIDFile=/run/cmon-proxy.pid
 Restart=always
 User=root
