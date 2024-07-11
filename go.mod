@@ -9,6 +9,7 @@ require (
 	github.com/gin-contrib/sessions v0.0.5
 	github.com/gin-contrib/zap v0.1.0
 	github.com/gin-gonic/gin v1.9.1
+	github.com/go-ini/ini v1.67.0
 	github.com/gorilla/websocket v1.5.1
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect

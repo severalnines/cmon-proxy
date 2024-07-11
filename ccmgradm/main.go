@@ -13,16 +13,16 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	arg "github.com/alexflint/go-arg"
+	"github.com/go-ini/ini"
+	"github.com/rs/xid"
+	"github.com/severalnines/cmon-proxy/config"
+	"github.com/severalnines/cmon-proxy/opts"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"time"
-
-	arg "github.com/alexflint/go-arg"
-	"github.com/rs/xid"
-	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/opts"
 )
 
 var (
@@ -30,6 +30,7 @@ var (
 
 	configFile = "ccmgr.yaml"
 	address    = "https://127.0.0.1:19051/proxy/admin/reload"
+	production string
 )
 
 type DropUserCmd struct {
@@ -51,6 +52,13 @@ type AddControllerCmd struct {
 	FrontendUrl string `arg:"-f,--frontend-url" help:"The ClusterControl WEB UI URL of this controller"`
 }
 
+type InitCmd struct {
+	LocalCmon bool   `arg:"--local-cmon" help:"Initialize with local cmon installation"`
+	Port      int    `arg:"-p,--port" help:"Port to start the daemon on (default: 19051)"`
+	Config    string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
+	Url       string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
+}
+
 type DropControllerCmd struct {
 	UrlOrName string `arg:"positional" help:"The controller name or URL from configuration."`
 }
@@ -64,6 +72,7 @@ var args struct {
 	SetPassword      *AddUpdateUserCmd   `arg:"subcommand:setpassword"`
 	DropController   *DropControllerCmd  `arg:"subcommand:dropcontroller"`
 	AddController    *AddControllerCmd   `arg:"subcommand:addcontroller"`
+	Init             *InitCmd            `arg:"subcommand:init"`
 	UpdateController *AddControllerCmd   `arg:"subcommand:updatecontroller"`
 	ListControllers  *ListControllersCmd `arg:"subcommand:listcontrollers"`
 }
@@ -77,18 +86,29 @@ func init() {
 	}
 }
 
+const (
+	ProductionBaseDir = "/usr/share/ccmgr/"
+)
+
 func reloadDaemon() error {
 	_, err := httpCli.Get(address)
 	return err
 }
 
 func main() {
-	fmt.Println("ClusterControl Manager - admin CLI v1.1")
+	fmt.Println("ClusterControl Manager - admin CLI v2.2")
 
 	arg.MustParse(&args)
 
 	// most options require a config update as well
 	saveAndReload := true
+
+	if production == "true" {
+		if opts.Opts.BaseDir == opts.DefaultBaseDir {
+			opts.Opts.BaseDir = ProductionBaseDir
+			fmt.Println("Using production basedir - " + opts.Opts.BaseDir)
+		}
+	}
 
 	// Load configuration
 	cfg, err := config.Load(path.Join(opts.Opts.BaseDir, configFile), true)
@@ -200,6 +220,59 @@ func main() {
 			if err := cfg.AddController(cmon, false); err != nil {
 				fmt.Println("Couldn't add controller:", err.Error())
 				os.Exit(1)
+			}
+		}
+	case args.Init != nil:
+		{
+			if args.Init.LocalCmon {
+				configFile := "/etc/cmon.cnf"
+				if len(args.Init.Config) > 0 {
+					configFile = args.Init.Config
+				}
+
+				cfgFile, err := ini.Load(configFile)
+				if err != nil {
+					fmt.Println("Error loading cmon.cnf file:", err.Error())
+					os.Exit(1)
+				}
+
+				cmonUrl := "127.0.0.1:9501"
+				if len(args.Init.Url) > 0 {
+					cmonUrl = args.Init.Url
+				}
+				cmon := cfg.ControllerByUrl(cmonUrl)
+				if cmon != nil {
+					fmt.Println("Controller already exists with this URL.")
+					os.Exit(1)
+				}
+				cmon = &config.CmonInstance{
+					Xid:         xid.New().String(),
+					Url:         cmonUrl,
+					Name:        "local",
+					Local:       true,
+					FrontendUrl: "localhost",
+				}
+
+				rpcKey := cfgFile.Section("").Key("rpc_key").String()
+				if rpcKey == "" {
+					fmt.Println("Error, rpc_key not found in .cnf file.")
+					os.Exit(1)
+				}
+				cmon.Username = "ccrpc"
+				cmon.Password = rpcKey
+				if err := cfg.AddController(cmon, false); err != nil {
+					fmt.Println("Couldn't add controller:", err.Error())
+					os.Exit(1)
+				}
+
+			}
+			if args.Init.Port > 0 && cfg.Port != args.Init.Port {
+				if err := cfg.SetPort(args.Init.Port); err != nil {
+					fmt.Println("Couldn't set cmon-proxy port:", err.Error())
+					os.Exit(1)
+				}
+				fmt.Println("Port has changed to:", cfg.Port, "restart required")
+
 			}
 		}
 	case args.UpdateController != nil:
