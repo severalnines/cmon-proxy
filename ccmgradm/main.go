@@ -53,10 +53,11 @@ type AddControllerCmd struct {
 }
 
 type InitCmd struct {
-	LocalCmon bool   `arg:"--local-cmon" help:"Initialize with local cmon installation"`
-	Port      int    `arg:"-p,--port" help:"Port to start the daemon on (default: 19051)"`
-	Config    string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
-	Url       string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
+	LocalCmon    bool   `arg:"--local-cmon" help:"Initialize with local cmon installation"`
+	Port         int    `arg:"-p,--port" help:"Port to start the daemon on (default: 19051)"`
+	FrontendPath string `arg:"-f,--frontend-path" help:"Path to web ui static files"`
+	Config       string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
+	Url          string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
 }
 
 type DropControllerCmd struct {
@@ -267,12 +268,11 @@ func main() {
 
 			}
 			if args.Init.Port > 0 && cfg.Port != args.Init.Port {
-				if err := cfg.SetPort(args.Init.Port); err != nil {
-					fmt.Println("Couldn't set cmon-proxy port:", err.Error())
-					os.Exit(1)
-				}
+				cfg.Port = args.Init.Port
 				fmt.Println("Port has changed to:", cfg.Port, "restart required")
-
+			}
+			if len(args.Init.FrontendPath) > 0 && cfg.FrontendPath != args.Init.FrontendPath {
+				cfg.FrontendPath = args.Init.FrontendPath
 			}
 		}
 	case args.UpdateController != nil:
