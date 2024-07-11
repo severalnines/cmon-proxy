@@ -500,13 +500,3 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 	}
 	return c
 }
-
-func (cfg *Config) SetPort(port int) error {
-	if cfg.Port != port {
-		cfg.mtx.Lock()
-		cfg.Port = port
-		cfg.mtx.Unlock()
-		return cfg.Save()
-	}
-	return nil
-}
