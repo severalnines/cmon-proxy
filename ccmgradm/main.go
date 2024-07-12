@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -225,6 +226,7 @@ func main() {
 		}
 	case args.Init != nil:
 		{
+			saveAndReload = false
 			if args.Init.LocalCmon {
 				cmonUrl := "127.0.0.1:9501"
 				if len(args.Init.Url) > 0 {
@@ -269,14 +271,46 @@ func main() {
 					os.Exit(1)
 				}
 
+				fmt.Println("Controller", cmonUrl, "registered successfully")
+
 			}
 			if args.Init.Port > 0 && cfg.Port != args.Init.Port {
+				fmt.Println("Changing port from", cfg.Port, "to", args.Init.Port)
 				cfg.Port = args.Init.Port
-				fmt.Println("Port has changed to:", cfg.Port, "restart required")
 			}
 			if len(args.Init.FrontendPath) > 0 && cfg.FrontendPath != args.Init.FrontendPath {
+				fmt.Println("Changing frontend_path from", cfg.FrontendPath, "to", args.Init.FrontendPath)
 				cfg.FrontendPath = args.Init.FrontendPath
+				func() {
+					// @todo get rid of config.js file and generate env variables for UI dynamically
+					filePath := fmt.Sprintf("%s/config.js", cfg.FrontendPath)
+					input, err := os.ReadFile(filePath)
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+					fileInfo, err := os.Stat(filePath)
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+					content := string(input)
+					updatedContent := strings.Replace(content, "CMON_API_URL: '/api/v2'", "CMON_API_URL: '/'", 1)
+					err = os.WriteFile(filePath, []byte(updatedContent), fileInfo.Mode().Perm())
+					if err != nil {
+						fmt.Println(err)
+					} else {
+						fmt.Println("File", filePath, "updated successfully")
+					}
+				}()
 			}
+			if err := cfg.Save(); err != nil {
+				fmt.Println("Couldn't update configuration:", err.Error())
+				os.Exit(1)
+			} else {
+				fmt.Println("Configuration", cfg.Filename, "updated successfully")
+			}
+			fmt.Println("Please restart 'cmon-proxy' service to apply changes")
 		}
 	case args.UpdateController != nil:
 		{
@@ -358,8 +392,9 @@ func main() {
 		address = fmt.Sprintf("https://127.0.0.1:%d/proxy/admin/reload", cfg.Port)
 	}
 
-	fmt.Println("Succeed, reloading daemon.")
 	if err := reloadDaemon(); err != nil {
-		fmt.Println("Warning: failed to reload daemon:", err.Error())
+		fmt.Println("Please restart 'cmon-proxy' service to apply changes.")
+	} else {
+		fmt.Println("Config reloaded successfully")
 	}
 }
