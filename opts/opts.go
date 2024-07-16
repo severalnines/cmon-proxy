@@ -1,4 +1,5 @@
 package opts
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -9,9 +10,9 @@ package opts
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
 import (
 	"github.com/jessevdk/go-flags"
+	"github.com/severalnines/cmon-proxy/env"
 	"go.uber.org/zap"
 )
 
@@ -22,7 +23,7 @@ var Opts = struct {
 }{
 	DebugCmonRpc: false,
 	DebugWebRpc:  false,
-	BaseDir:      ".",
+	BaseDir:      env.DefaultBaseDir,
 }
 
 func Init() {

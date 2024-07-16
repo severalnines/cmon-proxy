@@ -67,11 +67,18 @@ type Ldap struct {
 	Password string
 }
 
+type LocalCMON struct {
+	Use      bool
+	Username string
+	Password string
+}
+
 type Router struct {
-	Config *config.Config
-	Ldap   Ldap
-	cmons  map[string]*Cmon
-	mtx    *sync.RWMutex
+	Config    *config.Config
+	Ldap      Ldap
+	LocalCMON LocalCMON
+	cmons     map[string]*Cmon
+	mtx       *sync.RWMutex
 }
 
 func (c *Cmon) InvalidateCache() {
@@ -146,6 +153,7 @@ func (router *Router) Sync() {
 				Xid:           instance.Xid,
 				Url:           instance.Url,
 				Name:          instance.Name,
+				UseCmonAuth:   instance.UseCmonAuth,
 				Username:      instance.Username,
 				UseLdap:       instance.UseLdap,
 				Keyfile:       instance.Keyfile,
@@ -158,6 +166,9 @@ func (router *Router) Sync() {
 			if router.Ldap.Use && actualConfig.UseLdap {
 				actualConfig.Username = router.Ldap.Username
 				actualConfig.Password = router.Ldap.Password
+			} else if router.LocalCMON.Use && actualConfig.UseCmonAuth {
+				actualConfig.Username = router.LocalCMON.Username
+				actualConfig.Password = router.LocalCMON.Password
 			}
 			if c, found := router.cmons[addr]; !found || c == nil {
 				router.cmons[addr] = &Cmon{

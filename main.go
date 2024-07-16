@@ -27,7 +27,7 @@ import (
 // entry point. no logic here.
 func main() {
 	logger.New(logger.DefaultConfig())
-	zap.L().Info("ClusterControl Manager v1.1")
+	zap.L().Info("ClusterControl Manager v2.2")
 
 	opts.Init()
 	if !opts.Opts.DebugWebRpc {
