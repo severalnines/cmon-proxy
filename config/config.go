@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/severalnines/cmon-proxy/env"
 	"io/ioutil"
 	"math/big"
 	"os"
@@ -43,6 +44,7 @@ type ProxyUser struct {
 	LastName     string `yaml:"lastname,omitempty" json:"lastname,omitempty"`
 	LdapUser     bool   `yaml:"ldap,omitempty" json:"ldap,omitempty"`
 	CMONUser     bool   `yaml:"cmon,omitempty" json:"cmon,omitempty"`
+	ControllerId string `yaml:"xid,omitempty" json:"xid,omitempty"`
 }
 
 type CmonInstance struct {
@@ -80,6 +82,7 @@ type Config struct {
 var (
 	defaults = &Config{
 		FrontendPath:    "/app",
+		Logfile:         env.DefaultLogfilePath,
 		Port:            19051,
 		SessionTtl:      int64(30 * time.Minute),
 		Instances:       make([]*CmonInstance, 0),
@@ -176,24 +179,16 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 
 	// a default value for docker...
 	if len(config.FrontendPath) < 1 {
-		config.FrontendPath = "/app"
+		config.FrontendPath = defaults.FrontendPath
 	}
 	if len(config.TlsCert) < 1 {
-		if defaults.TlsCert != "" {
-			config.TlsCert = defaults.TlsCert
-		} else {
-			config.TlsCert = path.Join(opts.Opts.BaseDir, "server.crt")
-		}
+		config.TlsCert = path.Join(opts.Opts.BaseDir, "server.crt")
 	}
 	if v := os.Getenv("TLS_CERTIFICATE_FILE"); v != "" {
 		config.TlsCert = v
 	}
 	if len(config.TlsKey) < 1 {
-		if defaults.TlsKey != "" {
-			config.TlsKey = defaults.TlsKey
-		} else {
-			config.TlsKey = path.Join(opts.Opts.BaseDir, "server.key")
-		}
+		config.TlsKey = path.Join(opts.Opts.BaseDir, "server.key")
 	}
 	if v := os.Getenv("TLS_KEY_FILE"); v != "" {
 		config.TlsKey = v
@@ -220,7 +215,7 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 	// default configuration file name
 	if len(config.Logfile) < 1 {
-		if defaults.Logfile != "" {
+		if len(defaults.Logfile) > 0 {
 			config.Logfile = defaults.Logfile
 		} else {
 			config.Logfile = path.Join(opts.Opts.BaseDir, "ccmgr.log")

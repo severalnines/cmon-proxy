@@ -10,14 +10,14 @@ ci:
 	GO111MODULE=on go build \
         -a \
         -o build/ccmgr \
-        -ldflags "-s -w -extldflags -static -X main.production=true" \
+        -ldflags "-s -w -extldflags -static" \
         .
 	CGO_ENABLED=0 \
 	GOOS=linux \
 	GO111MODULE=on go build \
         -a \
         -o build/ccmgradm \
-        -ldflags "-s -w -extldflags -static -X main.production=true" \
+        -ldflags "-s -w -extldflags -static" \
         ./ccmgradm
 
 ci-docker:

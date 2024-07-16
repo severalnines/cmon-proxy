@@ -236,7 +236,7 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 		cmonapi.CtxWriteError(ctx, err)
 	}
 
-	c, err := p.GetCmonById(req.Controller.Xid)
+	c, err := p.GetCmonById(req.Controller.Xid, nil)
 	if err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
@@ -291,13 +291,13 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, cmonapi.NewError(cmonapi.RequestStatusOk, "The controller is removed."))
 }
 
-func (p *Proxy) GetCmonById(controllerId string) (*router.Cmon, error) {
-	instance := p.Router(nil).Config.ControllerById(controllerId)
+func (p *Proxy) GetCmonById(controllerId string, ctx *gin.Context) (*router.Cmon, error) {
+	instance := p.Router(ctx).Config.ControllerById(controllerId)
 	if instance == nil {
 		return nil, cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "Controller not found")
 
 	}
-	c := p.Router(nil).Cmon(instance.Url)
+	c := p.Router(ctx).Cmon(instance.Url)
 	if c == nil {
 		return nil, cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "CMON object not found")
 	}
@@ -308,7 +308,7 @@ func (p *Proxy) GetCmonById(controllerId string) (*router.Cmon, error) {
 func (p *Proxy) CmonShhHttpProxyRequest(ctx *gin.Context) {
 	xid := ctx.Param("xid")
 
-	c, err := p.GetCmonById(xid)
+	c, err := p.GetCmonById(xid, ctx)
 	if err != nil {
 		http.Error(ctx.Writer, err.Error(), http.StatusBadRequest)
 		return
@@ -342,7 +342,7 @@ var upGrader = websocket.Upgrader{
 func (p *Proxy) CmonShhWsProxyRequest(ctx *gin.Context) {
 	xid := ctx.Param("xid")
 
-	c, err := p.GetCmonById(xid)
+	c, err := p.GetCmonById(xid, ctx)
 	if err != nil {
 		http.Error(ctx.Writer, err.Error(), http.StatusBadRequest)
 		return

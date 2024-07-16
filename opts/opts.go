@@ -12,11 +12,8 @@ package opts
 
 import (
 	"github.com/jessevdk/go-flags"
+	"github.com/severalnines/cmon-proxy/env"
 	"go.uber.org/zap"
-)
-
-const (
-	DefaultBaseDir = "."
 )
 
 var Opts = struct {
@@ -26,7 +23,7 @@ var Opts = struct {
 }{
 	DebugCmonRpc: false,
 	DebugWebRpc:  false,
-	BaseDir:      DefaultBaseDir,
+	BaseDir:      env.DefaultBaseDir,
 }
 
 func Init() {
