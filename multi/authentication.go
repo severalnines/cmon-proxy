@@ -263,6 +263,7 @@ func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 		setUserForSession(ctx, &config.ProxyUser{
 			Username:     user.UserName,
 			CMONUser:     true,
+			ControllerId: controller.Xid(),
 			FirstName:    user.FirstName,
 			LastName:     user.LastName,
 			EmailAddress: user.EmailAddress,

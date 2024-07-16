@@ -31,7 +31,6 @@ var (
 
 	configFile = "ccmgr.yaml"
 	address    = "https://127.0.0.1:19051/proxy/admin/reload"
-	production string
 )
 
 type DropUserCmd struct {
@@ -88,10 +87,6 @@ func init() {
 	}
 }
 
-const (
-	ProductionBaseDir = "/usr/share/ccmgr/"
-)
-
 func reloadDaemon() error {
 	_, err := httpCli.Get(address)
 	return err
@@ -104,13 +99,6 @@ func main() {
 
 	// most options require a config update as well
 	saveAndReload := true
-
-	if production == "true" {
-		if opts.Opts.BaseDir == opts.DefaultBaseDir {
-			opts.Opts.BaseDir = ProductionBaseDir
-			fmt.Println("Using production basedir - " + opts.Opts.BaseDir)
-		}
-	}
 
 	// Load configuration
 	cfg, err := config.Load(path.Join(opts.Opts.BaseDir, configFile), true)
@@ -281,19 +269,18 @@ func main() {
 			if len(args.Init.FrontendPath) > 0 && cfg.FrontendPath != args.Init.FrontendPath {
 				fmt.Println("Changing frontend_path from", cfg.FrontendPath, "to", args.Init.FrontendPath)
 				cfg.FrontendPath = args.Init.FrontendPath
-				func() {
-					// @todo get rid of config.js file and generate env variables for UI dynamically
-					filePath := fmt.Sprintf("%s/config.js", cfg.FrontendPath)
-					input, err := os.ReadFile(filePath)
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
-					fileInfo, err := os.Stat(filePath)
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
+
+				// @todo get rid of config.js file and generate env variables for UI dynamically
+				filePath := fmt.Sprintf("%s/config.js", cfg.FrontendPath)
+				input, err := os.ReadFile(filePath)
+				if err != nil {
+					fmt.Println(err)
+				}
+				fileInfo, err := os.Stat(filePath)
+				if err != nil {
+					fmt.Println(err)
+				}
+				if input != nil && fileInfo != nil {
 					content := string(input)
 					updatedContent := strings.Replace(content, "CMON_API_URL: '/api/v2'", "CMON_API_URL: '/'", 1)
 					err = os.WriteFile(filePath, []byte(updatedContent), fileInfo.Mode().Perm())
@@ -302,7 +289,7 @@ func main() {
 					} else {
 						fmt.Println("File", filePath, "updated successfully")
 					}
-				}()
+				}
 			}
 			if err := cfg.Save(); err != nil {
 				fmt.Println("Couldn't update configuration:", err.Error())
