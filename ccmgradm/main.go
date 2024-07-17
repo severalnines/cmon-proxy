@@ -58,6 +58,7 @@ type InitCmd struct {
 	FrontendPath string `arg:"-f,--frontend-path" help:"Path to web ui static files"`
 	Config       string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
 	Url          string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
+	CMONSshUrl   string `arg:"-s,--cmon-ssh-url" help:"cmon-ssh url (default: 127.0.0.1:9511)"`
 }
 
 type DropControllerCmd struct {
@@ -220,6 +221,10 @@ func main() {
 				if len(args.Init.Url) > 0 {
 					cmonUrl = args.Init.Url
 				}
+				cmonSshUrl := "127.0.0.1:9511"
+				if len(args.Init.CMONSshUrl) > 0 {
+					cmonSshUrl = args.Init.CMONSshUrl
+				}
 				cmon := cfg.ControllerByUrl(cmonUrl)
 				if cmon != nil {
 					fmt.Println("Controller already exists with this URL.")
@@ -228,6 +233,7 @@ func main() {
 				cmon = &config.CmonInstance{
 					Xid:         xid.New().String(),
 					Url:         cmonUrl,
+					CMONSshHost: cmonSshUrl,
 					Name:        "local",
 					UseCmonAuth: true,
 					FrontendUrl: "localhost",
