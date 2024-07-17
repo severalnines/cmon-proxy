@@ -101,6 +101,7 @@ func serveStaticOrIndex(c *gin.Context, cfg *config.Config) {
 		c.Abort()
 		return
 	}
+	c.Header("Cache-Control", "public, max-age=31536000")
 	c.Header("Content-Length", fmt.Sprintf("%d", info.Size()))
 
 	lastModified := info.ModTime().UTC().Format(http.TimeFormat)
@@ -127,7 +128,6 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) {
 			strings.HasPrefix(c.Request.URL.Path, "/cmon/") {
 			c.Next()
 		} else {
-			c.Header("Cache-Control", "public, max-age=31536000, immutable")
 			serveStaticOrIndex(c, cfg)
 		}
 	})
@@ -264,6 +264,12 @@ func Start(cfg *config.Config) {
 	proxy.Authenticate()
 
 	multi.StartSessionCleanupScheduler(proxy)
+
+	s.Use(func(c *gin.Context) {
+		// Based on PEN test report https://severalnines.atlassian.net/browse/CLUS-4437
+		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		c.Header("X-Content-Type-Options", "nosniff")
+	})
 
 	// to serve the static files
 	serveFrontend(s, cfg)
