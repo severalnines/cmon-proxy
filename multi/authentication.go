@@ -12,6 +12,7 @@ package multi
 
 import (
 	"fmt"
+	"github.com/severalnines/cmon-proxy/cmon"
 	"net/http"
 	"sync"
 	"time"
@@ -220,15 +221,15 @@ func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 		return false
 	}
 
-	var localCmon *config.CmonInstance
+	var authController *config.CmonInstance
 	for _, cmon := range p.cfg.Instances {
 		if cmon != nil && cmon.UseCmonAuth {
-			localCmon = cmon
+			authController = cmon
 			break
 		}
 	}
 
-	if localCmon == nil {
+	if authController == nil {
 		return false
 	}
 
@@ -243,19 +244,33 @@ func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 		}
 	}
 
-	// configure this router to use the local cmon credentials for LDAP enabled cmon instances
-	r.LocalCMON.Use = true
-	r.LocalCMON.Username = req.Username
-	r.LocalCMON.Password = req.Password
-
 	zap.L().Info(
 		fmt.Sprintf("[AUDIT] CMON controller authentication attempt '%s' (source %s / %s)",
 			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
 
-	r.Authenticate() // attempts to authenticate
-
 	loginSucceed := false
-	controller := r.Cmon(localCmon.Url)
+
+	// test authentication before writing anything in state
+	testInstance := authController.Copy()
+	testInstance.Username = req.Username
+	testInstance.Password = req.Password
+	testClient := cmon.NewClient(testInstance, r.Config.Timeout)
+	err := testClient.Authenticate()
+	if err != nil {
+		zap.L().Info(
+			fmt.Sprintf("[AUDIT] CMON controller authentication (user %s) has failed to controller (%s). (source %s / %s), error: %s",
+				req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent(), err.Error()))
+		return false
+	}
+
+	// configure this router to use for authentication in controllers with 'use_cmon_auth'
+	r.LocalCMON.Use = true
+	r.LocalCMON.Username = req.Username
+	r.LocalCMON.Password = req.Password
+
+	r.Authenticate()
+
+	controller := r.Cmon(authController.Url)
 	user := controller.Client.User()
 	if user != nil {
 		loginSucceed = true
@@ -282,7 +297,7 @@ func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 
 	zap.L().Info(
 		fmt.Sprintf("[AUDIT] CMON controller authentication (user %s) has failed to controller (%s). (source %s / %s)",
-			req.Username, localCmon.Url, ctx.ClientIP(), ctx.Request.UserAgent()))
+			req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent()))
 
 	return false
 }
