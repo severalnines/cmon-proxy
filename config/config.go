@@ -111,6 +111,23 @@ func (cmon *CmonInstance) Verify() error {
 	return nil
 }
 
+func (cmon *CmonInstance) Copy() *CmonInstance {
+	instance := &CmonInstance{
+		Xid:           cmon.Xid,
+		Url:           cmon.Url,
+		Name:          cmon.Name,
+		UseCmonAuth:   cmon.UseCmonAuth,
+		Username:      cmon.Username,
+		UseLdap:       cmon.UseLdap,
+		Keyfile:       cmon.Keyfile,
+		Password:      cmon.Password,
+		FrontendUrl:   cmon.FrontendUrl,
+		CMONSshHost:   cmon.CMONSshHost,
+		CMONSshSecure: cmon.CMONSshSecure,
+	}
+	return instance
+}
+
 // Save persist the configuration to the file it was loaded from
 func (cfg *Config) Save() error {
 	cfg.mtx.RLock()
