@@ -36,7 +36,7 @@ endif (_version)
 # install
 #
 
-install(DIRECTORY DESTINATION /opt/ccmgr/)
+install(DIRECTORY DESTINATION /usr/share/ccmgr/)
 
 install(
     FILES ${CMAKE_SOURCE_DIR}/build/ccmgr

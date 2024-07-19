@@ -13,16 +13,17 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	arg "github.com/alexflint/go-arg"
+	"github.com/go-ini/ini"
+	"github.com/rs/xid"
+	"github.com/severalnines/cmon-proxy/config"
+	"github.com/severalnines/cmon-proxy/opts"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
+	"strings"
 	"time"
-
-	arg "github.com/alexflint/go-arg"
-	"github.com/rs/xid"
-	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/opts"
 )
 
 var (
@@ -51,6 +52,15 @@ type AddControllerCmd struct {
 	FrontendUrl string `arg:"-f,--frontend-url" help:"The ClusterControl WEB UI URL of this controller"`
 }
 
+type InitCmd struct {
+	LocalCmon    bool   `arg:"--local-cmon" help:"Initialize with local cmon installation"`
+	Port         int    `arg:"-p,--port" help:"Port to start the daemon on (default: 19051)"`
+	FrontendPath string `arg:"-f,--frontend-path" help:"Path to web ui static files"`
+	Config       string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
+	Url          string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
+	CMONSshUrl   string `arg:"-s,--cmon-ssh-url" help:"cmon-ssh url (default: 127.0.0.1:9511)"`
+}
+
 type DropControllerCmd struct {
 	UrlOrName string `arg:"positional" help:"The controller name or URL from configuration."`
 }
@@ -64,6 +74,7 @@ var args struct {
 	SetPassword      *AddUpdateUserCmd   `arg:"subcommand:setpassword"`
 	DropController   *DropControllerCmd  `arg:"subcommand:dropcontroller"`
 	AddController    *AddControllerCmd   `arg:"subcommand:addcontroller"`
+	Init             *InitCmd            `arg:"subcommand:init"`
 	UpdateController *AddControllerCmd   `arg:"subcommand:updatecontroller"`
 	ListControllers  *ListControllersCmd `arg:"subcommand:listcontrollers"`
 }
@@ -83,7 +94,7 @@ func reloadDaemon() error {
 }
 
 func main() {
-	fmt.Println("ClusterControl Manager - admin CLI v1.1")
+	fmt.Println("ClusterControl Manager - admin CLI v2.2")
 
 	arg.MustParse(&args)
 
@@ -202,6 +213,98 @@ func main() {
 				os.Exit(1)
 			}
 		}
+	case args.Init != nil:
+		{
+			saveAndReload = false
+			if args.Init.LocalCmon {
+				cmonUrl := "127.0.0.1:9501"
+				if len(args.Init.Url) > 0 {
+					cmonUrl = args.Init.Url
+				}
+				cmonSshUrl := "127.0.0.1:9511"
+				if len(args.Init.CMONSshUrl) > 0 {
+					cmonSshUrl = args.Init.CMONSshUrl
+				}
+				cmon := cfg.ControllerByUrl(cmonUrl)
+				if cmon != nil {
+					fmt.Println("Controller already exists with this URL.")
+					os.Exit(1)
+				}
+				cmon = &config.CmonInstance{
+					Xid:         xid.New().String(),
+					Url:         cmonUrl,
+					CMONSshHost: cmonSshUrl,
+					Name:        "local",
+					UseCmonAuth: true,
+					FrontendUrl: "localhost",
+				}
+
+				// configFile := "/etc/cmon.cnf"
+				var cmonConfig string
+				var cfgFile *ini.File
+				if len(args.Init.Config) > 0 {
+					cmonConfig = args.Init.Config
+				}
+				if cmonConfig != "" {
+					cfgFile, err = ini.Load(configFile)
+					if err != nil {
+						fmt.Println("Error loading cmon.cnf file:", err.Error())
+						os.Exit(1)
+					}
+					rpcKey := cfgFile.Section("").Key("rpc_key").String()
+					if rpcKey == "" {
+						fmt.Println("Error, rpc_key not found in .cnf file.")
+						os.Exit(1)
+					}
+					cmon.Username = "ccrpc"
+					cmon.Password = rpcKey
+				}
+
+				if err := cfg.AddController(cmon, false); err != nil {
+					fmt.Println("Couldn't add controller:", err.Error())
+					os.Exit(1)
+				}
+
+				fmt.Println("Controller", cmonUrl, "registered successfully")
+
+			}
+			if args.Init.Port > 0 && cfg.Port != args.Init.Port {
+				fmt.Println("Changing port from", cfg.Port, "to", args.Init.Port)
+				cfg.Port = args.Init.Port
+			}
+			if len(args.Init.FrontendPath) > 0 && cfg.FrontendPath != args.Init.FrontendPath {
+				fmt.Println("Changing frontend_path from", cfg.FrontendPath, "to", args.Init.FrontendPath)
+				cfg.FrontendPath = args.Init.FrontendPath
+
+				// @todo get rid of config.js file and generate env variables for UI dynamically
+				filePath := fmt.Sprintf("%s/config.js", cfg.FrontendPath)
+				input, err := os.ReadFile(filePath)
+				if err != nil {
+					fmt.Println(err)
+				}
+				fileInfo, err := os.Stat(filePath)
+				if err != nil {
+					fmt.Println(err)
+				}
+				if input != nil && fileInfo != nil {
+					content := string(input)
+					updatedContent := strings.Replace(content, "CMON_API_URL: '/api/v2'", "CMON_API_URL: '/'", 1)
+					err = os.WriteFile(filePath, []byte(updatedContent), fileInfo.Mode().Perm())
+					if err != nil {
+						fmt.Println(err)
+					} else {
+						fmt.Println("File", filePath, "updated successfully")
+					}
+				}
+			}
+			if err := cfg.Save(); err != nil {
+				fmt.Println("Couldn't update configuration:", err.Error())
+				os.Exit(1)
+			} else {
+				fmt.Println("Configuration", cfg.Filename, "updated successfully")
+			}
+			fmt.Println("Please restart 'cmon-proxy' service to apply changes")
+		}
 	case args.UpdateController != nil:
 		{
 			cmon := cfg.ControllerByUrl(args.UpdateController.Url)
@@ -282,8 +385,9 @@ func main() {
 		address = fmt.Sprintf("https://127.0.0.1:%d/proxy/admin/reload", cfg.Port)
 	}
 
-	fmt.Println("Succeed, reloading daemon.")
 	if err := reloadDaemon(); err != nil {
-		fmt.Println("Warning: failed to reload daemon:", err.Error())
+		fmt.Println("Please restart 'cmon-proxy' service to apply changes.")
+	} else {
+		fmt.Println("Config reloaded successfully")
 	}
 }

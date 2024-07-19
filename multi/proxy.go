@@ -81,6 +81,11 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 			return router
 		}
 	}
+	if isCMON, cmonUsername := isCMONSession(ctx); isCMON {
+		if router, found := p.r[cmonUsername]; found {
+			return router
+		}
+	}
 	if defaultRouter, found := p.r[router.DefaultRouter]; found {
 		return defaultRouter
 	}

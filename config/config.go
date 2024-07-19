@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/severalnines/cmon-proxy/env"
 	"io/ioutil"
 	"math/big"
 	"os"
@@ -42,12 +43,15 @@ type ProxyUser struct {
 	FirstName    string `yaml:"firstname,omitempty" json:"firstname,omitempty"`
 	LastName     string `yaml:"lastname,omitempty" json:"lastname,omitempty"`
 	LdapUser     bool   `yaml:"ldap,omitempty" json:"ldap,omitempty"`
+	CMONUser     bool   `yaml:"cmon,omitempty" json:"cmon,omitempty"`
+	ControllerId string `yaml:"xid,omitempty" json:"xid,omitempty"`
 }
 
 type CmonInstance struct {
 	Xid           string `yaml:"xid" json:"xid"`
 	Url           string `yaml:"url" json:"url"`
 	Name          string `yaml:"name,omitempty" json:"name,omitempty"`
+	UseCmonAuth   bool   `yaml:"use_cmon_auth,omitempty" json:"use_cmon_auth,omitempty"`
 	UseLdap       bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
 	Username      string `yaml:"username,omitempty" json:"username,omitempty"`
 	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
@@ -60,6 +64,7 @@ type CmonInstance struct {
 // Config holds the configuration of cmon-proxy, it is pretty minimal now
 type Config struct {
 	Filename        string
+	WebAppRoot      string
 	FetchJobsHours  int             `yaml:"fetch_jobs_hours,omitempty" json:"fetch_jobs_hours,omitempty"`
 	FetchBackupDays int             `yaml:"fetch_backups_days,omitempty" json:"fetch_backups_days,omitempty"`
 	Instances       []*CmonInstance `yaml:"instances,omitempty"`
@@ -75,11 +80,24 @@ type Config struct {
 	mtx sync.RWMutex
 }
 
+var (
+	defaults = &Config{
+		FrontendPath:    "/app",
+		Logfile:         env.DefaultLogfilePath,
+		Port:            19051,
+		SessionTtl:      int64(30 * time.Minute),
+		Instances:       make([]*CmonInstance, 0),
+		FetchBackupDays: 7,
+		FetchJobsHours:  12,
+		Timeout:         30,
+	}
+)
+
 func (cmon *CmonInstance) Verify() error {
 	if cmon == nil || len(cmon.Url) < 3 {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
 	}
-	if !cmon.UseLdap {
+	if !cmon.UseLdap && !cmon.UseCmonAuth {
 		if len(cmon.Username) < 1 {
 			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing username")
 		}
@@ -88,6 +106,23 @@ func (cmon *CmonInstance) Verify() error {
 		}
 	}
 	return nil
+}
+
+func (cmon *CmonInstance) Copy() *CmonInstance {
+	instance := &CmonInstance{
+		Xid:           cmon.Xid,
+		Url:           cmon.Url,
+		Name:          cmon.Name,
+		UseCmonAuth:   cmon.UseCmonAuth,
+		Username:      cmon.Username,
+		UseLdap:       cmon.UseLdap,
+		Keyfile:       cmon.Keyfile,
+		Password:      cmon.Password,
+		FrontendUrl:   cmon.FrontendUrl,
+		CMONSshHost:   cmon.CMONSshHost,
+		CMONSshSecure: cmon.CMONSshSecure,
+	}
+	return instance
 }
 
 // Save persist the configuration to the file it was loaded from
@@ -155,10 +190,11 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 
 	config.Filename = filename
+	config.WebAppRoot = env.WebAppRoot
 
 	// a default value for docker...
 	if len(config.FrontendPath) < 1 {
-		config.FrontendPath = "/app"
+		config.FrontendPath = defaults.FrontendPath
 	}
 	if len(config.TlsCert) < 1 {
 		config.TlsCert = path.Join(opts.Opts.BaseDir, "server.crt")
@@ -173,10 +209,10 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 		config.TlsKey = v
 	}
 	if config.Port <= 0 {
-		config.Port = 19051
+		config.Port = defaults.Port
 	}
-	if config.SessionTtl <= int64(30 * time.Minute) {
-		config.SessionTtl = int64(30 * time.Minute)
+	if config.SessionTtl <= defaults.SessionTtl {
+		config.SessionTtl = defaults.SessionTtl
 	}
 
 	// some env vars are overriding main options
@@ -186,26 +222,30 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 
 	// we don't want nulls
 	if config.Instances == nil {
-		config.Instances = make([]*CmonInstance, 0)
+		config.Instances = defaults.Instances
 	}
 	// default minimum timeout value
-	if config.Timeout <= 30 {
-		config.Timeout = 30
+	if config.Timeout <= defaults.Timeout {
+		config.Timeout = defaults.Timeout
 	}
 	// default configuration file name
 	if len(config.Logfile) < 1 {
-		config.Logfile = path.Join(opts.Opts.BaseDir, "ccmgr.log")
+		if len(defaults.Logfile) > 0 {
+			config.Logfile = defaults.Logfile
+		} else {
+			config.Logfile = path.Join(opts.Opts.BaseDir, "ccmgr.log")
+		}
 	}
 
 	// default values for fetching backups
 	if config.FetchBackupDays < 1 {
-        config.FetchBackupDays = 7
-    }
+		config.FetchBackupDays = defaults.FetchBackupDays
+	}
 
 	// default values for fetching jobs
 	if config.FetchJobsHours < 1 {
-        config.FetchJobsHours = 12
-    }
+		config.FetchJobsHours = defaults.FetchJobsHours
+	}
 
 	// re-create the logger using the specified file name
 	loggerConfig := logger.DefaultConfig()
@@ -465,6 +505,7 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 		FirstName:    u.FirstName,
 		LastName:     u.LastName,
 		LdapUser:     u.LdapUser,
+		CMONUser:     u.CMONUser,
 	}
 	// by default we don't want to return password hashes to UI
 	if withCredentials {

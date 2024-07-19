@@ -13,16 +13,18 @@ package rpcserver
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/gzip"
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -86,41 +88,66 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 		c.ClientIP(), int64(elapsed/time.Millisecond), c.Copy().Writer.Status(), bodyWriter.responseBody.String())
 }
 
-func serveFrontend(s *gin.Engine, cfg *config.Config) {
-	s.StaticFS("/static", gin.Dir(path.Join(cfg.FrontendPath, "/static"), false))
-	s.StaticFS("/build", gin.Dir(path.Join(cfg.FrontendPath, "/build"), false))
-	err := filepath.Walk(cfg.FrontendPath, func(p string, info os.FileInfo, err error) error {
-		if info == nil || err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if strings.Contains(p, "/static/") || strings.Contains(p, "/build/") {
-			return nil
-		}
-		s.StaticFile(path.Base(p), p)
-		return nil
-	})
-	if err != nil {
-		zap.L().Sugar().Warnf("Can't serve static HTML files: %s", err.Error())
+func serveStaticOrIndex(c *gin.Context, path string) {
+	filePath := filepath.Join(path, c.Request.URL.Path)
+	filePath, err := filepath.EvalSymlinks(filePath)
+	if err != nil || !strings.HasPrefix(filePath, path) {
+		filePath = filepath.Join(path, "index.html")
 	}
-
-	// and redirect anything to index.html
-	s.NoRoute(func(c *gin.Context) {
-		if c.Request == nil && c.Request.URL == nil &&
-			strings.HasPrefix(c.Request.URL.Path, "/proxy") &&
-			!strings.HasPrefix(c.Request.URL.Path, "/v2") {
-			var resp cmonapi.WithResponseData
-			resp.RequestStatus = cmonapi.RequestStatusObjectNotFound
-			resp.ErrorString = "path not found"
-
-			c.JSON(http.StatusNotFound, resp)
+	info, err := os.Stat(filePath)
+	if os.IsNotExist(err) || info.IsDir() {
+		filePath = filepath.Join(path, "index.html")
+		info, err = os.Stat(filePath)
+		if os.IsNotExist(err) || info.IsDir() {
+			c.Next()
 			return
 		}
-		// everything else shall go to web
-		c.File(path.Join(cfg.FrontendPath, "index.html"))
+	}
+	c.Header("Cache-Control", "public, max-age=31536000")
+	c.Header("Content-Length", fmt.Sprintf("%d", info.Size()))
+	lastModified := info.ModTime().UTC().Format(http.TimeFormat)
+	c.Header("Last-Modified", lastModified)
+	etag := generateETag(info)
+	c.Header("ETag", etag)
+
+	c.File(filePath)
+	c.Abort()
+}
+
+func generateETag(info os.FileInfo) string {
+	hash := md5.New()
+	hash.Write([]byte(fmt.Sprintf("%s-%d-%d", info.Name(), info.Size(), info.ModTime().Unix())))
+	return fmt.Sprintf(`"%x"`, hash.Sum(nil))
+}
+
+func getFrontendPath(cfg *config.Config) (string, error) {
+	cleanPath, err := filepath.EvalSymlinks(cfg.FrontendPath)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(cleanPath, cfg.WebAppRoot) {
+		return "", fmt.Errorf("path is outside of root directory (%s)", cfg.WebAppRoot)
+	}
+	return cleanPath, nil
+}
+
+func serveFrontend(s *gin.Engine, cfg *config.Config) error {
+	cleanPath, err := getFrontendPath(cfg)
+	if err != nil {
+		return fmt.Errorf("invalid frontend path (%s): %s", cfg.FrontendPath, err)
+	}
+	s.Use(gzip.Gzip(gzip.BestSpeed))
+	s.Use(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/proxy/") ||
+			strings.HasPrefix(c.Request.URL.Path, "/v2/") ||
+			strings.HasPrefix(c.Request.URL.Path, "/cmon/") {
+			c.Next()
+		} else {
+			serveStaticOrIndex(c, cleanPath)
+		}
 	})
+
+	return nil
 }
 
 func forwardToCmon(ctx *gin.Context) {
@@ -255,8 +282,18 @@ func Start(cfg *config.Config) {
 
 	multi.StartSessionCleanupScheduler(proxy)
 
+	s.Use(func(c *gin.Context) {
+		// Based on PEN test report https://severalnines.atlassian.net/browse/CLUS-4437
+		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		c.Header("X-Content-Type-Options", "nosniff")
+	})
+
 	// to serve the static files
-	serveFrontend(s, cfg)
+	err = serveFrontend(s, cfg)
+	if err != nil {
+		log.Sugar().Fatalln("Error serving frontend: ", err)
+		return
+	}
 
 	/**
 	this intends to be a new way of proxying requests to CMON,

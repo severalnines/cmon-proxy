@@ -12,6 +12,7 @@ package multi
 
 import (
 	"fmt"
+	"github.com/severalnines/cmon-proxy/cmon"
 	"net/http"
 	"sync"
 	"time"
@@ -29,8 +30,8 @@ import (
 )
 
 type SessionData struct {
-	User  *config.ProxyUser
-	Login time.Time
+	User       *config.ProxyUser
+	Login      time.Time
 	LastActive time.Time
 }
 
@@ -46,71 +47,71 @@ var (
 )
 
 func cleanupOldSessions(p *Proxy) {
-    sesssMtx.Lock()
+	sesssMtx.Lock()
 
-    usernames := make([]string, 0, len(sesss))
-    invalidate := make([]string, 0)
-    // Collect the outdated sessions
-    for sessionId, data := range sesss {
-        if time.Since(data.LastActive) > session.SessionTTL {
-            invalidate = append(invalidate, sessionId)
+	usernames := make([]string, 0, len(sesss))
+	invalidate := make([]string, 0)
+	// Collect the outdated sessions
+	for sessionId, data := range sesss {
+		if time.Since(data.LastActive) > session.SessionTTL {
+			invalidate = append(invalidate, sessionId)
 
-            // Audit log of server side logouts
-            if data.User != nil {
-                zap.L().Info("[AUDIT] Logout", zap.String("user", data.User.Username), zap.String("reason", "TTL"))
-            }
-        } else if data.User != nil {
-            // Collect username from the active user sessions
-            usernames = append(usernames, data.User.Username)
-        }
-    }
+			// Audit log of server side logouts
+			if data.User != nil {
+				zap.L().Info("[AUDIT] Logout", zap.String("user", data.User.Username), zap.String("reason", "TTL"))
+			}
+		} else if data.User != nil {
+			// Collect username from the active user sessions
+			usernames = append(usernames, data.User.Username)
+		}
+	}
 
-    // Invalidate outdated sessions
-    for _, sessionId := range invalidate {
-        delete(sesss, sessionId)
-    }
+	// Invalidate outdated sessions
+	for _, sessionId := range invalidate {
+		delete(sesss, sessionId)
+	}
 
-    sesssMtx.Unlock()
+	sesssMtx.Unlock()
 
-    if p == nil {
-        return
-    }
+	if p == nil {
+		return
+	}
 
-    // Additional cleanup for user routers
-    for username := range p.r {
-        hasSessionForUser := false
-        for _, loggedinUser := range usernames {
-            if loggedinUser == username {
-                hasSessionForUser = true
-                break
-            }
-        }
+	// Additional cleanup for user routers
+	for username := range p.r {
+		hasSessionForUser := false
+		for _, loggedinUser := range usernames {
+			if loggedinUser == username {
+				hasSessionForUser = true
+				break
+			}
+		}
 		// delete routers for no longer logged in (LDAP?) users...
-        if !hasSessionForUser && username != router.DefaultRouter {
-            mtx.Lock()
-            delete(p.r, username)
-            mtx.Unlock()
-        }
-    }
+		if !hasSessionForUser && username != router.DefaultRouter {
+			mtx.Lock()
+			delete(p.r, username)
+			mtx.Unlock()
+		}
+	}
 }
 
 func StartSessionCleanupScheduler(p *Proxy) {
-    ticker := time.NewTicker(30 * time.Minute)
-    go func() {
-        for range ticker.C {
-            cleanupOldSessions(p)
-        }
-    }()
+	ticker := time.NewTicker(30 * time.Minute)
+	go func() {
+		for range ticker.C {
+			cleanupOldSessions(p)
+		}
+	}()
 }
 
 func refreshSession(sessionId string) {
-    sesssMtx.Lock()
-    defer sesssMtx.Unlock()
+	sesssMtx.Lock()
+	defer sesssMtx.Unlock()
 
-    if session, exists := sesss[sessionId]; exists {
-        session.LastActive = time.Now() // Update the last active time to the current time
-        sesss[sessionId] = session     // Put the updated session back into the map
-    }
+	if session, exists := sesss[sessionId]; exists {
+		session.LastActive = time.Now() // Update the last active time to the current time
+		sesss[sessionId] = session      // Put the updated session back into the map
+	}
 }
 
 func isLDAPSession(ctx *gin.Context) (isLDAPSession bool, ldapUsername string) {
@@ -121,6 +122,17 @@ func isLDAPSession(ctx *gin.Context) (isLDAPSession bool, ldapUsername string) {
 	if user := getUserForSession(ctx); user != nil && user.LdapUser {
 		isLDAPSession = true
 		ldapUsername = user.Username
+	}
+	return
+}
+func isCMONSession(ctx *gin.Context) (isCMONSession bool, cmonUsername string) {
+	if ctx == nil {
+		return false, ""
+	}
+	isCMONSession = false
+	if user := getUserForSession(ctx); user != nil && user.CMONUser {
+		isCMONSession = true
+		cmonUsername = user.Username
 	}
 	return
 }
@@ -171,8 +183,8 @@ func setUserForSession(ctx *gin.Context, user *config.ProxyUser) {
 
 	// save the user into our session storage using the sessionID
 	sesss[sessionId] = &SessionData{
-		User:  user,
-		Login: time.Now(),
+		User:       user,
+		Login:      time.Now(),
 		LastActive: time.Now(),
 	}
 	ctx.Set(userKey, user)
@@ -202,6 +214,92 @@ func (p *Proxy) RPCAuthMiddleware(ctx *gin.Context) {
 	}
 	// we store the 'user' object in context
 	ctx.Set(userKey, user)
+}
+
+func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
+	if p == nil || p.cfg == nil || len(p.cfg.Instances) < 1 {
+		return false
+	}
+
+	var authController *config.CmonInstance
+	for _, cmon := range p.cfg.Instances {
+		if cmon != nil && cmon.UseCmonAuth {
+			authController = cmon
+			break
+		}
+	}
+
+	if authController == nil {
+		return false
+	}
+
+	// create a router for this login attempt (if there is not already one)
+	r, found := p.r[req.Username]
+	if !found || r == nil {
+		var err error
+		r, err = router.New(p.cfg)
+		if err != nil {
+			fmt.Sprintf("Can't create router for local login: %s", err.Error())
+			return false
+		}
+	}
+
+	zap.L().Info(
+		fmt.Sprintf("[AUDIT] CMON controller authentication attempt '%s' (source %s / %s)",
+			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
+
+	loginSucceed := false
+
+	// test authentication before writing anything in state
+	testInstance := authController.Copy()
+	testInstance.Username = req.Username
+	testInstance.Password = req.Password
+	testClient := cmon.NewClient(testInstance, r.Config.Timeout)
+	err := testClient.Authenticate()
+	if err != nil {
+		zap.L().Info(
+			fmt.Sprintf("[AUDIT] CMON controller authentication (user %s) has failed to controller (%s). (source %s / %s), error: %s",
+				req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent(), err.Error()))
+		return false
+	}
+
+	// configure this router to use for authentication in controllers with 'use_cmon_auth'
+	r.LocalCMON.Use = true
+	r.LocalCMON.Username = req.Username
+	r.LocalCMON.Password = req.Password
+
+	r.Authenticate()
+
+	controller := r.Cmon(authController.Url)
+	user := controller.Client.User()
+	if user != nil {
+		loginSucceed = true
+		// construct a synthetic user from the User object we got from cmon
+		setUserForSession(ctx, &config.ProxyUser{
+			Username:     user.UserName,
+			CMONUser:     true,
+			ControllerId: controller.Xid(),
+			FirstName:    user.FirstName,
+			LastName:     user.LastName,
+			EmailAddress: user.EmailAddress,
+		})
+	}
+
+	// okay, keep this router as login succeed to some of the cmon's
+	if user := getUserForSession(ctx); loginSucceed && user != nil {
+		p.r[req.Username] = r
+
+		resp.RequestStatus = cmonapi.RequestStatusOk
+		resp.User = user
+
+		return true
+	}
+
+	zap.L().Info(
+		fmt.Sprintf("[AUDIT] CMON controller authentication (user %s) has failed to controller (%s). (source %s / %s)",
+			req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent()))
+
+	return false
 }
 
 // Attempts to do LDAP login when there are any controllers
@@ -303,8 +401,13 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 
 	user, err := p.r[router.DefaultRouter].Config.GetUser(req.Username)
 	if err != nil {
-		// ldapLogin returns true if it was okay and it sets the user for session
-		if !p.ldapLogin(ctx, &req, &resp) {
+		var externalLoginSucceed bool
+		externalLoginSucceed = p.ldapLogin(ctx, &req, &resp)
+		if !externalLoginSucceed {
+			externalLoginSucceed = p.cmonLogin(ctx, &req, &resp)
+		}
+		// if ldap or local cmon login returns true if it was okay and it sets the user for session
+		if !externalLoginSucceed {
 			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
 			resp.ErrorString = fmt.Sprintf("user error: %s", err.Error())
 		}
