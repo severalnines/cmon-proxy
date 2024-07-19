@@ -91,7 +91,7 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 func serveStaticOrIndex(c *gin.Context, cfg *config.Config) {
 	filePath := filepath.Join(cfg.FrontendPath, c.Request.URL.Path)
 	info, err := os.Stat(filePath)
-	if os.IsNotExist(err) {
+	if os.IsNotExist(err) || info.IsDir() {
 		indexPath := filepath.Join(cfg.FrontendPath, "index.html")
 		if _, err := os.Stat(indexPath); os.IsNotExist(err) {
 			c.Next()
