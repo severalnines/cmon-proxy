@@ -6,4 +6,5 @@ package env
 const (
 	DefaultLogfilePath = ""
 	DefaultBaseDir     = "."
+	WebAppRoot         = ""
 )

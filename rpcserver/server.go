@@ -88,25 +88,25 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 		c.ClientIP(), int64(elapsed/time.Millisecond), c.Copy().Writer.Status(), bodyWriter.responseBody.String())
 }
 
-func serveStaticOrIndex(c *gin.Context, cfg *config.Config) {
-	filePath := filepath.Join(cfg.FrontendPath, c.Request.URL.Path)
+func serveStaticOrIndex(c *gin.Context, path string) {
+	filePath := filepath.Join(path, c.Request.URL.Path)
+	filePath, err := filepath.EvalSymlinks(filePath)
+	if err != nil || !strings.HasPrefix(filePath, path) {
+		filePath = filepath.Join(path, "index.html")
+	}
 	info, err := os.Stat(filePath)
 	if os.IsNotExist(err) || info.IsDir() {
-		indexPath := filepath.Join(cfg.FrontendPath, "index.html")
-		if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		filePath = filepath.Join(path, "index.html")
+		info, err = os.Stat(filePath)
+		if os.IsNotExist(err) || info.IsDir() {
 			c.Next()
 			return
 		}
-		c.File(indexPath)
-		c.Abort()
-		return
 	}
 	c.Header("Cache-Control", "public, max-age=31536000")
 	c.Header("Content-Length", fmt.Sprintf("%d", info.Size()))
-
 	lastModified := info.ModTime().UTC().Format(http.TimeFormat)
 	c.Header("Last-Modified", lastModified)
-
 	etag := generateETag(info)
 	c.Header("ETag", etag)
 
@@ -120,7 +120,22 @@ func generateETag(info os.FileInfo) string {
 	return fmt.Sprintf(`"%x"`, hash.Sum(nil))
 }
 
-func serveFrontend(s *gin.Engine, cfg *config.Config) {
+func getFrontendPath(cfg *config.Config) (string, error) {
+	cleanPath, err := filepath.EvalSymlinks(cfg.FrontendPath)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(cleanPath, cfg.WebAppRoot) {
+		return "", fmt.Errorf("path is outside of root directory (%s)", cfg.WebAppRoot)
+	}
+	return cleanPath, nil
+}
+
+func serveFrontend(s *gin.Engine, cfg *config.Config) error {
+	cleanPath, err := getFrontendPath(cfg)
+	if err != nil {
+		return fmt.Errorf("invalid frontend path (%s): %s", cfg.FrontendPath, err)
+	}
 	s.Use(gzip.Gzip(gzip.BestSpeed))
 	s.Use(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/proxy/") ||
@@ -128,9 +143,11 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) {
 			strings.HasPrefix(c.Request.URL.Path, "/cmon/") {
 			c.Next()
 		} else {
-			serveStaticOrIndex(c, cfg)
+			serveStaticOrIndex(c, cleanPath)
 		}
 	})
+
+	return nil
 }
 
 func forwardToCmon(ctx *gin.Context) {
@@ -272,7 +289,11 @@ func Start(cfg *config.Config) {
 	})
 
 	// to serve the static files
-	serveFrontend(s, cfg)
+	err = serveFrontend(s, cfg)
+	if err != nil {
+		log.Sugar().Fatalln("Error serving frontend: ", err)
+		return
+	}
 
 	/**
 	this intends to be a new way of proxying requests to CMON,

@@ -34,13 +34,13 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	config, err := config.Load(path.Join(opts.Opts.BaseDir, "ccmgr.yaml"))
+	cfg, err := config.Load(path.Join(opts.Opts.BaseDir, "ccmgr.yaml"))
 	if err != nil {
 		// we have nice default values from ::Load() method
 		zap.L().Sugar().Warnf("configfile problem: %s", err.Error())
 	}
 
-	config.Upgrade()
+	cfg.Upgrade()
 
 	// Stop on signals
 	signals := make(chan os.Signal, 1)
@@ -56,5 +56,5 @@ func main() {
 	}()
 
 	// Start server
-	rpcserver.Start(config)
+	rpcserver.Start(cfg)
 }
