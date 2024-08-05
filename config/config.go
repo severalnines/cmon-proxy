@@ -64,6 +64,7 @@ type CmonInstance struct {
 // Config holds the configuration of cmon-proxy, it is pretty minimal now
 type Config struct {
 	Filename        string
+	WebAppRoot      string
 	FetchJobsHours  int             `yaml:"fetch_jobs_hours,omitempty" json:"fetch_jobs_hours,omitempty"`
 	FetchBackupDays int             `yaml:"fetch_backups_days,omitempty" json:"fetch_backups_days,omitempty"`
 	Instances       []*CmonInstance `yaml:"instances,omitempty"`
@@ -91,10 +92,6 @@ var (
 		Timeout:         30,
 	}
 )
-
-func GetDefaults() *Config {
-	return defaults
-}
 
 func (cmon *CmonInstance) Verify() error {
 	if cmon == nil || len(cmon.Url) < 3 {
@@ -193,6 +190,7 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 
 	config.Filename = filename
+	config.WebAppRoot = env.WebAppRoot
 
 	// a default value for docker...
 	if len(config.FrontendPath) < 1 {
