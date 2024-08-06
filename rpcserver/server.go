@@ -125,17 +125,11 @@ func getFrontendPath(cfg *config.Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !strings.HasPrefix(cleanPath, cfg.WebAppRoot) {
-		return "", fmt.Errorf("path is outside of root directory (%s)", cfg.WebAppRoot)
-	}
 	return cleanPath, nil
 }
 
 func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 	cleanPath, err := getFrontendPath(cfg)
-	if err != nil {
-		return fmt.Errorf("invalid frontend path (%s): %s", cfg.FrontendPath, err)
-	}
 	s.Use(gzip.Gzip(gzip.BestSpeed))
 	s.Use(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/proxy/") ||
@@ -143,6 +137,16 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 			strings.HasPrefix(c.Request.URL.Path, "/cmon/") {
 			c.Next()
 		} else {
+			if err != nil {
+				c.String(http.StatusNotFound, "Not Found")
+				c.Abort()
+				return
+			}
+			if !strings.HasPrefix(cleanPath, cfg.WebAppRoot) {
+				c.String(http.StatusForbidden, "Access Denied")
+				c.Abort()
+				return
+			}
 			serveStaticOrIndex(c, cleanPath)
 		}
 	})
