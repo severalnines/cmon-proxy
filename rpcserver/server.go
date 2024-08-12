@@ -142,6 +142,38 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 				c.Abort()
 				return
 			}
+
+			// Handling the special case for config.js
+			if c.Request.URL.Path == "/ccmgr.js" {
+				// Generate another object to filter some fields from config
+				configToReturn := gin.H{
+					"SINGLE_CONTROLLER": cfg.SingleController,
+				}
+
+				
+				jsonBytes, err := json.Marshal(configToReturn)
+				if err != nil {
+					c.String(http.StatusNotFound, "Failed to generate environment variables")
+					return
+				}
+
+				// Convert JSON bytes to string
+				jsonStr := string(jsonBytes)
+
+				// Create the JavaScript response
+				jsContent := fmt.Sprintf("window.CCMGR = %s;", jsonStr)
+				c.Header("Content-Type", "application/javascript");
+				c.String(http.StatusOK, jsContent)
+				c.Abort()
+				return
+			}
+			if c.Request.URL.Path == "/enableMcc" {
+				cfg.EnableMcc(true)
+				cfg.Save();
+				c.JSON(http.StatusOK, gin.H{"enabled": true})
+				c.Abort()
+				return
+			}
 			if !strings.HasPrefix(cleanPath, cfg.WebAppRoot) {
 				c.String(http.StatusForbidden, "Access Denied")
 				c.Abort()
@@ -322,7 +354,9 @@ func Start(cfg *config.Config) {
 	// Proxy any /v2 requests to the specified (by controller_id) cmon
 	v2 := s.Group("/v2")
 	{
-		v2.Use(proxy.RPCAuthMiddleware)
+		if (cfg.SingleController == "") {
+			 v2.Use(proxy.RPCAuthMiddleware)
+		}
 		v2.POST("/*any", forwardToCmon)
 		v2.GET("/*any", forwardToCmon)
 	}

@@ -13,17 +13,18 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	arg "github.com/alexflint/go-arg"
-	"github.com/go-ini/ini"
-	"github.com/rs/xid"
-	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/opts"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"strings"
 	"time"
+
+	arg "github.com/alexflint/go-arg"
+	"github.com/go-ini/ini"
+	"github.com/rs/xid"
+	"github.com/severalnines/cmon-proxy/config"
+	"github.com/severalnines/cmon-proxy/opts"
 )
 
 var (
@@ -68,6 +69,10 @@ type DropControllerCmd struct {
 type ListControllersCmd struct {
 }
 
+type EnableMcc struct {
+	Enable bool `arg:"-e,--enable" help:"Enable MCC"`
+}
+
 var args struct {
 	DropUser         *DropUserCmd        `arg:"subcommand:dropuser"`
 	AddUser          *AddUpdateUserCmd   `arg:"subcommand:adduser"`
@@ -77,6 +82,7 @@ var args struct {
 	Init             *InitCmd            `arg:"subcommand:init"`
 	UpdateController *AddControllerCmd   `arg:"subcommand:updatecontroller"`
 	ListControllers  *ListControllersCmd `arg:"subcommand:listcontrollers"`
+	EnableMcc  		 *EnableMcc 		 `arg:"subcommand:enableMcc"`
 }
 
 func init() {
@@ -106,6 +112,10 @@ func main() {
 	if err != nil {
 		// 2nd chance for docker
 		cfg, err = config.Load(path.Join("/data", configFile), true)
+	}
+	if err != nil {
+		// 3nd chance for dev
+		cfg, err = config.Load(path.Join("", configFile), true)
 	}
 	if err != nil {
 		fmt.Println("Config file load error:", err.Error())
@@ -366,6 +376,13 @@ func main() {
 				}
 				fmt.Println()
 			}
+		}
+	case args.EnableMcc != nil:
+		{
+			if (args.EnableMcc.Enable) {
+				fmt.Println("Enabling MCC")
+				cfg.SingleController = ""
+			} 
 		}
 	default:
 		fmt.Println("Unknown subcommand, please see", os.Args[0], "--help for documentation.")
