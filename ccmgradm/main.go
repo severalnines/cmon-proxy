@@ -60,6 +60,7 @@ type InitCmd struct {
 	Config       string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
 	Url          string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
 	CMONSshUrl   string `arg:"-s,--cmon-ssh-url" help:"cmon-ssh url (default: 127.0.0.1:9511)"`
+	EnableMcc    bool   `arg:"-s,--enable-mcc" help:"Enable multicontroller mode"`
 }
 
 type DropControllerCmd struct {
@@ -248,6 +249,10 @@ func main() {
 					UseCmonAuth: true,
 					FrontendUrl: "localhost",
 				}
+
+				if (!args.Init.EnableMcc) {
+					cfg.SingleController = cmon.Xid
+				} 
 
 				// configFile := "/etc/cmon.cnf"
 				var cmonConfig string

@@ -149,7 +149,6 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 				configToReturn := gin.H{
 					"SINGLE_CONTROLLER": cfg.SingleController,
 				}
-
 				
 				jsonBytes, err := json.Marshal(configToReturn)
 				if err != nil {
@@ -164,13 +163,6 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 				jsContent := fmt.Sprintf("window.CCMGR = %s;", jsonStr)
 				c.Header("Content-Type", "application/javascript");
 				c.String(http.StatusOK, jsContent)
-				c.Abort()
-				return
-			}
-			if c.Request.URL.Path == "/enableMcc" {
-				cfg.EnableMcc(true)
-				cfg.Save();
-				c.JSON(http.StatusOK, gin.H{"enabled": true})
 				c.Abort()
 				return
 			}
@@ -374,6 +366,7 @@ func Start(cfg *config.Config) {
 
 		p.GET("/config", proxy.RPCConfigHandler)
 		p.POST("/config", proxy.RPCConfigHandler)
+		p.POST("/enable", proxy.RPCEnableHandler)
 		auth := p.Group("/auth")
 		{
 			auth.GET("/check", proxy.RPCAuthCheckHandler)
