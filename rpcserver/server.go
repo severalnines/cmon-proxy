@@ -133,6 +133,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 	s.Use(gzip.Gzip(gzip.BestSpeed))
 	s.Use(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/proxy/") ||
+			strings.HasPrefix(c.Request.URL.Path, "/single/") ||
 			strings.HasPrefix(c.Request.URL.Path, "/v2/") ||
 			strings.HasPrefix(c.Request.URL.Path, "/cmon/") {
 			c.Next()
@@ -145,11 +146,19 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 
 			// Handling the special case for config.js
 			if c.Request.URL.Path == "/ccmgr.js" {
+				registration := false
+				if cfg.Users == nil || len(cfg.Users) < 1 {
+					registration = true
+				}
 				// Generate another object to filter some fields from config
 				configToReturn := gin.H{
-					"SINGLE_CONTROLLER": cfg.SingleController,
+					"SINGLE_CONTROLLER":         cfg.SingleController,
+					"REGISTRATION":              registration,
+					"MCC_API_URL":               "/proxy",
+					"SINGLE_CONTROLLER_API_URL": "/single/v2",
+					"MULTI_CONTROLLER_API_URL":  "/v2",
 				}
-				
+
 				jsonBytes, err := json.Marshal(configToReturn)
 				if err != nil {
 					c.String(http.StatusNotFound, "Failed to generate environment variables")
@@ -161,7 +170,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 
 				// Create the JavaScript response
 				jsContent := fmt.Sprintf("window.CCMGR = %s;", jsonStr)
-				c.Header("Content-Type", "application/javascript");
+				c.Header("Content-Type", "application/javascript")
 				c.String(http.StatusOK, jsContent)
 				c.Abort()
 				return
@@ -343,11 +352,17 @@ func Start(cfg *config.Config) {
 
 	}
 
+	single := s.Group("/single/v2")
+	{
+		single.POST("/*any", proxy.PRCProxySingleController)
+		single.GET("/*any", proxy.PRCProxySingleController)
+	}
+
 	// Proxy any /v2 requests to the specified (by controller_id) cmon
 	v2 := s.Group("/v2")
 	{
-		if (cfg.SingleController == "") {
-			 v2.Use(proxy.RPCAuthMiddleware)
+		if cfg.SingleController == "" {
+			v2.Use(proxy.RPCAuthMiddleware)
 		}
 		v2.POST("/*any", forwardToCmon)
 		v2.GET("/*any", forwardToCmon)
@@ -364,21 +379,33 @@ func Start(cfg *config.Config) {
 	p := s.Group("/proxy")
 	{
 
-		p.GET("/config", proxy.RPCConfigHandler)
-		p.POST("/config", proxy.RPCConfigHandler)
-		p.POST("/enable", proxy.RPCEnableHandler)
+		configGroup := p.Group("/config")
+		configGroup.Use(proxy.RPCAuthMiddleware)
+		{
+			configGroup.GET("", proxy.RPCConfigHandler)
+			configGroup.POST("", proxy.RPCConfigHandler)
+		}
+
 		auth := p.Group("/auth")
 		{
 			auth.GET("/check", proxy.RPCAuthCheckHandler)
 			auth.POST("/check", proxy.RPCAuthCheckHandler)
 
+			auth.POST("/register", proxy.RPCAuthRegisterUserHandler)
 			auth.POST("/login", proxy.RPCAuthLoginHandler)
+			auth.POST("/apply-controller-session", proxy.RPCAuthCookieHandler)
 
 			auth.GET("/logout", proxy.RPCAuthLogoutHandler)
 			auth.POST("/logout", proxy.RPCAuthLogoutHandler)
 
 			auth.POST("/update", proxy.RPCAuthUpdateUserHandler)
 			auth.POST("/setpassword", proxy.RPCAuthSetPasswordHandler)
+		}
+
+		mcc := p.Group("/mcc")
+		mcc.Use(proxy.RPCAuthMiddleware)
+		{
+			mcc.POST("/enable", proxy.EnableHandler)
 		}
 
 		clusters := p.Group("/clusters")

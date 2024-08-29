@@ -26,6 +26,10 @@ type Authenticate2Request struct {
 	Signature string `json:"signature"`
 }
 
+type WhoAmIRequest struct {
+	*WithOperation `json:",inline"`
+}
+
 // AuthenticateResponse the data we get from server for auth reqs
 type AuthenticateResponse struct {
 	*WithControllerID `json:",inline"`

@@ -12,10 +12,11 @@ package multi
 
 import (
 	"fmt"
-	"github.com/severalnines/cmon-proxy/cmon"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/severalnines/cmon-proxy/cmon"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -216,6 +217,110 @@ func (p *Proxy) RPCAuthMiddleware(ctx *gin.Context) {
 	ctx.Set(userKey, user)
 }
 
+func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
+	if p == nil || p.cfg == nil || len(p.cfg.Instances) < 1 || len(p.cfg.SingleController) < 1 {
+		return false
+	}
+
+	var authController *config.CmonInstance
+	for _, cmon := range p.cfg.Instances {
+		if cmon != nil && cmon.Xid == p.cfg.SingleController {
+			authController = cmon
+			break
+		}
+	}
+
+	if authController == nil {
+		return false
+	}
+
+	// create a router for this login attempt (if there is not already one)
+	r, found := p.r[req.Username]
+	if !found || r == nil {
+		var err error
+		r, err = router.New(p.cfg)
+		if err != nil {
+			fmt.Sprintf("Can't create router for authentication: %s", err.Error())
+			return false
+		}
+	}
+
+	CMONSid, err := ctx.Cookie("cmon-sid")
+	if err != nil {
+		return false
+	}
+	CMONCookie := &http.Cookie{
+		Name:  "cmon-sid",
+		Value: CMONSid,
+	}
+
+	// test authentication before writing anything in state
+	testInstance := authController.Copy()
+	testClient := cmon.NewClient(testInstance, r.Config.Timeout)
+	testClient.SetSessionCookie(CMONCookie)
+	if err := testClient.AuthenticateWithCookie(); err != nil {
+		zap.L().Info(
+			fmt.Sprintf("[AUDIT] CMON controller test authentication (user %s) has failed to controller (%s). (source %s / %s), error: %s",
+				req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent(), err.Error()))
+		return false
+	}
+
+	r.CMONSid = CMONCookie
+
+	zap.L().Info(
+		fmt.Sprintf("r.CMONSid '%s' : %s ", r.CMONSid, CMONSid))
+
+	r.Sync()
+	controller := r.Cmon(authController.Url)
+	// just in case if wrong controller was retrieved by Url
+	if controller.Xid() != p.cfg.SingleController {
+		zap.L().Info(
+			fmt.Sprintf("[AUDIT] Retrieved controller (%s) could not be identified as the single controller (%s)",
+				controller.Xid(), p.cfg.SingleController))
+		return false
+	}
+	zap.L().Info(
+		fmt.Sprintf("controller.Client.ses '%s'", controller.Client.GetSessionCookie()))
+
+	if err := controller.Client.AuthenticateWithCookie(); err != nil {
+		zap.L().Info(
+			fmt.Sprintf("[AUDIT] CMON controller authentication with cookie (user %s) has failed to controller (%s). (source %s / %s), error: %s",
+				req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent(), err.Error()))
+		return false
+	}
+
+	user := controller.Client.User()
+	loginSucceed := false
+	if user != nil {
+		loginSucceed = true
+		// construct a synthetic user from the User object we got from cmon
+		setUserForSession(ctx, &config.ProxyUser{
+			Username:     user.UserName,
+			CMONUser:     true,
+			ControllerId: controller.Xid(),
+			FirstName:    user.FirstName,
+			LastName:     user.LastName,
+			EmailAddress: user.EmailAddress,
+		})
+	}
+
+	// okay, keep this router as login succeed to some of the cmon's
+	if user := getUserForSession(ctx); loginSucceed && user != nil {
+		p.r[user.Username] = r
+
+		resp.RequestStatus = cmonapi.RequestStatusOk
+		resp.User = user
+
+		return true
+	}
+
+	zap.L().Info(
+		fmt.Sprintf("[AUDIT] CMON controller authentication (user %s) has failed to controller (%s). (source %s / %s)",
+			req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent()))
+
+	return false
+}
+
 func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
 	if p == nil || p.cfg == nil || len(p.cfg.Instances) < 1 {
 		return false
@@ -264,9 +369,9 @@ func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 	}
 
 	// configure this router to use for authentication in controllers with 'use_cmon_auth'
-	r.LocalCMON.Use = true
-	r.LocalCMON.Username = req.Username
-	r.LocalCMON.Password = req.Password
+	r.AuthCMON.Use = true
+	r.AuthCMON.Username = req.Username
+	r.AuthCMON.Password = req.Password
 
 	r.Authenticate()
 
@@ -380,6 +485,37 @@ func (p *Proxy) ldapLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 	return false
 }
 
+func (p *Proxy) RPCAuthCookieHandler(ctx *gin.Context) {
+	var req api.LoginRequest
+	var resp api.LoginResponse
+
+	resp.WithResponseData = &cmonapi.WithResponseData{
+		RequestStatus:    cmonapi.RequestStatusOk,
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+	}
+
+	if ctx.Request.Method == http.MethodPost {
+		if err := ctx.BindJSON(&req); err != nil {
+			cmonapi.CtxWriteError(ctx,
+				cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
+					fmt.Sprint("Invalid request:", err.Error())))
+			return
+		}
+	}
+
+	loginSuccess := p.authByCookie(ctx, &req, &resp)
+	if !loginSuccess {
+		resp.RequestStatus = cmonapi.RequestStatusAccessDenied
+		resp.ErrorString = "Authentication failed"
+	}
+
+	zap.L().Info(
+		fmt.Sprintf("[AUDIT] Login attempt %s '%s' (source %s / %s)",
+			resp.RequestStatus, req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
+
+	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+}
+
 // RPCLoginHandler handlers the login requests
 func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 	var req api.LoginRequest
@@ -409,7 +545,7 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 		// if ldap or local cmon login returns true if it was okay and it sets the user for session
 		if !externalLoginSucceed {
 			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
-			resp.ErrorString = fmt.Sprintf("user error: %s", err.Error())
+			resp.ErrorString = "User not found or wrong password"
 		}
 	}
 
@@ -417,7 +553,7 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 	if user != nil {
 		if err := user.ValidatePassword(req.Password); err != nil {
 			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
-			resp.ErrorString = fmt.Sprintf("password error: %s", err.Error())
+			resp.ErrorString = "User not found or wrong password"
 		} else {
 			resp.RequestStatus = cmonapi.RequestStatusOk
 			resp.User = user.Copy(false)
@@ -495,6 +631,77 @@ func (p *Proxy) RPCAuthLogoutHandler(ctx *gin.Context) {
 	var resp cmonapi.WithResponseData
 	resp.RequestStatus = cmonapi.RequestStatusOk
 
+	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+}
+
+func (p *Proxy) RPCAuthRegisterUserHandler(ctx *gin.Context) {
+	var req api.RegisterUserRequest
+	var resp api.LoginResponse
+	resp.WithResponseData = &cmonapi.WithResponseData{
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+		RequestStatus:    cmonapi.RequestStatusOk,
+		ErrorString:      "",
+	}
+
+	if p == nil || p.cfg == nil {
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Internal server error"
+		return
+	}
+
+	// We are not allowing to register more than one admin user
+	if len(p.cfg.Users) > 0 {
+		resp.RequestStatus = cmonapi.RequestStatusAccessDenied
+		resp.ErrorString = "Admin user already exists"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	if err := ctx.BindJSON(&req); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid request " + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	if req.User == nil {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid request"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	proxyUser := req.User.Copy(true)
+	proxyUser.PasswordHash = ""
+	if len(req.User.Password) < 1 {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid password"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+	if err := proxyUser.SetPassword(req.User.Password); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid password"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	if err := p.cfg.AddUser(proxyUser); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Failed to add user: " + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	if err := p.cfg.Save(); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Failed to save config " + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	resp.User = proxyUser.Copy(false)
 	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 }
 

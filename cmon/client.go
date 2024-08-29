@@ -290,6 +290,28 @@ func (client *Client) AuthenticateWithPassword() error {
 
 	return nil
 }
+func (client *Client) AuthenticateWithCookie() error {
+	rd := &api.WhoAmIRequest{
+		WithOperation: &api.WithOperation{
+			Operation: "whoAmI",
+		},
+	}
+
+	ar := &api.AuthenticateResponse{}
+	if err := client.Request(api.ModuleUsers, rd, ar, true); err != nil {
+		return err
+	}
+
+	if ar.RequestStatus != api.RequestStatusOk {
+		return api.NewErrorFromResponseData(ar.WithResponseData)
+	}
+
+	client.mtx.Lock()
+	client.user = ar.User
+	client.mtx.Unlock()
+
+	return nil
+}
 
 func loadRsaKey(filename string) (*rsa.PrivateKey, error) {
 	var key *rsa.PrivateKey
@@ -371,6 +393,18 @@ func (client *Client) ResetSession() {
 	client.user = nil
 	client.ses = nil
 	client.mtx.Unlock()
+}
+
+func (client *Client) SetSessionCookie(cookie *http.Cookie) {
+	client.mtx.Lock()
+	client.ses = cookie
+	client.mtx.Unlock()
+}
+
+func (client *Client) GetSessionCookie() *http.Cookie {
+	client.mtx.Lock()
+	defer client.mtx.Unlock()
+	return client.ses
 }
 
 func (client *Client) buildURI(module string) string {

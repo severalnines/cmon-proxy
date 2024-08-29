@@ -12,6 +12,7 @@ package router
 
 import (
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -67,18 +68,19 @@ type Ldap struct {
 	Password string
 }
 
-type LocalCMON struct {
+type AuthCMON struct {
 	Use      bool
 	Username string
 	Password string
 }
 
 type Router struct {
-	Config    *config.Config
-	Ldap      Ldap
-	LocalCMON LocalCMON
-	cmons     map[string]*Cmon
-	mtx       *sync.RWMutex
+	Config   *config.Config
+	Ldap     Ldap
+	AuthCMON AuthCMON
+	CMONSid  *http.Cookie
+	cmons    map[string]*Cmon
+	mtx      *sync.RWMutex
 }
 
 func (c *Cmon) InvalidateCache() {
@@ -146,6 +148,10 @@ func (router *Router) Sync() {
 		delete(router.cmons, addr)
 	}
 
+	CMONSid := router.CMONSid
+	// do it only once to void using expired sessions
+	router.CMONSid = nil
+
 	// and create the new ones
 	for _, addr := range router.Config.ControllerUrls() {
 		if instance := router.Config.ControllerByUrl(addr); instance != nil {
@@ -154,19 +160,26 @@ func (router *Router) Sync() {
 			if router.Ldap.Use && actualConfig.UseLdap {
 				actualConfig.Username = router.Ldap.Username
 				actualConfig.Password = router.Ldap.Password
-			} else if router.LocalCMON.Use && actualConfig.UseCmonAuth {
-				actualConfig.Username = router.LocalCMON.Username
-				actualConfig.Password = router.LocalCMON.Password
+			} else if router.AuthCMON.Use && actualConfig.UseCmonAuth {
+				actualConfig.Username = router.AuthCMON.Username
+				actualConfig.Password = router.AuthCMON.Password
 			}
 			if c, found := router.cmons[addr]; !found || c == nil {
+				client := cmon.NewClient(actualConfig, router.Config.Timeout)
+				if CMONSid != nil {
+					client.SetSessionCookie(CMONSid)
+				}
 				router.cmons[addr] = &Cmon{
-					Client:     cmon.NewClient(actualConfig, router.Config.Timeout),
+					Client:     client,
 					mtx:        &sync.Mutex{},
 					Alarms:     make(map[uint64]*api.GetAlarmsReply),
 					LastUpdate: make(map[uint64]time.Time),
 				}
 			} else if c != nil && c.Client != nil {
 				// make sure clients always have the latest configuration
+				if CMONSid != nil {
+					c.Client.SetSessionCookie(CMONSid)
+				}
 				c.Client.Instance = actualConfig
 			}
 		}
