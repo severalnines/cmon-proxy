@@ -62,25 +62,19 @@ const (
 	DefaultRouter = ":cmon-proxy-default:"
 )
 
-type Ldap struct {
-	Use      bool
-	Username string
-	Password string
-}
-
-type AuthCMON struct {
+type AuthController struct {
 	Use      bool
 	Username string
 	Password string
 }
 
 type Router struct {
-	Config   *config.Config
-	Ldap     Ldap
-	AuthCMON AuthCMON
-	CMONSid  *http.Cookie
-	cmons    map[string]*Cmon
-	mtx      *sync.RWMutex
+	Config         *config.Config
+	AuthController AuthController
+	// AuthCMON       AuthCMON
+	CMONSid *http.Cookie
+	cmons   map[string]*Cmon
+	mtx     *sync.RWMutex
 }
 
 func (c *Cmon) InvalidateCache() {
@@ -157,12 +151,9 @@ func (router *Router) Sync() {
 		if instance := router.Config.ControllerByUrl(addr); instance != nil {
 			actualConfig := instance.Copy()
 			// in case of LDAP the credentials aren't stored in config, but in runtime only
-			if router.Ldap.Use && actualConfig.UseLdap {
-				actualConfig.Username = router.Ldap.Username
-				actualConfig.Password = router.Ldap.Password
-			} else if router.AuthCMON.Use && actualConfig.UseCmonAuth {
-				actualConfig.Username = router.AuthCMON.Username
-				actualConfig.Password = router.AuthCMON.Password
+			if router.AuthController.Use && (actualConfig.UseLdap || actualConfig.UseCmonAuth) {
+				actualConfig.Username = router.AuthController.Username
+				actualConfig.Password = router.AuthController.Password
 			}
 			if c, found := router.cmons[addr]; !found || c == nil {
 				client := cmon.NewClient(actualConfig, router.Config.Timeout)
@@ -251,6 +242,21 @@ func (router *Router) Authenticate() {
 	}
 
 	wg.Wait()
+}
+
+func (router *Router) GetControllerUser() *api.User {
+	for _, addr := range router.Config.ControllerUrls() {
+		if cmon := router.Cmon(addr); cmon != nil &&
+			cmon.Client != nil &&
+			cmon.Client.Instance != nil &&
+			(cmon.Client.Instance.UseLdap || cmon.Client.Instance.UseCmonAuth) {
+			user := cmon.Client.User()
+			if user != nil {
+				return user
+			}
+		}
+	}
+	return nil
 }
 
 // Ping pings the controllers to see their statuses
