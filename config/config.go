@@ -77,7 +77,7 @@ type Config struct {
 	TlsCert          string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
 	TlsKey           string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
 	SessionTtl       int64           `yaml:"session_ttl" json:"session_ttl"`             // in nanoseconds, min 30 minutes
-	SingleController string          `yaml:"single_controller" json:"single_controller"` // in nanoseconds, min 30 minutes
+	SingleController string          `yaml:"single_controller" json:"single_controller"`
 
 	mtx sync.RWMutex
 }
