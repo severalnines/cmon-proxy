@@ -13,17 +13,18 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	arg "github.com/alexflint/go-arg"
-	"github.com/go-ini/ini"
-	"github.com/rs/xid"
-	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/opts"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"strings"
 	"time"
+
+	arg "github.com/alexflint/go-arg"
+	"github.com/go-ini/ini"
+	"github.com/rs/xid"
+	"github.com/severalnines/cmon-proxy/config"
+	"github.com/severalnines/cmon-proxy/opts"
 )
 
 var (
@@ -59,6 +60,7 @@ type InitCmd struct {
 	Config       string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
 	Url          string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
 	CMONSshUrl   string `arg:"-s,--cmon-ssh-url" help:"cmon-ssh url (default: 127.0.0.1:9511)"`
+	EnableMcc    bool   `arg:"-s,--enable-mcc" help:"Enable multicontroller mode"`
 }
 
 type DropControllerCmd struct {
@@ -66,6 +68,10 @@ type DropControllerCmd struct {
 }
 
 type ListControllersCmd struct {
+}
+
+type EnableMcc struct {
+	Enable bool `arg:"-e,--enable" help:"Enable MCC"`
 }
 
 var args struct {
@@ -77,6 +83,7 @@ var args struct {
 	Init             *InitCmd            `arg:"subcommand:init"`
 	UpdateController *AddControllerCmd   `arg:"subcommand:updatecontroller"`
 	ListControllers  *ListControllersCmd `arg:"subcommand:listcontrollers"`
+	EnableMcc  		 *EnableMcc 		 `arg:"subcommand:enableMcc"`
 }
 
 func init() {
@@ -106,6 +113,10 @@ func main() {
 	if err != nil {
 		// 2nd chance for docker
 		cfg, err = config.Load(path.Join("/data", configFile), true)
+	}
+	if err != nil {
+		// 3nd chance for dev
+		cfg, err = config.Load(path.Join("", configFile), true)
 	}
 	if err != nil {
 		fmt.Println("Config file load error:", err.Error())
@@ -239,6 +250,10 @@ func main() {
 					FrontendUrl: "localhost",
 				}
 
+				if (!args.Init.EnableMcc) {
+					cfg.SingleController = cmon.Xid
+				} 
+
 				// configFile := "/etc/cmon.cnf"
 				var cmonConfig string
 				var cfgFile *ini.File
@@ -366,6 +381,13 @@ func main() {
 				}
 				fmt.Println()
 			}
+		}
+	case args.EnableMcc != nil:
+		{
+			if (args.EnableMcc.Enable) {
+				fmt.Println("Enabling MCC")
+				cfg.SingleController = ""
+			} 
 		}
 	default:
 		fmt.Println("Unknown subcommand, please see", os.Args[0], "--help for documentation.")

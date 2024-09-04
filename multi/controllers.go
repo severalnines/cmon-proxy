@@ -11,9 +11,12 @@ package multi
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +75,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		status.Xid = c.Xid()
 		status.Status = api.Ok
 		status.Ldap = c.Client.Instance.UseLdap
+		status.UseCmonAuth = c.Client.Instance.UseCmonAuth
 		status.FrontendUrl = c.Client.Instance.FrontendUrl
 		status.LastUpdated.T = time.Now()
 
@@ -191,8 +195,8 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 	var resp api.AddControllerResponse
 
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if authenticatedUser.LdapUser {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("LDAP users cant add controllers"), http.StatusForbidden)
+		if !authenticatedUser.Admin {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("Only admin users can add controllers"), http.StatusForbidden)
 			return
 		}
 	}
@@ -221,8 +225,8 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 	var resp api.AddControllerResponse
 
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if authenticatedUser.LdapUser {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("LDAP users cant update controllers"), http.StatusForbidden)
+		if !authenticatedUser.Admin {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can update controllers"), http.StatusForbidden)
 			return
 		}
 	}
@@ -268,8 +272,8 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 	var req api.RemoveControllerRequest
 
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if authenticatedUser.LdapUser {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("LDAP users cant remove controllers"), http.StatusForbidden)
+		if !authenticatedUser.Admin {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can remove controllers"), http.StatusForbidden)
 			return
 		}
 	}
@@ -516,4 +520,59 @@ func (p *Proxy) RPCProxyMany(ctx *gin.Context, xIds []string, method string, req
 
 	multiReply, _ := json.Marshal(replies)
 	ctx.Data(http.StatusOK, "application/json", multiReply)
+}
+
+/**
+ * This is a special case where we are proxying the request to a single controller
+ * No authentication is required, requests are proxied directly to the controller
+ */
+func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
+	resp := &cmonapi.WithResponseData{
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+		RequestStatus:    cmonapi.RequestStatusOk,
+		ErrorString:      "",
+	}
+
+	if p.cfg.SingleController == "" {
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Single controller is not defined"
+		return
+	}
+	controller := p.cfg.ControllerById(p.cfg.SingleController)
+	targetURL, _ := url.Parse("https://" + controller.Url + "/v2" + ctx.Param("any"))
+	req, err := http.NewRequest(ctx.Request.Method, targetURL.String(), ctx.Request.Body)
+	if err != nil {
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Failed to create request"
+		return
+	}
+	for key, values := range ctx.Request.Header {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+
+	response, err := client.Do(req)
+	if err != nil {
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Failed to forward request" + targetURL.String() + err.Error()
+		return
+	}
+
+	defer response.Body.Close()
+	ctx.Status(response.StatusCode)
+	for key, values := range response.Header {
+		for _, value := range values {
+			ctx.Writer.Header().Add(key, value)
+		}
+	}
+	io.Copy(ctx.Writer, response.Body)
 }

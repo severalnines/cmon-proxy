@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/gorilla/websocket"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -31,6 +30,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
@@ -270,13 +271,40 @@ func (client *Client) AuthenticateWithPassword() error {
 		WithOperation: &api.WithOperation{
 			Operation: "authenticateWithPassword",
 		},
-		LdapOnly: client.Instance.UseLdap,
+		LdapOnly: client.Instance.UseLdap && !client.Instance.UseCmonAuth,
 		UserName: client.Instance.Username,
 		Password: client.Instance.Password,
 	}
 
 	ar := &api.AuthenticateResponse{}
 	if err := client.Request(api.ModuleAuth, rd, ar, true); err != nil {
+		return err
+	}
+
+	if ar.RequestStatus != api.RequestStatusOk {
+		return api.NewErrorFromResponseData(ar.WithResponseData)
+	}
+
+	if ar.User.Origin == "LDAP" && !client.Instance.UseLdap {
+		client.ResetSession()
+		return fmt.Errorf("ldap user is not allowed to login")
+	}
+
+	client.mtx.Lock()
+	client.user = ar.User
+	client.mtx.Unlock()
+
+	return nil
+}
+func (client *Client) AuthenticateWithCookie() error {
+	rd := &api.WhoAmIRequest{
+		WithOperation: &api.WithOperation{
+			Operation: "whoAmI",
+		},
+	}
+
+	ar := &api.AuthenticateResponse{}
+	if err := client.Request(api.ModuleUsers, rd, ar, true); err != nil {
 		return err
 	}
 
@@ -371,6 +399,18 @@ func (client *Client) ResetSession() {
 	client.user = nil
 	client.ses = nil
 	client.mtx.Unlock()
+}
+
+func (client *Client) SetSessionCookie(cookie *http.Cookie) {
+	client.mtx.Lock()
+	client.ses = cookie
+	client.mtx.Unlock()
+}
+
+func (client *Client) GetSessionCookie() *http.Cookie {
+	client.mtx.Lock()
+	defer client.mtx.Unlock()
+	return client.ses
 }
 
 func (client *Client) buildURI(module string) string {

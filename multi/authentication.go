@@ -12,10 +12,11 @@ package multi
 
 import (
 	"fmt"
-	"github.com/severalnines/cmon-proxy/cmon"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/severalnines/cmon-proxy/cmon"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -216,14 +217,14 @@ func (p *Proxy) RPCAuthMiddleware(ctx *gin.Context) {
 	ctx.Set(userKey, user)
 }
 
-func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
-	if p == nil || p.cfg == nil || len(p.cfg.Instances) < 1 {
+func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
+	if p == nil || p.cfg == nil || len(p.cfg.Instances) < 1 || len(p.cfg.SingleController) < 1 {
 		return false
 	}
 
 	var authController *config.CmonInstance
 	for _, cmon := range p.cfg.Instances {
-		if cmon != nil && cmon.UseCmonAuth {
+		if cmon != nil && cmon.Xid == p.cfg.SingleController {
 			authController = cmon
 			break
 		}
@@ -239,45 +240,64 @@ func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 		var err error
 		r, err = router.New(p.cfg)
 		if err != nil {
-			fmt.Sprintf("Can't create router for local login: %s", err.Error())
+			fmt.Sprintf("Can't create router for authentication: %s", err.Error())
 			return false
 		}
 	}
 
-	zap.L().Info(
-		fmt.Sprintf("[AUDIT] CMON controller authentication attempt '%s' (source %s / %s)",
-			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
-
-	loginSucceed := false
+	CMONSid, err := ctx.Cookie("cmon-sid")
+	if err != nil {
+		return false
+	}
+	CMONCookie := &http.Cookie{
+		Name:  "cmon-sid",
+		Value: CMONSid,
+	}
 
 	// test authentication before writing anything in state
 	testInstance := authController.Copy()
-	testInstance.Username = req.Username
-	testInstance.Password = req.Password
 	testClient := cmon.NewClient(testInstance, r.Config.Timeout)
-	err := testClient.Authenticate()
-	if err != nil {
+	testClient.SetSessionCookie(CMONCookie)
+	if err := testClient.AuthenticateWithCookie(); err != nil {
 		zap.L().Info(
-			fmt.Sprintf("[AUDIT] CMON controller authentication (user %s) has failed to controller (%s). (source %s / %s), error: %s",
+			fmt.Sprintf("[AUDIT] CMON controller test authentication (user %s) has failed to controller (%s). (source %s / %s), error: %s",
 				req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent(), err.Error()))
 		return false
 	}
 
-	// configure this router to use for authentication in controllers with 'use_cmon_auth'
-	r.LocalCMON.Use = true
-	r.LocalCMON.Username = req.Username
-	r.LocalCMON.Password = req.Password
+	r.CMONSid = CMONCookie
 
-	r.Authenticate()
+	zap.L().Info(
+		fmt.Sprintf("r.CMONSid '%s' : %s ", r.CMONSid, CMONSid))
 
+	r.Sync()
 	controller := r.Cmon(authController.Url)
+	// just in case if wrong controller was retrieved by Url
+	if controller.Xid() != p.cfg.SingleController {
+		zap.L().Info(
+			fmt.Sprintf("[AUDIT] Retrieved controller (%s) could not be identified as the single controller (%s)",
+				controller.Xid(), p.cfg.SingleController))
+		return false
+	}
+	zap.L().Info(
+		fmt.Sprintf("controller.Client.ses '%s'", controller.Client.GetSessionCookie()))
+
+	if err := controller.Client.AuthenticateWithCookie(); err != nil {
+		zap.L().Info(
+			fmt.Sprintf("[AUDIT] CMON controller authentication with cookie (user %s) has failed to controller (%s). (source %s / %s), error: %s",
+				req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent(), err.Error()))
+		return false
+	}
+
 	user := controller.Client.User()
+	loginSucceed := false
 	if user != nil {
 		loginSucceed = true
 		// construct a synthetic user from the User object we got from cmon
 		setUserForSession(ctx, &config.ProxyUser{
 			Username:     user.UserName,
-			CMONUser:     true,
+			LdapUser:     user.Origin == "LDAP",
+			CMONUser:     user.Origin == "CmonDb",
 			ControllerId: controller.Xid(),
 			FirstName:    user.FirstName,
 			LastName:     user.LastName,
@@ -287,7 +307,7 @@ func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 
 	// okay, keep this router as login succeed to some of the cmon's
 	if user := getUserForSession(ctx); loginSucceed && user != nil {
-		p.r[req.Username] = r
+		p.r[user.Username] = r
 
 		resp.RequestStatus = cmonapi.RequestStatusOk
 		resp.User = user
@@ -302,71 +322,76 @@ func (p *Proxy) cmonLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 	return false
 }
 
-// Attempts to do LDAP login when there are any controllers
-// configured to use LDAP authentication
+// Attempts to do login in controllers when there are any controllers
+// configured to use LDAP authentication or CMON authentication
 // (call this only after we checked that there is no such local user)
-func (p *Proxy) ldapLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
+func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
 	// missing/incomplete configuration
 	if p == nil || p.cfg == nil || len(p.cfg.Instances) < 1 {
 		return false
 	}
-	// check if we have any cmon configured to use LDAP
-	useLdap := false
+	// check if we have any cmon configured to use LDAP or CMON authentication
+	useController := false
 	for _, cmon := range p.cfg.Instances {
-		if cmon != nil && cmon.UseLdap {
-			useLdap = true
+		if cmon != nil && (cmon.UseLdap || cmon.UseCmonAuth) {
+			useController = true
 			break
 		}
 	}
-	if !useLdap {
+	if !useController {
 		return false
 	}
-	// create a router for this login attempt (if there is not already one)
-	r, found := p.r[req.Username]
-	if !found || r == nil {
-		var err error
-		r, err = router.New(p.cfg)
-		if err != nil {
-			fmt.Sprintf("Can't create router for LDAP login: %s", err.Error())
-			return false
-		}
+
+	r, err := router.New(p.cfg)
+	if err != nil {
+		fmt.Sprintf("Can't create router for controller login: %s", err.Error())
+		return false
 	}
 
-	// configure this router to use the specified LDAP credentials for LDAP enabled cmon instances
-	r.Ldap.Use = true
-	r.Ldap.Username = req.Username
-	r.Ldap.Password = req.Password
+	// configure this router to use the specified controller credentials for cmon auth or ldap enabled cmon instances
+	r.AuthController.Use = true
+	r.AuthController.Username = req.Username
+	r.AuthController.Password = req.Password
 
 	zap.L().Info(
-		fmt.Sprintf("[AUDIT] LDAP authentication attempt '%s' (source %s / %s)",
+		fmt.Sprintf("[AUDIT] Controller authentication attempt '%s' (source %s / %s)",
 			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
 
 	r.Authenticate() // attempts to authenticate
+	user := r.GetControllerUser()
 
-	// check if any LDAP enabled cmon's has succeed
-	ldapSucceed := false
-	for _, addr := range r.Config.ControllerUrls() {
-		if cmon := r.Cmon(addr); cmon != nil && cmon.Client != nil && cmon.Client.Instance != nil && cmon.Client.Instance.UseLdap {
-			user := cmon.Client.User()
-			if user != nil {
-				ldapSucceed = true
-				// construct a syntetic LDAP user from the User object we got from cmon
-				setUserForSession(ctx, &config.ProxyUser{
-					Username:     user.UserName,
-					LdapUser:     true,
-					FirstName:    user.FirstName,
-					LastName:     user.LastName,
-					EmailAddress: user.EmailAddress,
-				})
+	if user != nil {
+		existsRouter, found := p.r[req.Username]
+		if found && existsRouter != nil {
+			existsRouter.AuthController = router.AuthController{ // Create a new object without preserving reference
+				Use:      r.AuthController.Use,
+				Username: r.AuthController.Username,
+				Password: r.AuthController.Password,
 			}
+			existsRouter.Authenticate()
+			user = existsRouter.GetControllerUser()
+			r = existsRouter
 		}
 	}
 
+	authSucceed := user != nil
+	if authSucceed {
+		setUserForSession(ctx, &config.ProxyUser{
+			Username:     user.UserName,
+			LdapUser:     user.Origin == "LDAP",
+			CMONUser:     user.Origin == "CmonDb",
+			FirstName:    user.FirstName,
+			LastName:     user.LastName,
+			EmailAddress: user.EmailAddress,
+			Admin:        false,
+		})
+	}
+
 	// okay, keep this router as login succeed to some of the cmon's
-	if user := getUserForSession(ctx); ldapSucceed && user != nil {
+	if user := getUserForSession(ctx); authSucceed && user != nil {
 		p.r[req.Username] = r
 
-		// LDAP auth succeed, wohoo, return the syntetic proxy user
+		// Controller auth succeed, wohoo, return the syntetic proxy user
 		resp.RequestStatus = cmonapi.RequestStatusOk
 		resp.User = user
 
@@ -374,10 +399,41 @@ func (p *Proxy) ldapLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.Log
 	}
 
 	zap.L().Info(
-		fmt.Sprintf("[AUDIT] LDAP authentication (user %s) has failed to all cmon instances. (source %s / %s)",
+		fmt.Sprintf("[AUDIT] Controllers authentication (user %s) has failed to all cmon instances. (source %s / %s)",
 			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
 
 	return false
+}
+
+func (p *Proxy) RPCAuthCookieHandler(ctx *gin.Context) {
+	var req api.LoginRequest
+	var resp api.LoginResponse
+
+	resp.WithResponseData = &cmonapi.WithResponseData{
+		RequestStatus:    cmonapi.RequestStatusOk,
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+	}
+
+	if ctx.Request.Method == http.MethodPost {
+		if err := ctx.BindJSON(&req); err != nil {
+			cmonapi.CtxWriteError(ctx,
+				cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
+					fmt.Sprint("Invalid request:", err.Error())))
+			return
+		}
+	}
+
+	loginSuccess := p.authByCookie(ctx, &req, &resp)
+	if !loginSuccess {
+		resp.RequestStatus = cmonapi.RequestStatusAccessDenied
+		resp.ErrorString = "Authentication failed"
+	}
+
+	zap.L().Info(
+		fmt.Sprintf("[AUDIT] Login attempt %s '%s' (source %s / %s)",
+			resp.RequestStatus, req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
+
+	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 }
 
 // RPCLoginHandler handlers the login requests
@@ -401,26 +457,23 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 
 	user, err := p.r[router.DefaultRouter].Config.GetUser(req.Username)
 	if err != nil {
-		var externalLoginSucceed bool
-		externalLoginSucceed = p.ldapLogin(ctx, &req, &resp)
-		if !externalLoginSucceed {
-			externalLoginSucceed = p.cmonLogin(ctx, &req, &resp)
-		}
-		// if ldap or local cmon login returns true if it was okay and it sets the user for session
+		externalLoginSucceed := p.controllerLogin(ctx, &req, &resp)
 		if !externalLoginSucceed {
 			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
-			resp.ErrorString = fmt.Sprintf("user error: %s", err.Error())
+			resp.ErrorString = "User not found or wrong password"
 		}
 	}
 
-	// user might be nil and we may succeed in case of LDAP
+	// user might be nil and we may succeed in case of controller auth
 	if user != nil {
 		if err := user.ValidatePassword(req.Password); err != nil {
 			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
-			resp.ErrorString = fmt.Sprintf("password error: %s", err.Error())
+			resp.ErrorString = "User not found or wrong password"
 		} else {
 			resp.RequestStatus = cmonapi.RequestStatusOk
-			resp.User = user.Copy(false)
+			user = user.Copy(false)
+			user.Admin = true
+			resp.User = user
 
 			setUserForSession(ctx, user)
 		}
@@ -495,6 +548,77 @@ func (p *Proxy) RPCAuthLogoutHandler(ctx *gin.Context) {
 	var resp cmonapi.WithResponseData
 	resp.RequestStatus = cmonapi.RequestStatusOk
 
+	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+}
+
+func (p *Proxy) RPCAuthRegisterUserHandler(ctx *gin.Context) {
+	var req api.RegisterUserRequest
+	var resp api.LoginResponse
+	resp.WithResponseData = &cmonapi.WithResponseData{
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+		RequestStatus:    cmonapi.RequestStatusOk,
+		ErrorString:      "",
+	}
+
+	if p == nil || p.cfg == nil {
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Internal server error"
+		return
+	}
+
+	// We are not allowing to register more than one admin user
+	if len(p.cfg.Users) > 0 {
+		resp.RequestStatus = cmonapi.RequestStatusAccessDenied
+		resp.ErrorString = "Admin user already exists"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	if err := ctx.BindJSON(&req); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid request " + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	if req.User == nil {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid request"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	proxyUser := req.User.Copy(true)
+	proxyUser.PasswordHash = ""
+	if len(req.User.Password) < 1 {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid password"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+	if err := proxyUser.SetPassword(req.User.Password); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid password"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	if err := p.cfg.AddUser(proxyUser); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Failed to add user: " + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	if err := p.cfg.Save(); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Failed to save config " + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	resp.User = proxyUser.Copy(false)
 	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 }
 

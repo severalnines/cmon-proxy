@@ -16,7 +16,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/severalnines/cmon-proxy/env"
 	"io/ioutil"
 	"math/big"
 	"os"
@@ -25,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/severalnines/cmon-proxy/env"
 
 	"github.com/rs/xid"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -44,6 +45,7 @@ type ProxyUser struct {
 	LastName     string `yaml:"lastname,omitempty" json:"lastname,omitempty"`
 	LdapUser     bool   `yaml:"ldap,omitempty" json:"ldap,omitempty"`
 	CMONUser     bool   `yaml:"cmon,omitempty" json:"cmon,omitempty"`
+	Admin        bool   `yaml:"admin,omitempty" json:"admin,omitempty"`
 	ControllerId string `yaml:"xid,omitempty" json:"xid,omitempty"`
 }
 
@@ -63,33 +65,35 @@ type CmonInstance struct {
 
 // Config holds the configuration of cmon-proxy, it is pretty minimal now
 type Config struct {
-	Filename        string
-	WebAppRoot      string
-	FetchJobsHours  int             `yaml:"fetch_jobs_hours,omitempty" json:"fetch_jobs_hours,omitempty"`
-	FetchBackupDays int             `yaml:"fetch_backups_days,omitempty" json:"fetch_backups_days,omitempty"`
-	Instances       []*CmonInstance `yaml:"instances,omitempty"`
-	Timeout         int             `yaml:"timeout,omitempty"`
-	Logfile         string          `yaml:"logfile,omitempty"`
-	Users           []*ProxyUser    `yaml:"users,omitempty"`
-	FrontendPath    string          `yaml:"frontend_path,omitempty" json:"frontend_path,omitempty"`
-	Port            int             `yaml:"port" json:"port"`
-	TlsCert         string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
-	TlsKey          string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
-	SessionTtl      int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
+	Filename         string
+	WebAppRoot       string
+	FetchJobsHours   int             `yaml:"fetch_jobs_hours,omitempty" json:"fetch_jobs_hours,omitempty"`
+	FetchBackupDays  int             `yaml:"fetch_backups_days,omitempty" json:"fetch_backups_days,omitempty"`
+	Instances        []*CmonInstance `yaml:"instances,omitempty"`
+	Timeout          int             `yaml:"timeout,omitempty"`
+	Logfile          string          `yaml:"logfile,omitempty"`
+	Users            []*ProxyUser    `yaml:"users,omitempty"`
+	FrontendPath     string          `yaml:"frontend_path,omitempty" json:"frontend_path,omitempty"`
+	Port             int             `yaml:"port" json:"port"`
+	TlsCert          string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
+	TlsKey           string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
+	SessionTtl       int64           `yaml:"session_ttl" json:"session_ttl"`             // in nanoseconds, min 30 minutes
+	SingleController string          `yaml:"single_controller" json:"single_controller"`
 
 	mtx sync.RWMutex
 }
 
 var (
 	defaults = &Config{
-		FrontendPath:    "/app",
-		Logfile:         env.DefaultLogfilePath,
-		Port:            19051,
-		SessionTtl:      int64(30 * time.Minute),
-		Instances:       make([]*CmonInstance, 0),
-		FetchBackupDays: 7,
-		FetchJobsHours:  12,
-		Timeout:         30,
+		FrontendPath:     "/app",
+		Logfile:          env.DefaultLogfilePath,
+		Port:             19051,
+		SessionTtl:       int64(30 * time.Minute),
+		Instances:        make([]*CmonInstance, 0),
+		FetchBackupDays:  7,
+		FetchJobsHours:   12,
+		Timeout:          30,
+		SingleController: "",
 	}
 )
 
@@ -256,21 +260,6 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	if len(loadFromCli) < 1 || !loadFromCli[0] {
 		zap.L().Info(fmt.Sprintf("Loaded configuration (%d cmon instances)", len(config.Instances)))
 		zap.L().Info(fmt.Sprintf("Using logfile %s", config.Logfile))
-
-		if len(config.Users) < 1 {
-			randBytes := make([]byte, 6)
-			rand.Read(randBytes)
-			user := &ProxyUser{Username: "admin"}
-			user.SetPassword(hex.EncodeToString(randBytes))
-			if err := config.AddUser(user); err != nil {
-				zap.L().Fatal(fmt.Sprintf("Couldn't create default admin user: %s", err.Error()))
-			} else {
-				zap.L().Info(fmt.Sprintf("Default 'admin' user has been created with password '%s'", hex.EncodeToString(randBytes)))
-			}
-			defer config.Save()
-		} else {
-			zap.L().Info(fmt.Sprintf("Found %d users in configuration", len(config.Users)))
-		}
 	}
 
 	return config, err
@@ -498,6 +487,14 @@ func (cfg *Config) RemoveUser(username string) error {
 	return nil
 }
 
+func (cfg *Config) EnableMcc(enable bool) error {
+	cfg.mtx.Lock()
+	defer cfg.mtx.Unlock()
+
+	cfg.SingleController = ""
+	return nil
+}
+
 func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 	c := &ProxyUser{
 		Username:     u.Username,
@@ -506,6 +503,7 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 		LastName:     u.LastName,
 		LdapUser:     u.LdapUser,
 		CMONUser:     u.CMONUser,
+		Admin:        u.Admin,
 	}
 	// by default we don't want to return password hashes to UI
 	if withCredentials {

@@ -12,6 +12,7 @@ package router
 
 import (
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -61,24 +62,19 @@ const (
 	DefaultRouter = ":cmon-proxy-default:"
 )
 
-type Ldap struct {
-	Use      bool
-	Username string
-	Password string
-}
-
-type LocalCMON struct {
+type AuthController struct {
 	Use      bool
 	Username string
 	Password string
 }
 
 type Router struct {
-	Config    *config.Config
-	Ldap      Ldap
-	LocalCMON LocalCMON
-	cmons     map[string]*Cmon
-	mtx       *sync.RWMutex
+	Config         *config.Config
+	AuthController AuthController
+	// AuthCMON       AuthCMON
+	CMONSid *http.Cookie
+	cmons   map[string]*Cmon
+	mtx     *sync.RWMutex
 }
 
 func (c *Cmon) InvalidateCache() {
@@ -146,27 +142,35 @@ func (router *Router) Sync() {
 		delete(router.cmons, addr)
 	}
 
+	CMONSid := router.CMONSid
+	// do it only once to void using expired sessions
+	router.CMONSid = nil
+
 	// and create the new ones
 	for _, addr := range router.Config.ControllerUrls() {
 		if instance := router.Config.ControllerByUrl(addr); instance != nil {
 			actualConfig := instance.Copy()
 			// in case of LDAP the credentials aren't stored in config, but in runtime only
-			if router.Ldap.Use && actualConfig.UseLdap {
-				actualConfig.Username = router.Ldap.Username
-				actualConfig.Password = router.Ldap.Password
-			} else if router.LocalCMON.Use && actualConfig.UseCmonAuth {
-				actualConfig.Username = router.LocalCMON.Username
-				actualConfig.Password = router.LocalCMON.Password
+			if router.AuthController.Use && (actualConfig.UseLdap || actualConfig.UseCmonAuth) {
+				actualConfig.Username = router.AuthController.Username
+				actualConfig.Password = router.AuthController.Password
 			}
 			if c, found := router.cmons[addr]; !found || c == nil {
+				client := cmon.NewClient(actualConfig, router.Config.Timeout)
+				if CMONSid != nil {
+					client.SetSessionCookie(CMONSid)
+				}
 				router.cmons[addr] = &Cmon{
-					Client:     cmon.NewClient(actualConfig, router.Config.Timeout),
+					Client:     client,
 					mtx:        &sync.Mutex{},
 					Alarms:     make(map[uint64]*api.GetAlarmsReply),
 					LastUpdate: make(map[uint64]time.Time),
 				}
 			} else if c != nil && c.Client != nil {
 				// make sure clients always have the latest configuration
+				if CMONSid != nil {
+					c.Client.SetSessionCookie(CMONSid)
+				}
 				c.Client.Instance = actualConfig
 			}
 		}
@@ -238,6 +242,21 @@ func (router *Router) Authenticate() {
 	}
 
 	wg.Wait()
+}
+
+func (router *Router) GetControllerUser() *api.User {
+	for _, addr := range router.Config.ControllerUrls() {
+		if cmon := router.Cmon(addr); cmon != nil &&
+			cmon.Client != nil &&
+			cmon.Client.Instance != nil &&
+			(cmon.Client.Instance.UseLdap || cmon.Client.Instance.UseCmonAuth) {
+			user := cmon.Client.User()
+			if user != nil {
+				return user
+			}
+		}
+	}
+	return nil
 }
 
 // Ping pings the controllers to see their statuses

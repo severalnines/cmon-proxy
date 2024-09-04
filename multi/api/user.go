@@ -30,6 +30,13 @@ type LoginResponse struct {
 type UpdateUserRequest struct {
 	User *config.ProxyUser `json:"user,omitempty"`
 }
+type UserWithPassword struct {
+	*config.ProxyUser `json:",inline"`
+	Password          string `json:"password,omitempty"`
+}
+type RegisterUserRequest struct {
+	User *UserWithPassword `json:"user,omitempty"`
+}
 
 type SetPasswordRequest struct {
 	OldPassword string `json:"old_password"`
