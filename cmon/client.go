@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/gorilla/websocket"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -31,6 +30,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
@@ -270,7 +271,7 @@ func (client *Client) AuthenticateWithPassword() error {
 		WithOperation: &api.WithOperation{
 			Operation: "authenticateWithPassword",
 		},
-		LdapOnly: client.Instance.UseLdap,
+		LdapOnly: client.Instance.UseLdap && !client.Instance.UseCmonAuth,
 		UserName: client.Instance.Username,
 		Password: client.Instance.Password,
 	}
@@ -282,6 +283,11 @@ func (client *Client) AuthenticateWithPassword() error {
 
 	if ar.RequestStatus != api.RequestStatusOk {
 		return api.NewErrorFromResponseData(ar.WithResponseData)
+	}
+
+	if ar.User.Origin == "LDAP" && !client.Instance.UseLdap {
+		client.ResetSession()
+		return fmt.Errorf("ldap user is not allowed to login")
 	}
 
 	client.mtx.Lock()

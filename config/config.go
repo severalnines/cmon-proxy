@@ -45,6 +45,7 @@ type ProxyUser struct {
 	LastName     string `yaml:"lastname,omitempty" json:"lastname,omitempty"`
 	LdapUser     bool   `yaml:"ldap,omitempty" json:"ldap,omitempty"`
 	CMONUser     bool   `yaml:"cmon,omitempty" json:"cmon,omitempty"`
+	Admin        bool   `yaml:"admin,omitempty" json:"admin,omitempty"`
 	ControllerId string `yaml:"xid,omitempty" json:"xid,omitempty"`
 }
 
@@ -502,6 +503,7 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 		LastName:     u.LastName,
 		LdapUser:     u.LdapUser,
 		CMONUser:     u.CMONUser,
+		Admin:        u.Admin,
 	}
 	// by default we don't want to return password hashes to UI
 	if withCredentials {

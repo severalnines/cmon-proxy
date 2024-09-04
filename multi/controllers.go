@@ -75,6 +75,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		status.Xid = c.Xid()
 		status.Status = api.Ok
 		status.Ldap = c.Client.Instance.UseLdap
+		status.UseCmonAuth = c.Client.Instance.UseCmonAuth
 		status.FrontendUrl = c.Client.Instance.FrontendUrl
 		status.LastUpdated.T = time.Now()
 
@@ -194,8 +195,8 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 	var resp api.AddControllerResponse
 
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if authenticatedUser.LdapUser {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("LDAP users cant add controllers"), http.StatusForbidden)
+		if !authenticatedUser.Admin {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("Only admin users can add controllers"), http.StatusForbidden)
 			return
 		}
 	}
@@ -224,8 +225,8 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 	var resp api.AddControllerResponse
 
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if authenticatedUser.LdapUser {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("LDAP users cant update controllers"), http.StatusForbidden)
+		if !authenticatedUser.Admin {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can update controllers"), http.StatusForbidden)
 			return
 		}
 	}
@@ -271,8 +272,8 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 	var req api.RemoveControllerRequest
 
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if authenticatedUser.LdapUser {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("LDAP users cant remove controllers"), http.StatusForbidden)
+		if !authenticatedUser.Admin {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can remove controllers"), http.StatusForbidden)
 			return
 		}
 	}
