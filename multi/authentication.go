@@ -247,6 +247,8 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 
 	CMONSid, err := ctx.Cookie("cmon-sid")
 	if err != nil {
+		zap.L().Info(
+			fmt.Sprintf("[AUDIT] Cookes are not enabled or cmon-sid cookie is missing"))
 		return false
 	}
 	CMONCookie := &http.Cookie{

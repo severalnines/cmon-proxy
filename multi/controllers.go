@@ -11,6 +11,7 @@ package multi
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -537,15 +538,28 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Single controller is not defined"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
 	controller := p.cfg.ControllerById(p.cfg.SingleController)
 	targetURL, _ := url.Parse("https://" + controller.Url + "/v2" + ctx.Param("any"))
-	req, err := http.NewRequest(ctx.Request.Method, targetURL.String(), ctx.Request.Body)
+
+	bodyBytes, err := io.ReadAll(ctx.Request.Body)
+	if err != nil {
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Failed to read request body"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+	ctx.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	req, err := http.NewRequest(ctx.Request.Method, targetURL.String(), bytes.NewReader(bodyBytes))
 	if err != nil {
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Failed to create request"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
 	for key, values := range ctx.Request.Header {
@@ -564,6 +578,7 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Failed to forward request" + targetURL.String() + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
 
@@ -571,6 +586,9 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 	ctx.Status(response.StatusCode)
 	for key, values := range response.Header {
 		for _, value := range values {
+			if key == "Set-Cookie" {
+				value = value + "; Path=/"
+			}
 			ctx.Writer.Header().Add(key, value)
 		}
 	}
