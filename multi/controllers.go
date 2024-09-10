@@ -535,7 +535,6 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 	}
 
 	if p.cfg.SingleController == "" {
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Single controller is not defined"
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
@@ -546,7 +545,6 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 
 	bodyBytes, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Failed to read request body"
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
@@ -556,7 +554,6 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 
 	req, err := http.NewRequest(ctx.Request.Method, targetURL.String(), bytes.NewReader(bodyBytes))
 	if err != nil {
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Failed to create request"
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
@@ -575,7 +572,6 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 
 	response, err := client.Do(req)
 	if err != nil {
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Failed to forward request" + targetURL.String() + err.Error()
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
