@@ -543,16 +543,19 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 	controller := p.cfg.ControllerById(p.cfg.SingleController)
 	targetURL, _ := url.Parse("https://" + controller.Url + "/v2" + ctx.Param("any"))
 
-	bodyBytes, err := io.ReadAll(ctx.Request.Body)
-	if err != nil {
-		resp.RequestStatus = cmonapi.RequestStatusUnknownError
-		resp.ErrorString = "Failed to read request body"
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
-		return
+	var body *bytes.Reader
+	if ctx.Request.Body != nil {
+		bodyBytes, err := io.ReadAll(ctx.Request.Body)
+		if err != nil {
+			resp.RequestStatus = cmonapi.RequestStatusUnknownError
+			resp.ErrorString = "Failed to read request body"
+			ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+			return
+		}
+		body = bytes.NewReader(bodyBytes)
 	}
-	ctx.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
-	req, err := http.NewRequest(ctx.Request.Method, targetURL.String(), bytes.NewReader(bodyBytes))
+	req, err := http.NewRequest(ctx.Request.Method, targetURL.String(), body)
 	if err != nil {
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Failed to create request"
@@ -578,15 +581,28 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 		return
 	}
 
-	defer response.Body.Close()
-	ctx.Status(response.StatusCode)
+	defer func(b io.ReadCloser) {
+		if b == nil {
+			return
+		}
+		_ = b.Close()
+	}(response.Body)
+	cookies := response.Cookies()
+	for _, cookie := range cookies {
+		cookie.Path = "/"
+		http.SetCookie(ctx.Writer, cookie)
+	}
 	for key, values := range response.Header {
+		if strings.EqualFold(key, "Set-Cookie") {
+			continue
+		}
 		for _, value := range values {
-			if key == "Set-Cookie" {
-				value = value + "; Path=/"
-			}
 			ctx.Writer.Header().Add(key, value)
 		}
 	}
-	io.Copy(ctx.Writer, response.Body)
+
+	ctx.Status(response.StatusCode)
+	if response.Body != nil {
+		_, _ = io.Copy(ctx.Writer, response.Body)
+	}
 }

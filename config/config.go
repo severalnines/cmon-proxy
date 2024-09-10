@@ -25,15 +25,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/severalnines/cmon-proxy/env"
-
 	"github.com/rs/xid"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
+	"github.com/severalnines/cmon-proxy/env"
 	"github.com/severalnines/cmon-proxy/logger"
 	"github.com/severalnines/cmon-proxy/opts"
-	"golang.org/x/crypto/pbkdf2"
-
 	"go.uber.org/zap"
+	"golang.org/x/crypto/pbkdf2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -77,7 +75,7 @@ type Config struct {
 	Port             int             `yaml:"port" json:"port"`
 	TlsCert          string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
 	TlsKey           string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
-	SessionTtl       int64           `yaml:"session_ttl" json:"session_ttl"`             // in nanoseconds, min 30 minutes
+	SessionTtl       int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
 	SingleController string          `yaml:"single_controller" json:"single_controller"`
 
 	mtx sync.RWMutex
