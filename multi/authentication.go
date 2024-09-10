@@ -269,9 +269,6 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 
 	r.CMONSid = CMONCookie
 
-	zap.L().Info(
-		fmt.Sprintf("r.CMONSid '%s' : %s ", r.CMONSid, CMONSid))
-
 	r.Sync()
 	controller := r.Cmon(authController.Url)
 	// just in case if wrong controller was retrieved by Url
