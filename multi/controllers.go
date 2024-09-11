@@ -11,6 +11,7 @@ package multi
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -534,18 +535,31 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 	}
 
 	if p.cfg.SingleController == "" {
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Single controller is not defined"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
 	controller := p.cfg.ControllerById(p.cfg.SingleController)
 	targetURL, _ := url.Parse("https://" + controller.Url + "/v2" + ctx.Param("any"))
-	req, err := http.NewRequest(ctx.Request.Method, targetURL.String(), ctx.Request.Body)
+
+	var body *bytes.Reader
+	if ctx.Request.Body != nil {
+		bodyBytes, err := io.ReadAll(ctx.Request.Body)
+		if err != nil {
+			resp.RequestStatus = cmonapi.RequestStatusUnknownError
+			resp.ErrorString = "Failed to read request body"
+			ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+			return
+		}
+		body = bytes.NewReader(bodyBytes)
+	}
+
+	req, err := http.NewRequest(ctx.Request.Method, targetURL.String(), body)
 	if err != nil {
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Failed to create request"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
 	for key, values := range ctx.Request.Header {
@@ -561,18 +575,34 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 
 	response, err := client.Do(req)
 	if err != nil {
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		resp.RequestStatus = cmonapi.RequestStatusUnknownError
 		resp.ErrorString = "Failed to forward request" + targetURL.String() + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
 
-	defer response.Body.Close()
-	ctx.Status(response.StatusCode)
+	defer func(b io.ReadCloser) {
+		if b == nil {
+			return
+		}
+		_ = b.Close()
+	}(response.Body)
+	cookies := response.Cookies()
+	for _, cookie := range cookies {
+		cookie.Path = "/"
+		http.SetCookie(ctx.Writer, cookie)
+	}
 	for key, values := range response.Header {
+		if strings.EqualFold(key, "Set-Cookie") {
+			continue
+		}
 		for _, value := range values {
 			ctx.Writer.Header().Add(key, value)
 		}
 	}
-	io.Copy(ctx.Writer, response.Body)
+
+	ctx.Status(response.StatusCode)
+	if response.Body != nil {
+		_, _ = io.Copy(ctx.Writer, response.Body)
+	}
 }

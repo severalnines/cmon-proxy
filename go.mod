@@ -12,7 +12,6 @@ require (
 	github.com/go-ini/ini v1.67.0
 	github.com/gorilla/websocket v1.5.1
 	github.com/jessevdk/go-flags v1.5.0
-	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/rs/xid v1.4.0
 	github.com/stretchr/testify v1.9.0

@@ -44,7 +44,8 @@ func New(cfg *config.Config) (*Proxy, error) {
 
 	retval := &Proxy{
 		cfg: cfg,
-		r:   make(map[string]*router.Router)}
+		r:   make(map[string]*router.Router),
+	}
 
 	retval.r[router.DefaultRouter] = r
 
@@ -63,8 +64,8 @@ func (p *Proxy) Authenticate() {
 
 // refreshes all controllers (after add/remove)
 func (p *Proxy) Refresh() {
-	for _, router := range p.r {
-		theRouter := router
+	for _, r := range p.r {
+		theRouter := r
 		go func() {
 			// this manages the add/removals as well
 			theRouter.Authenticate()
@@ -77,13 +78,13 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 	log := zap.L()
 
 	if isLDAP, ldapUsername := isLDAPSession(ctx); isLDAP {
-		if router, found := p.r[ldapUsername]; found {
-			return router
+		if r, found := p.r[ldapUsername]; found {
+			return r
 		}
 	}
 	if isCMON, cmonUsername := isCMONSession(ctx); isCMON {
-		if router, found := p.r[cmonUsername]; found {
-			return router
+		if r, found := p.r[cmonUsername]; found {
+			return r
 		}
 	}
 	if defaultRouter, found := p.r[router.DefaultRouter]; found {
@@ -99,9 +100,9 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 func (p *Proxy) UpdateConfig(cfg *config.Config) {
 	mtx.Lock()
 	p.cfg = cfg
-	for _, router := range p.r {
-		if router != nil {
-			router.Config = cfg
+	for _, r := range p.r {
+		if r != nil {
+			r.Config = cfg
 		}
 	}
 	mtx.Unlock()

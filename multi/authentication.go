@@ -16,17 +16,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/severalnines/cmon-proxy/cmon"
-
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/xid"
+	"github.com/severalnines/cmon-proxy/cmon"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/multi/api"
 	"github.com/severalnines/cmon-proxy/multi/router"
 	"github.com/severalnines/cmon-proxy/rpcserver/session"
-
 	"go.uber.org/zap"
 )
 
@@ -109,9 +107,9 @@ func refreshSession(sessionId string) {
 	sesssMtx.Lock()
 	defer sesssMtx.Unlock()
 
-	if session, exists := sesss[sessionId]; exists {
-		session.LastActive = time.Now() // Update the last active time to the current time
-		sesss[sessionId] = session      // Put the updated session back into the map
+	if sess, exists := sesss[sessionId]; exists {
+		sess.LastActive = time.Now() // Update the last active time to the current time
+		sesss[sessionId] = sess      // Put the updated session back into the map
 	}
 }
 
@@ -223,9 +221,9 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 	}
 
 	var authController *config.CmonInstance
-	for _, cmon := range p.cfg.Instances {
-		if cmon != nil && cmon.Xid == p.cfg.SingleController {
-			authController = cmon
+	for _, c := range p.cfg.Instances {
+		if c != nil && c.Xid == p.cfg.SingleController {
+			authController = c
 			break
 		}
 	}
@@ -240,13 +238,14 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 		var err error
 		r, err = router.New(p.cfg)
 		if err != nil {
-			fmt.Sprintf("Can't create router for authentication: %s", err.Error())
+			zap.L().Error("Can't create router for authentication", zap.Error(err))
 			return false
 		}
 	}
 
 	CMONSid, err := ctx.Cookie("cmon-sid")
 	if err != nil {
+		zap.L().Info("[AUDIT] Cookies are not enabled or cmon-sid cookie is missing")
 		return false
 	}
 	CMONCookie := &http.Cookie{
@@ -266,9 +265,6 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 	}
 
 	r.CMONSid = CMONCookie
-
-	zap.L().Info(
-		fmt.Sprintf("r.CMONSid '%s' : %s ", r.CMONSid, CMONSid))
 
 	r.Sync()
 	controller := r.Cmon(authController.Url)
@@ -332,8 +328,8 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 	}
 	// check if we have any cmon configured to use LDAP or CMON authentication
 	useController := false
-	for _, cmon := range p.cfg.Instances {
-		if cmon != nil && (cmon.UseLdap || cmon.UseCmonAuth) {
+	for _, instance := range p.cfg.Instances {
+		if instance != nil && (instance.UseLdap || instance.UseCmonAuth) {
 			useController = true
 			break
 		}
@@ -344,7 +340,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 
 	r, err := router.New(p.cfg)
 	if err != nil {
-		fmt.Sprintf("Can't create router for controller login: %s", err.Error())
+		zap.L().Error("Can't create router for controller login", zap.Error(err))
 		return false
 	}
 
@@ -632,9 +628,17 @@ func (p *Proxy) RPCAuthUpdateUserHandler(ctx *gin.Context) {
 	}
 
 	if err := ctx.BindJSON(&req); err != nil || req.User == nil {
-		cmonapi.CtxWriteError(ctx,
-			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
-				fmt.Sprint("Invalid request:", err.Error())))
+		msg := ""
+		if err != nil {
+			msg = err.Error()
+		}
+		cmonapi.CtxWriteError(
+			ctx,
+			cmonapi.NewError(
+				cmonapi.RequestStatusInvalidRequest,
+				"Invalid request: "+msg,
+			),
+		)
 		return
 	}
 
