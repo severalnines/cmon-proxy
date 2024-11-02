@@ -110,6 +110,34 @@ To drop a controller:
        URLORNAME              The controller name or URL from configuration.
        --help, -h             display this help and exit
 
+### Initialize local CMON configuration
+```bash
+ccmgradm init [options]
+
+Options:
+  --local-cmon            Initialize with local CMON installation
+  -p, --port             Port to start the daemon on (default: 19051)
+  -f, --frontend-path    Path to web UI static files
+  -c, --cmon-config      CMON config file path (default: /etc/cmon.cnf)
+  -u, --cmon-url         CMON URL (default: 127.0.0.1:9501)
+  -s, --cmon-ssh-url     CMON SSH URL (default: 127.0.0.1:9511)
+  --enable-mcc           Enable multicontroller mode
+```
+
+Examples:
+
+```bash
+# Initialize with local CMON
+ccmgradm init --local-cmon -p 443 -f /var/www/frontend
+
+# Initialize with custom CMON URL
+ccmgradm init --local-cmon -u host.docker.internal:19501 -f /var/www/frontend
+
+# Initialize with multicontroller mode
+ccmgradm init --local-cmon --enable-mcc -f /var/www/frontend
+```
+
+
 ## Configuration
 
 The daemon expects (for now) the configuration file located in the current
@@ -858,3 +886,40 @@ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filte
   ]
 }
 ```
+
+
+
+
+
+### Dev docker build
+```bash
+docker buildx build --platform linux/amd64 -t ccmgr:latest -f docker/Dockerfile . --load
+docker tag ccmgr:latest europe-docker.pkg.dev/severalnines-dev/clustercontrol/ccmgr:latest
+docker push europe-docker.pkg.dev/severalnines-dev/clustercontrol/ccmgr:latest
+```
+
+### Running with Initialization
+
+You can initialize the configuration before starting ccmgr by setting environment variables:
+
+```bash
+docker run -p 19051:19051 -v $(pwd)/docker/basedir_data:/usr/share/ccmgr/ ccmgr:latest
+```
+With initialization:
+```bash
+docker run -p 2443:2443 \
+    -v $(pwd)/docker/basedir_data/test:/usr/share/ccmgr/ \
+    -e INIT_LOCAL_CMON=1 \
+    -e CMON_PROXY_PORT=2443 \
+    -e CMON_URL=host.docker.internal:19501 \
+    -e K8S_PROXY_URL=http://host.docker.internal:8080 \
+    -e AUTH_SERVICE_URL=http://host.docker.internal:8081/authenticate \
+    -e WEBAPP_PATH=/var/www/frontend \
+    ccmgr:latest
+```
+
+Environment variables for initialization:
+- `INIT_LOCAL_CMON`: Enable initialization with local CMON
+- `CMON_PROXY_PORT`: Port for CMON proxy to listen on (default: 19051)
+- `CMON_URL`: URL of the CMON instance (default: host.docker.internal:9501)
+- `WEBAPP_PATH`: Path to web UI static files

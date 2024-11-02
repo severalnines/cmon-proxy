@@ -77,6 +77,8 @@ type Config struct {
 	TlsKey           string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
 	SessionTtl       int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
 	SingleController string          `yaml:"single_controller" json:"single_controller"`
+	K8sProxyURL      string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
+	AuthServiceURL   string          `yaml:"auth_service_url" json:"auth_service_url"`
 
 	mtx sync.RWMutex
 }
@@ -92,6 +94,8 @@ var (
 		FetchJobsHours:   12,
 		Timeout:          30,
 		SingleController: "",
+		K8sProxyURL:      "http://localhost:8080",
+		AuthServiceURL:   "http://localhost:8081/authenticate",
 	}
 )
 
@@ -220,6 +224,13 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	// some env vars are overriding main options
 	if port, _ := strconv.Atoi(os.Getenv("PORT")); port > 0 {
 		config.Port = port
+	}
+
+	if url := os.Getenv("K8S_PROXY_URL"); url != "" {
+		config.K8sProxyURL = url
+	}
+	if url := os.Getenv("AUTH_SERVICE_URL"); url != "" {
+		config.AuthServiceURL = url
 	}
 
 	// we don't want nulls
