@@ -893,6 +893,9 @@ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filte
 
 ### Dev docker build
 ```bash
+docker pull europe-docker.pkg.dev/severalnines-dev/clustercontrol/frontend:latest
+```
+```bash
 docker buildx build --platform linux/amd64 -t ccmgr:latest -f docker/Dockerfile . --load
 docker tag ccmgr:latest europe-docker.pkg.dev/severalnines-dev/clustercontrol/ccmgr:latest
 docker push europe-docker.pkg.dev/severalnines-dev/clustercontrol/ccmgr:latest

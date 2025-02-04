@@ -1,8 +1,10 @@
 package k8s_proxy_client
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -71,6 +73,14 @@ func (c *K8sProxyClient) getJWTToken(cmonSID string) (string, error) {
 
 func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 	log.Printf("Received request to proxy: %s %s", ctx.Request.Method, path)
+
+	// Check if this is an SSE request
+	isSSE := ctx.GetHeader("Accept") == "text/event-stream"
+	if isSSE {
+		c.handleSSERequest(ctx, path)
+		return
+	}
+
 	sess := sessions.Default(ctx)
 
 	cmonSID, err := ctx.Cookie("cmon-sid")
@@ -178,4 +188,85 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 
 	ctx.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
 	log.Printf("Sent response to client with status: %d", resp.StatusCode)
+}
+
+func (c *K8sProxyClient) handleSSERequest(ctx *gin.Context, path string) {
+	// Set SSE headers
+	ctx.Header("Content-Type", "text/event-stream")
+	ctx.Header("Cache-Control", "no-cache")
+	ctx.Header("Connection", "keep-alive")
+	ctx.Header("Transfer-Encoding", "chunked")
+
+	// Get auth token as before
+	cmonSID, err := ctx.Cookie("cmon-sid")
+	if err != nil {
+		log.Printf("Error getting cmon-sid cookie: %v", err)
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Missing cmon-sid cookie"})
+		return
+	}
+
+	token, err := c.getJWTToken(cmonSID)
+	if err != nil {
+		log.Printf("Failed to get JWT token: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get JWT token"})
+		return
+	}
+
+	// Create proxy request
+	proxyURL := c.cfg.K8sProxyURL + path
+	req, err := http.NewRequest(ctx.Request.Method, proxyURL, nil)
+	if err != nil {
+		log.Printf("Failed to create proxy request: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create proxy request"})
+		return
+	}
+
+	// Set headers
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Connection", "keep-alive")
+
+	// Copy query parameters
+	req.URL.RawQuery = ctx.Request.URL.RawQuery
+
+	// Use a client with no timeout for SSE
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Failed to send proxy request: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to proxy request"})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Proxy request failed with status: %d", resp.StatusCode)
+		ctx.JSON(resp.StatusCode, gin.H{"error": "Proxy request failed"})
+		return
+	}
+
+	// Create a reader for the response body
+	reader := bufio.NewReader(resp.Body)
+
+	// Stream the response
+	ctx.Stream(func(w io.Writer) bool {
+		// Read each line
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("Error reading from proxy response: %v", err)
+			}
+			return false
+		}
+
+		log.Printf("Proxying SSE event: %s", string(line))
+		// Write the line to the client
+		_, err = w.Write(line)
+		if err != nil {
+			log.Printf("Error writing to client: %v", err)
+			return false
+		}
+		return true
+	})
 }
