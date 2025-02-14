@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/rs/xid"
+	"github.com/severalnines/cmon-proxy/auth/secret"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/env"
 	"github.com/severalnines/cmon-proxy/logger"
@@ -79,6 +80,7 @@ type Config struct {
 	SingleController string          `yaml:"single_controller" json:"single_controller"`
 	K8sProxyURL      string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
 	AuthServiceURL   string          `yaml:"auth_service_url" json:"auth_service_url"`
+	WhoamiURL        string          `yaml:"whoami_url" json:"whoami_url"`
 
 	mtx sync.RWMutex
 }
@@ -95,7 +97,6 @@ var (
 		Timeout:          30,
 		SingleController: "",
 		K8sProxyURL:      "http://localhost:8080",
-		AuthServiceURL:   "http://localhost:8081/authenticate",
 	}
 )
 
@@ -231,6 +232,21 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 	if url := os.Getenv("AUTH_SERVICE_URL"); url != "" {
 		config.AuthServiceURL = url
+	}
+
+	// Set WhoamiURL based on single_controller if it exists
+	if config.SingleController != "" {
+		for _, instance := range config.Instances {
+			if instance.Xid == config.SingleController {
+				// Ensure URL has protocol
+				url := instance.Url
+				if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+					url = "https://" + url
+				}
+				config.WhoamiURL = url + "/v2/users"
+				break
+			}
+		}
 	}
 
 	// we don't want nulls
@@ -519,4 +535,15 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 		c.PasswordHash = u.PasswordHash
 	}
 	return c
+}
+
+// GetJWTSecret returns the JWT secret as bytes, generating and storing a new one if it doesn't exist
+func (cfg *Config) GetJWTSecret() ([]byte, error) {
+	secretFile := path.Join(opts.Opts.BaseDir, "jwt_secret.key")
+	return secret.LoadOrGenerateSecret(secretFile)
+}
+
+// GetJWTSecretPath returns the path to the JWT secret file
+func (cfg *Config) GetJWTSecretPath() string {
+	return path.Join(opts.Opts.BaseDir, "jwt_secret.key")
 }

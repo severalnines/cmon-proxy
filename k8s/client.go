@@ -2,7 +2,6 @@ package k8s_proxy_client
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	auth "github.com/severalnines/cmon-proxy/auth"
 	"github.com/severalnines/cmon-proxy/config"
 )
 
@@ -24,51 +24,49 @@ const (
 type K8sProxyClient struct {
 	httpClient *http.Client
 	cfg        *config.Config
+	auth       *auth.Auth
 }
 
-func NewK8sProxyClient(cfg *config.Config) *K8sProxyClient {
-	return &K8sProxyClient{
+func NewK8sProxyClient(cfg *config.Config) (*K8sProxyClient, error) {
+	client := &K8sProxyClient{
 		cfg: cfg,
 		httpClient: &http.Client{
 			Timeout: time.Second * 10,
 		},
 	}
+
+	// Initialize embedded auth service if WhoamiURL is set
+	if cfg.WhoamiURL != "" {
+		// Get or generate JWT secret
+		secret, err := cfg.GetJWTSecret()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get JWT secret: %v", err)
+		}
+
+		authOpts := auth.Options{
+			WhoamiURL: cfg.WhoamiURL,
+			JWTSecret: secret,
+		}
+
+		authService, err := auth.New(authOpts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize auth service: %v", err)
+		}
+		client.auth = authService
+		log.Printf("Using embedded auth service with WhoamiURL: %s", cfg.WhoamiURL)
+	}
+
+	return client, nil
 }
 
 func (c *K8sProxyClient) getJWTToken(cmonSID string) (string, error) {
-	log.Printf("Requesting JWT token from auth service: %s", c.cfg.AuthServiceURL)
-	req, err := http.NewRequest("POST", c.cfg.AuthServiceURL, nil)
-	if err != nil {
-		log.Printf("Error creating request for JWT token: %v", err)
-		return "", err
+	// Use embedded auth service if available
+	if c.auth != nil {
+		log.Printf("Generating JWT token using embedded auth service")
+		return c.auth.GenerateToken(cmonSID)
 	}
 
-	req.Header.Set("Cookie", fmt.Sprintf("cmon-sid=%s", cmonSID))
-	log.Printf("Sending request to auth service with cmon-sid: %s", cmonSID)
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		log.Printf("Error sending request to auth service: %v", err)
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	log.Printf("Auth service response status: %d", resp.StatusCode)
-	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
-		log.Printf("Auth service error response body: %s", string(body))
-		return "", fmt.Errorf("auth service returned status: %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Token string `json:"token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("Error decoding auth service response: %v", err)
-		return "", err
-	}
-
-	log.Printf("Successfully obtained JWT token")
-	return result.Token, nil
+	return "", fmt.Errorf("auth service not initialized")
 }
 
 func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {

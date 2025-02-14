@@ -30,7 +30,7 @@ import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 
 	"github.com/severalnines/cmon-proxy/config"
-	k8s_proxy_client "github.com/severalnines/cmon-proxy/k8s-proxy-client"
+	k8s "github.com/severalnines/cmon-proxy/k8s"
 	"github.com/severalnines/cmon-proxy/multi"
 	"github.com/severalnines/cmon-proxy/opts"
 	"github.com/severalnines/cmon-proxy/rpcserver/session"
@@ -353,7 +353,10 @@ func Start(cfg *config.Config) {
 
 	}
 
-	k8sClient := k8s_proxy_client.NewK8sProxyClient(cfg)
+	k8sClient, err := k8s.NewK8sProxyClient(cfg)
+	if err != nil {
+		log.Sugar().Fatalf("initialization problem: %s", err.Error())
+	}
 
 	single := s.Group("/single")
 	{
