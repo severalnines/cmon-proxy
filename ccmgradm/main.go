@@ -24,7 +24,6 @@ import (
 	"github.com/go-ini/ini"
 	"github.com/rs/xid"
 	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/opts"
 )
 
 var (
@@ -83,7 +82,8 @@ var args struct {
 	Init             *InitCmd            `arg:"subcommand:init"`
 	UpdateController *AddControllerCmd   `arg:"subcommand:updatecontroller"`
 	ListControllers  *ListControllersCmd `arg:"subcommand:listcontrollers"`
-	EnableMcc  		 *EnableMcc 		 `arg:"subcommand:enableMcc"`
+	EnableMcc        *EnableMcc          `arg:"subcommand:enableMcc"`
+	BaseDir          string              `arg:"-b,--basedir" help:"Base directory for configuration (default: /usr/share/ccmgr)"`
 }
 
 func init() {
@@ -109,7 +109,12 @@ func main() {
 	saveAndReload := true
 
 	// Load configuration
-	cfg, err := config.Load(path.Join(opts.Opts.BaseDir, configFile), true)
+	configPath := path.Join(args.BaseDir, configFile)
+	fmt.Println("Loading configuration from:", configPath)
+	cfg, err := config.Load(configPath, true)
+	if _, statErr := os.Stat(configPath); !os.IsNotExist(statErr) {
+		err = nil
+	}
 	if err != nil {
 		// 2nd chance for docker
 		cfg, err = config.Load(path.Join("/data", configFile), true)
@@ -199,7 +204,7 @@ func main() {
 			}
 			cmon := cfg.ControllerByUrl(args.AddController.Url)
 			if cmon != nil {
-				fmt.Println("Controller already exists with this URL.")
+				fmt.Println("Controller already exists with this URL.", args.AddController.Url)
 				os.Exit(1)
 			}
 			cmon = &config.CmonInstance{
@@ -237,6 +242,8 @@ func main() {
 					cmonSshUrl = args.Init.CMONSshUrl
 				}
 				cmon := cfg.ControllerByUrl(cmonUrl)
+				fmt.Println("Checking if controller already exists with this URL:", cmonUrl)
+				fmt.Println("cmon:", cmon)
 				if cmon != nil {
 					fmt.Println("Controller already exists with this URL.")
 					os.Exit(1)
@@ -250,9 +257,9 @@ func main() {
 					FrontendUrl: "localhost",
 				}
 
-				if (!args.Init.EnableMcc) {
+				if !args.Init.EnableMcc {
 					cfg.SingleController = cmon.Xid
-				} 
+				}
 
 				// configFile := "/etc/cmon.cnf"
 				var cmonConfig string
@@ -384,10 +391,10 @@ func main() {
 		}
 	case args.EnableMcc != nil:
 		{
-			if (args.EnableMcc.Enable) {
+			if args.EnableMcc.Enable {
 				fmt.Println("Enabling MCC")
 				cfg.SingleController = ""
-			} 
+			}
 		}
 	default:
 		fmt.Println("Unknown subcommand, please see", os.Args[0], "--help for documentation.")

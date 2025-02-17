@@ -7,3 +7,4 @@
 /ccmgr.yaml
 /server.crt
 /server.key
+jwt_secret.key

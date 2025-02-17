@@ -30,6 +30,7 @@ import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 
 	"github.com/severalnines/cmon-proxy/config"
+	k8s "github.com/severalnines/cmon-proxy/k8s"
 	"github.com/severalnines/cmon-proxy/multi"
 	"github.com/severalnines/cmon-proxy/opts"
 	"github.com/severalnines/cmon-proxy/rpcserver/session"
@@ -352,10 +353,34 @@ func Start(cfg *config.Config) {
 
 	}
 
-	single := s.Group("/single/v2")
+	k8sClient, err := k8s.NewK8sProxyClient(cfg)
+	if err != nil {
+		log.Sugar().Fatalf("initialization problem: %s", err.Error())
+	}
+
+	single := s.Group("/single")
 	{
-		single.POST("/*any", proxy.PRCProxySingleController)
-		single.GET("/*any", proxy.PRCProxySingleController)
+		single.POST("/v2/*any", proxy.PRCProxySingleController)
+		single.GET("/v2/*any", proxy.PRCProxySingleController)
+		k8s := single.Group("/k8s")
+		{
+			k8s.GET("/*path", func(c *gin.Context) {
+				path := c.Param("path")
+				k8sClient.ProxyRequest(c, path)
+			})
+			k8s.POST("/*path", func(c *gin.Context) {
+				path := c.Param("path")
+				k8sClient.ProxyRequest(c, path)
+			})
+			k8s.DELETE("/*path", func(c *gin.Context) {
+				path := c.Param("path")
+				k8sClient.ProxyRequest(c, path)
+			})
+			k8s.PUT("/*path", func(c *gin.Context) {
+				path := c.Param("path")
+				k8sClient.ProxyRequest(c, path)
+			})
+		}
 	}
 
 	// Proxy any /v2 requests to the specified (by controller_id) cmon
