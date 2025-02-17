@@ -16,7 +16,6 @@ require (
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/pkg/errors v0.9.1
 	github.com/rs/xid v1.4.0
-	github.com/severalnines/clustercontrol-k8s/auth v0.0.0-20250214155538-691cb2828b6e
 	github.com/stretchr/testify v1.9.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.32.0

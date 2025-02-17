@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/severalnines/clustercontrol-k8s/auth/jwt"
 	"github.com/severalnines/cmon-proxy/auth/internal/whoami"
+	"github.com/severalnines/cmon-proxy/auth/jwt"
 )
 
 // Auth represents the authentication service
