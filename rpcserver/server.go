@@ -158,6 +158,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					"MCC_API_URL":               "/proxy",
 					"SINGLE_CONTROLLER_API_URL": "/single/v2",
 					"MULTI_CONTROLLER_API_URL":  "/v2",
+					"KUBERNETES_ENABLED":         cfg.KubernetesEnabled,
 				}
 
 				jsonBytes, err := json.Marshal(configToReturn)
@@ -431,6 +432,11 @@ func Start(cfg *config.Config) {
 		mcc.Use(proxy.RPCAuthMiddleware)
 		{
 			mcc.POST("/enable", proxy.EnableHandler)
+		}
+		k8s := p.Group("/k8s")
+		// k8s.Use(proxy.RPCAuthMiddleware)
+		{
+			k8s.POST("/enable", proxy.EnableK8sHandler)
 		}
 
 		clusters := p.Group("/clusters")

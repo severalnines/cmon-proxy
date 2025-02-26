@@ -81,7 +81,7 @@ type Config struct {
 	K8sProxyURL      string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
 	AuthServiceURL   string          `yaml:"auth_service_url" json:"auth_service_url"`
 	WhoamiURL        string          `yaml:"whoami_url" json:"whoami_url"`
-
+	KubernetesEnabled bool            `yaml:"kubernetes_enabled" json:"kubernetes_enabled"`
 	mtx sync.RWMutex
 }
 
