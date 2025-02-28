@@ -7,6 +7,9 @@ on:
         description: 'Docker image tag (default: latest)'
         required: false
         default: 'latest'
+  repository_dispatch:
+    types: [frontend-build-completed]
+
 
 env:
   REGISTRY: europe-docker.pkg.dev/severalnines-dev/clustercontrol
@@ -22,7 +25,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
+        with:
+          ref: ${{ github.event.client_payload.branch || github.ref_name }}
+      - run: |
+          echo "Currently on branch: $(git rev-parse --abbrev-ref HEAD)"
+          
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'
         with:
@@ -35,6 +42,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Set tag value
+        id: set-tag
+        run: |
+          # Use tag from client_payload for repository_dispatch, or inputs.tag for workflow_dispatch, or default to 'latest'
+          TAG="${{ github.event.client_payload.tag || inputs.tag || 'latest' }}"
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "Using tag: $TAG"
+
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
@@ -42,12 +57,12 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64
           load: true
-          tags: ${{ env.IMAGE_NAME }}:${{ inputs.tag }}
+          tags: ${{ env.IMAGE_NAME }}:${{ env.TAG }}
 
       - name: Tag Docker image
         run: |
-          docker tag ${{ env.IMAGE_NAME }}:${{ inputs.tag }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
 
       - name: Push Docker image
         run: |
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }} 
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }} 
