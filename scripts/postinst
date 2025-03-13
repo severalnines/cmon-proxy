@@ -1,5 +1,40 @@
 #!/usr/bin/env bash
 
+# Create severalnines group if it doesn't exist
+if ! getent group severalnines >/dev/null; then
+    if [ -f /etc/debian_version ]; then
+        addgroup --system severalnines
+    else
+        groupadd -r severalnines
+    fi
+fi
+
+# Create s9s_cc user if it doesn't exist
+if ! getent passwd s9s_cc >/dev/null; then
+    if [ -f /etc/debian_version ]; then
+        adduser --system --ingroup severalnines --no-create-home --home /nonexistent s9s_cc
+    else
+        useradd -r -g severalnines -s /sbin/nologin -d /nonexistent s9s_cc
+    fi
+fi
+
+# Ensure /usr/share/ccmgr directory exists and has correct permissions
+mkdir -p /usr/share/ccmgr
+chown -R s9s_cc:severalnines /usr/share/ccmgr
+# Set directory permissions to ensure new files have proper ownership
+chmod 750 /usr/share/ccmgr
+
+# Set permissions for environment file
+if [ -f /etc/default/cmon-proxy.env ]; then
+    chown root:severalnines /etc/default/cmon-proxy.env
+    chmod 640 /etc/default/cmon-proxy.env
+fi
+
+if [ -f /var/log/ccmgr.log ]; then
+    chown s9s_cc:severalnines /var/log/ccmgr.log
+fi
+
+
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload
 

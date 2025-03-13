@@ -64,25 +64,25 @@ type CmonInstance struct {
 
 // Config holds the configuration of cmon-proxy, it is pretty minimal now
 type Config struct {
-	Filename         string
-	WebAppRoot       string
-	FetchJobsHours   int             `yaml:"fetch_jobs_hours,omitempty" json:"fetch_jobs_hours,omitempty"`
-	FetchBackupDays  int             `yaml:"fetch_backups_days,omitempty" json:"fetch_backups_days,omitempty"`
-	Instances        []*CmonInstance `yaml:"instances,omitempty"`
-	Timeout          int             `yaml:"timeout,omitempty"`
-	Logfile          string          `yaml:"logfile,omitempty"`
-	Users            []*ProxyUser    `yaml:"users,omitempty"`
-	FrontendPath     string          `yaml:"frontend_path,omitempty" json:"frontend_path,omitempty"`
-	Port             int             `yaml:"port" json:"port"`
-	TlsCert          string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
-	TlsKey           string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
-	SessionTtl       int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
-	SingleController string          `yaml:"single_controller" json:"single_controller"`
-	K8sProxyURL      string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
-	AuthServiceURL   string          `yaml:"auth_service_url" json:"auth_service_url"`
-	WhoamiURL        string          `yaml:"whoami_url" json:"whoami_url"`
+	Filename          string
+	WebAppRoot        string
+	FetchJobsHours    int             `yaml:"fetch_jobs_hours,omitempty" json:"fetch_jobs_hours,omitempty"`
+	FetchBackupDays   int             `yaml:"fetch_backups_days,omitempty" json:"fetch_backups_days,omitempty"`
+	Instances         []*CmonInstance `yaml:"instances,omitempty"`
+	Timeout           int             `yaml:"timeout,omitempty"`
+	Logfile           string          `yaml:"logfile,omitempty"`
+	Users             []*ProxyUser    `yaml:"users,omitempty"`
+	FrontendPath      string          `yaml:"frontend_path,omitempty" json:"frontend_path,omitempty"`
+	Port              int             `yaml:"port" json:"port"`
+	TlsCert           string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
+	TlsKey            string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
+	SessionTtl        int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
+	SingleController  string          `yaml:"single_controller" json:"single_controller"`
+	K8sProxyURL       string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
+	AuthServiceURL    string          `yaml:"auth_service_url" json:"auth_service_url"`
+	WhoamiURL         string          `yaml:"whoami_url" json:"whoami_url"`
 	KubernetesEnabled bool            `yaml:"kubernetes_enabled" json:"kubernetes_enabled"`
-	mtx sync.RWMutex
+	mtx               sync.RWMutex
 }
 
 var (
@@ -96,7 +96,7 @@ var (
 		FetchJobsHours:   12,
 		Timeout:          30,
 		SingleController: "",
-		K8sProxyURL:      "http://localhost:8080",
+		K8sProxyURL:      "http://127.0.0.1:8080",
 	}
 )
 
@@ -230,6 +230,10 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	if url := os.Getenv("K8S_PROXY_URL"); url != "" {
 		config.K8sProxyURL = url
 	}
+	if config.K8sProxyURL == "" {
+		config.K8sProxyURL = defaults.K8sProxyURL
+	}
+
 	if url := os.Getenv("AUTH_SERVICE_URL"); url != "" {
 		config.AuthServiceURL = url
 	}
