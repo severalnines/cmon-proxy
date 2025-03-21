@@ -87,7 +87,6 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Missing cmon-sid cookie"})
 		return
 	}
-	log.Printf("Found cmon-sid cookie: %s", cmonSID)
 
 	// Check if we have a cached token
 	var token string
@@ -97,13 +96,11 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 		expireTime := cachedExpire.(int64)
 		if time.Now().Unix() < expireTime {
 			token = cachedToken.(string)
-			log.Printf("Using cached JWT token, expires at: %v", time.Unix(expireTime, 0))
 		}
 	}
 
 	// If no valid cached token, get a new one
 	if token == "" {
-		log.Printf("No valid cached token, requesting new JWT token")
 		var err error
 		token, err = c.getJWTToken(cmonSID)
 		if err != nil {
@@ -121,12 +118,10 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
 			return
 		}
-		log.Printf("New JWT token cached, expires at: %v", time.Unix(expireTime, 0))
 	}
 
 	// Proxy the request to k8s-proxy
 	proxyURL := c.cfg.K8sProxyURL + path
-	log.Printf("Proxying request to: %s %s", ctx.Request.Method, proxyURL)
 
 	// Create a new URL with the base proxyURL
 	parsedURL, err := url.Parse(proxyURL)
@@ -147,7 +142,6 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token)
-	log.Printf("Set Authorization header with Bearer token")
 
 	// Copy all headers from the original request
 	for name, values := range ctx.Request.Header {
@@ -155,7 +149,6 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 			req.Header.Add(name, value)
 		}
 	}
-	log.Printf("Copied all headers from original request")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -165,8 +158,6 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 	}
 	defer resp.Body.Close()
 
-	log.Printf("Received response from k8s-proxy with status: %d", resp.StatusCode)
-
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Failed to read proxy response body: %v", err)
@@ -174,18 +165,13 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 		return
 	}
 
-	log.Printf("Response body length: %d bytes", len(body))
-
 	// Copy headers from the proxy response to the client response
 	for name, values := range resp.Header {
 		for _, value := range values {
 			ctx.Header(name, value)
 		}
 	}
-	log.Printf("Copied all headers from proxy response")
-
 	ctx.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
-	log.Printf("Sent response to client with status: %d", resp.StatusCode)
 }
 
 func (c *K8sProxyClient) handleSSERequest(ctx *gin.Context, path string) {
@@ -258,7 +244,6 @@ func (c *K8sProxyClient) handleSSERequest(ctx *gin.Context, path string) {
 			return false
 		}
 
-		log.Printf("Proxying SSE event: %s", string(line))
 		// Write the line to the client
 		_, err = w.Write(line)
 		if err != nil {
