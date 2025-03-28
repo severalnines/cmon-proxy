@@ -87,16 +87,17 @@ type Config struct {
 
 var (
 	defaults = &Config{
-		FrontendPath:     "/app",
-		Logfile:          env.DefaultLogfilePath,
-		Port:             19051,
-		SessionTtl:       int64(30 * time.Minute),
-		Instances:        make([]*CmonInstance, 0),
-		FetchBackupDays:  7,
-		FetchJobsHours:   12,
-		Timeout:          30,
-		SingleController: "",
-		K8sProxyURL:      "http://127.0.0.1:8080",
+		FrontendPath:      "/app",
+		Logfile:           env.DefaultLogfilePath,
+		Port:              19051,
+		SessionTtl:        int64(30 * time.Minute),
+		Instances:         make([]*CmonInstance, 0),
+		FetchBackupDays:   7,
+		FetchJobsHours:    12,
+		Timeout:           30,
+		SingleController:  "",
+		KubernetesEnabled: true,
+		K8sProxyURL:       "http://127.0.0.1:8080",
 	}
 )
 
@@ -172,6 +173,10 @@ func (cfg *Config) Upgrade() {
 // Load loads the configuration from the specified file name
 func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	config := new(Config)
+
+	// Set default values before unmarshaling
+	config.KubernetesEnabled = defaults.KubernetesEnabled
+
 	defer func() {
 		if err := config.Save(); err != nil {
 			zap.L().Error("Failed to save config file",
