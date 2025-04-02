@@ -125,8 +125,6 @@ func (c *K8sProxyClient) getJWTToken(ctx *gin.Context) (string, error) {
 }
 
 func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
-	c.logger.Debugf("Received request to proxy: %s %s", ctx.Request.Method, path)
-
 	isSSE := ctx.GetHeader("Accept") == "text/event-stream"
 	if isSSE {
 		c.handleSSERequest(ctx, path)
