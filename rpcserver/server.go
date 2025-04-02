@@ -158,7 +158,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					"MCC_API_URL":               "/proxy",
 					"SINGLE_CONTROLLER_API_URL": "/single/v2",
 					"MULTI_CONTROLLER_API_URL":  "/v2",
-					"KUBERNETES_ENABLED":         cfg.KubernetesEnabled,
+					"KUBERNETES_ENABLED":        cfg.KubernetesEnabled,
 				}
 
 				jsonBytes, err := json.Marshal(configToReturn)
@@ -431,10 +431,16 @@ func Start(cfg *config.Config) {
 		mcc := p.Group("/mcc")
 		mcc.Use(proxy.RPCAuthMiddleware)
 		{
-			mcc.POST("/enable", proxy.EnableHandler)
+			mcc.POST("/enable", func(c *gin.Context) {
+				proxy.EnableHandler(c)
+				err := k8sClient.InitAuthService(cfg)
+				if err != nil {
+					log.Sugar().Errorf("Failed to initialize auth service: %v", err)
+				}
+			})
 		}
 		k8s := p.Group("/k8s")
-		// k8s.Use(proxy.RPCAuthMiddleware)
+		k8s.Use(proxy.RPCAuthMiddleware)
 		{
 			k8s.POST("/enable", proxy.EnableK8sHandler)
 		}
