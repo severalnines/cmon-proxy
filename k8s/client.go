@@ -2,10 +2,10 @@ package k8s_proxy_client
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -13,7 +13,11 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	auth "github.com/severalnines/cmon-proxy/auth"
+	"github.com/severalnines/cmon-proxy/auth/providers/cmon"
+	"github.com/severalnines/cmon-proxy/auth/providers/cmonproxy"
+	"github.com/severalnines/cmon-proxy/auth/user"
 	"github.com/severalnines/cmon-proxy/config"
+	"go.uber.org/zap"
 )
 
 const (
@@ -25,6 +29,7 @@ type K8sProxyClient struct {
 	httpClient *http.Client
 	cfg        *config.Config
 	auth       *auth.Auth
+	logger     *zap.SugaredLogger
 }
 
 func NewK8sProxyClient(cfg *config.Config) (*K8sProxyClient, error) {
@@ -33,46 +38,93 @@ func NewK8sProxyClient(cfg *config.Config) (*K8sProxyClient, error) {
 		httpClient: &http.Client{
 			Timeout: time.Second * 10,
 		},
+		logger: zap.L().Sugar(),
 	}
 
-	// Initialize embedded auth service if WhoamiURL is set
-	if cfg.WhoamiURL != "" {
-		// Get or generate JWT secret
-		secret, err := cfg.GetJWTSecret()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get JWT secret: %v", err)
-		}
-
-		authOpts := auth.Options{
-			WhoamiURL: cfg.WhoamiURL,
-			JWTSecret: secret,
-		}
-
-		authService, err := auth.New(authOpts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize auth service: %v", err)
-		}
-		client.auth = authService
-		log.Printf("Using embedded auth service with WhoamiURL: %s", cfg.WhoamiURL)
+	err := client.InitAuthService(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	return client, nil
 }
 
-func (c *K8sProxyClient) getJWTToken(cmonSID string) (string, error) {
-	// Use embedded auth service if available
+func (c *K8sProxyClient) InitAuthService(cfg *config.Config) error {
+	// Create a custom HTTP client for providers that ignores certificate issues
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	providerClient := &http.Client{Transport: tr}
+
+	// Get or generate JWT secret
+	secret, err := cfg.GetJWTSecret()
+	if err != nil {
+		return fmt.Errorf("failed to get JWT secret: %v", err)
+	}
+
+	// Initialize auth service with appropriate provider
+	var userProvider user.Provider
+
+	var singleControllerInstance *config.CmonInstance
+	if cfg.SingleController != "" {
+		for _, instance := range cfg.Instances {
+			if instance.Xid == cfg.SingleController {
+				singleControllerInstance = instance
+				break
+			}
+		}
+	}
+
+	// Use CmonProxy provider if SingleController is not set
+	if singleControllerInstance == nil && cfg.Port != 0 {
+		// Construct base URL for cmon-proxy
+		baseURL := fmt.Sprintf("https://127.0.0.1:%d", cfg.Port)
+		userProvider = cmonproxy.NewProvider(baseURL, providerClient)
+		c.logger.Infof("Using CmonProxy user provider with URL: %s", baseURL)
+	} else if singleControllerInstance != nil && singleControllerInstance.Url != "" {
+		// Use CMON provider if WhoamiURL is set
+		var whoamiURL string = "https://" + singleControllerInstance.Url + "/v2/users"
+		userProvider = cmon.NewProvider(whoamiURL, providerClient)
+		c.logger.Infof("Using CMON user provider with WhoamiURL: %s", whoamiURL)
+	} else {
+		return fmt.Errorf("no valid user provider configuration found")
+	}
+
+	authOpts := auth.Options{
+		JWTSecret: secret,
+		Provider:  userProvider,
+	}
+
+	authService, err := auth.New(authOpts)
+	if err != nil {
+		return fmt.Errorf("failed to initialize auth service: %v", err)
+	}
+	c.auth = authService
+
+	return nil
+}
+
+func (c *K8sProxyClient) getJWTToken(ctx *gin.Context) (string, error) {
+	// Use the auth service to generate token from the request
 	if c.auth != nil {
-		log.Printf("Generating JWT token using embedded auth service")
-		return c.auth.GenerateToken(cmonSID)
+		// Log which provider is being used
+		// var providerType string
+		// switch c.auth.GetProvider().(type) {
+		// case *cmonproxy.Provider:
+		// 	providerType = "CmonProxy"
+		// case *cmon.Provider:
+		// 	providerType = "CMON"
+		// default:
+		// 	providerType = "Unknown"
+		// }
+		// c.logger.Debugf("Generating JWT token using %s provider", providerType)
+		return c.auth.GenerateToken(ctx.Request)
 	}
 
 	return "", fmt.Errorf("auth service not initialized")
 }
 
 func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
-	log.Printf("Received request to proxy: %s %s", ctx.Request.Method, path)
-
-	// Check if this is an SSE request
 	isSSE := ctx.GetHeader("Accept") == "text/event-stream"
 	if isSSE {
 		c.handleSSERequest(ctx, path)
@@ -80,13 +132,6 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 	}
 
 	sess := sessions.Default(ctx)
-
-	cmonSID, err := ctx.Cookie("cmon-sid")
-	if err != nil {
-		log.Printf("Error getting cmon-sid cookie: %v", err)
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Missing cmon-sid cookie"})
-		return
-	}
 
 	// Check if we have a cached token
 	var token string
@@ -102,9 +147,9 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 	// If no valid cached token, get a new one
 	if token == "" {
 		var err error
-		token, err = c.getJWTToken(cmonSID)
+		token, err = c.getJWTToken(ctx)
 		if err != nil {
-			log.Printf("Failed to get JWT token: %v", err)
+			c.logger.Errorf("Failed to get JWT token: %v", err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get JWT token"})
 			return
 		}
@@ -114,7 +159,7 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 		sess.Set(tokenCacheKey, token)
 		sess.Set(tokenExpireKey, expireTime)
 		if err := sess.Save(); err != nil {
-			log.Printf("Failed to save session: %v", err)
+			c.logger.Errorf("Failed to save session: %v", err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
 			return
 		}
@@ -126,7 +171,7 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 	// Create a new URL with the base proxyURL
 	parsedURL, err := url.Parse(proxyURL)
 	if err != nil {
-		log.Printf("Failed to parse proxy URL: %v", err)
+		c.logger.Errorf("Failed to parse proxy URL: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create proxy request"})
 		return
 	}
@@ -136,7 +181,7 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 
 	req, err := http.NewRequest(ctx.Request.Method, parsedURL.String(), ctx.Request.Body)
 	if err != nil {
-		log.Printf("Failed to create proxy request: %v", err)
+		c.logger.Errorf("Failed to create proxy request: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create proxy request"})
 		return
 	}
@@ -152,7 +197,7 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		log.Printf("Failed to send proxy request: %v", err)
+		c.logger.Errorf("Failed to send proxy request: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to proxy request"})
 		return
 	}
@@ -160,7 +205,7 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Failed to read proxy response body: %v", err)
+		c.logger.Errorf("Failed to read proxy response body: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read proxy response"})
 		return
 	}
@@ -181,17 +226,10 @@ func (c *K8sProxyClient) handleSSERequest(ctx *gin.Context, path string) {
 	ctx.Header("Connection", "keep-alive")
 	ctx.Header("Transfer-Encoding", "chunked")
 
-	// Get auth token as before
-	cmonSID, err := ctx.Cookie("cmon-sid")
+	// Get token
+	token, err := c.getJWTToken(ctx)
 	if err != nil {
-		log.Printf("Error getting cmon-sid cookie: %v", err)
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Missing cmon-sid cookie"})
-		return
-	}
-
-	token, err := c.getJWTToken(cmonSID)
-	if err != nil {
-		log.Printf("Failed to get JWT token: %v", err)
+		c.logger.Errorf("Failed to get JWT token: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get JWT token"})
 		return
 	}
@@ -200,7 +238,7 @@ func (c *K8sProxyClient) handleSSERequest(ctx *gin.Context, path string) {
 	proxyURL := c.cfg.K8sProxyURL + path
 	req, err := http.NewRequest(ctx.Request.Method, proxyURL, nil)
 	if err != nil {
-		log.Printf("Failed to create proxy request: %v", err)
+		c.logger.Errorf("Failed to create proxy request: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create proxy request"})
 		return
 	}
@@ -218,14 +256,14 @@ func (c *K8sProxyClient) handleSSERequest(ctx *gin.Context, path string) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Failed to send proxy request: %v", err)
+		c.logger.Errorf("Failed to send proxy request: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to proxy request"})
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Proxy request failed with status: %d", resp.StatusCode)
+		c.logger.Errorf("Proxy request failed with status: %d", resp.StatusCode)
 		ctx.JSON(resp.StatusCode, gin.H{"error": "Proxy request failed"})
 		return
 	}
@@ -239,7 +277,7 @@ func (c *K8sProxyClient) handleSSERequest(ctx *gin.Context, path string) {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("Error reading from proxy response: %v", err)
+				c.logger.Errorf("Error reading from proxy response: %v", err)
 			}
 			return false
 		}
@@ -247,7 +285,7 @@ func (c *K8sProxyClient) handleSSERequest(ctx *gin.Context, path string) {
 		// Write the line to the client
 		_, err = w.Write(line)
 		if err != nil {
-			log.Printf("Error writing to client: %v", err)
+			c.logger.Errorf("Error writing to client: %v", err)
 			return false
 		}
 		return true

@@ -37,15 +37,16 @@ import (
 )
 
 type ProxyUser struct {
-	Username     string `yaml:"username,omitempty" json:"username,omitempty"`
-	EmailAddress string `yaml:"email,omitempty" json:"email,omitempty"`
-	PasswordHash string `yaml:"passwordhash,omitempty" json:"passwordhash,omitempty"`
-	FirstName    string `yaml:"firstname,omitempty" json:"firstname,omitempty"`
-	LastName     string `yaml:"lastname,omitempty" json:"lastname,omitempty"`
-	LdapUser     bool   `yaml:"ldap,omitempty" json:"ldap,omitempty"`
-	CMONUser     bool   `yaml:"cmon,omitempty" json:"cmon,omitempty"`
-	Admin        bool   `yaml:"admin,omitempty" json:"admin,omitempty"`
-	ControllerId string `yaml:"xid,omitempty" json:"xid,omitempty"`
+	Username     string   `yaml:"username,omitempty" json:"username,omitempty"`
+	EmailAddress string   `yaml:"email,omitempty" json:"email,omitempty"`
+	PasswordHash string   `yaml:"passwordhash,omitempty" json:"passwordhash,omitempty"`
+	FirstName    string   `yaml:"firstname,omitempty" json:"firstname,omitempty"`
+	LastName     string   `yaml:"lastname,omitempty" json:"lastname,omitempty"`
+	LdapUser     bool     `yaml:"ldap,omitempty" json:"ldap,omitempty"`
+	CMONUser     bool     `yaml:"cmon,omitempty" json:"cmon,omitempty"`
+	Admin        bool     `yaml:"admin,omitempty" json:"admin,omitempty"`
+	Groups       []string `yaml:"groups,omitempty" json:"groups,omitempty"`
+	ControllerId string   `yaml:"xid,omitempty" json:"xid,omitempty"`
 }
 
 type CmonInstance struct {
@@ -79,8 +80,6 @@ type Config struct {
 	SessionTtl        int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
 	SingleController  string          `yaml:"single_controller" json:"single_controller"`
 	K8sProxyURL       string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
-	AuthServiceURL    string          `yaml:"auth_service_url" json:"auth_service_url"`
-	WhoamiURL         string          `yaml:"whoami_url" json:"whoami_url"`
 	KubernetesEnabled bool            `yaml:"kubernetes_enabled" json:"kubernetes_enabled"`
 	mtx               sync.RWMutex
 }
@@ -237,25 +236,6 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 	if config.K8sProxyURL == "" {
 		config.K8sProxyURL = defaults.K8sProxyURL
-	}
-
-	if url := os.Getenv("AUTH_SERVICE_URL"); url != "" {
-		config.AuthServiceURL = url
-	}
-
-	// Set WhoamiURL based on single_controller if it exists
-	if config.SingleController != "" {
-		for _, instance := range config.Instances {
-			if instance.Xid == config.SingleController {
-				// Ensure URL has protocol
-				url := instance.Url
-				if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-					url = "https://" + url
-				}
-				config.WhoamiURL = url + "/v2/users"
-				break
-			}
-		}
 	}
 
 	// we don't want nulls
@@ -538,6 +518,7 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 		LdapUser:     u.LdapUser,
 		CMONUser:     u.CMONUser,
 		Admin:        u.Admin,
+		Groups:       u.Groups,
 	}
 	// by default we don't want to return password hashes to UI
 	if withCredentials {

@@ -887,42 +887,28 @@ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filte
 }
 ```
 
+### Debug builds on MacOS
 
-
-
-
-### Dev docker build
+Create builder
 ```bash
-docker pull europe-docker.pkg.dev/severalnines-dev/clustercontrol/frontend:latest
-```
-```bash
-docker buildx build --platform linux/amd64 -t ccmgr:latest -f docker/Dockerfile . --load
-docker tag ccmgr:latest europe-docker.pkg.dev/severalnines-dev/clustercontrol/ccmgr:latest
-docker push europe-docker.pkg.dev/severalnines-dev/clustercontrol/ccmgr:latest
+make bulder
 ```
 
-### Running with Initialization
-
-You can initialize the configuration before starting ccmgr by setting environment variables:
-
+Run builder
 ```bash
-docker run -p 19051:19051 -v $(pwd)/docker/basedir_data:/usr/share/ccmgr/ ccmgr:latest
+make builder-run
 ```
-With initialization:
+Navigate to codebase
 ```bash
-docker run -p 2443:2443 \
-    -v $(pwd)/docker/basedir_data/test:/usr/share/ccmgr/ \
-    -e INIT_LOCAL_CMON=1 \
-    -e CMON_PROXY_PORT=2443 \
-    -e CMON_URL=host.docker.internal:19501 \
-    -e K8S_PROXY_URL=http://host.docker.internal:8080 \
-    -e AUTH_SERVICE_URL=http://host.docker.internal:8081/authenticate \
-    -e WEBAPP_PATH=/var/www/frontend \
-    ccmgr:latest
+cd /code
 ```
 
-Environment variables for initialization:
-- `INIT_LOCAL_CMON`: Enable initialization with local CMON
-- `CMON_PROXY_PORT`: Port for CMON proxy to listen on (default: 19051)
-- `CMON_URL`: URL of the CMON instance (default: host.docker.internal:9501)
-- `WEBAPP_PATH`: Path to web UI static files
+Create builds 
+```bash
+make ci
+```
+
+Create packages
+```bash
+make packages
+```
