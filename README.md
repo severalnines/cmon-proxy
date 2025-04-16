@@ -891,7 +891,7 @@ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filte
 
 Create builder
 ```bash
-make bulder
+make builder
 ```
 
 Run builder
