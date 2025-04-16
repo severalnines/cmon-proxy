@@ -2,7 +2,6 @@ package auth
 
 import (
 	"crypto/rand"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/severalnines/cmon-proxy/auth/jwt"
-	"github.com/severalnines/cmon-proxy/auth/providers/cmon"
 	"github.com/severalnines/cmon-proxy/auth/user"
 	"go.uber.org/zap"
 )
@@ -46,21 +44,6 @@ func New(opts Options) (*Auth, error) {
 		provider:  opts.Provider,
 		logger:    zap.L().Sugar(),
 	}, nil
-}
-
-func NewAuth(jwtSecret []byte, whoamiURL string) *Auth {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: tr}
-
-	cmonProvider := cmon.NewProvider(whoamiURL, client)
-
-	auth, _ := New(Options{
-		JWTSecret: jwtSecret,
-		Provider:  cmonProvider,
-	})
-	return auth
 }
 
 func (a *Auth) GetJWTSecret() []byte {
