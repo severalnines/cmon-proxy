@@ -169,6 +169,9 @@ func setUserForSession(ctx *gin.Context, user *config.ProxyUser) {
 		session.SessionDestroy(ctx)
 		return
 	}
+	if user.Admin && (user.Groups == nil || len(user.Groups) == 0) {
+		user.Groups = []string{"admins"}
+	}
 
 	if len(sessionId) < 1 {
 		// generate one for new sessions
@@ -289,6 +292,15 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 	loginSucceed := false
 	if user != nil {
 		loginSucceed = true
+
+		// Extract group names from user.Groups
+		groupNames := make([]string, 0, len(user.Groups))
+		for _, group := range user.Groups {
+			if group != nil {
+				groupNames = append(groupNames, group.GroupName)
+			}
+		}
+
 		// construct a synthetic user from the User object we got from cmon
 		setUserForSession(ctx, &config.ProxyUser{
 			Username:     user.UserName,
@@ -297,6 +309,7 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 			ControllerId: controller.Xid(),
 			FirstName:    user.FirstName,
 			LastName:     user.LastName,
+			Groups:       groupNames,
 			EmailAddress: user.EmailAddress,
 		})
 	}
@@ -372,6 +385,14 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 
 	authSucceed := user != nil
 	if authSucceed {
+		// Extract group names from user.Groups
+		groupNames := make([]string, 0, len(user.Groups))
+		for _, group := range user.Groups {
+			if group != nil {
+				groupNames = append(groupNames, group.GroupName)
+			}
+		}
+
 		setUserForSession(ctx, &config.ProxyUser{
 			Username:     user.UserName,
 			LdapUser:     user.Origin == "LDAP",
@@ -380,6 +401,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 			LastName:     user.LastName,
 			EmailAddress: user.EmailAddress,
 			Admin:        false,
+			Groups:       groupNames,
 		})
 	}
 

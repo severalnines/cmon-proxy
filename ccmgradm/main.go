@@ -83,7 +83,7 @@ var args struct {
 	Init             *InitCmd            `arg:"subcommand:init"`
 	UpdateController *AddControllerCmd   `arg:"subcommand:updatecontroller"`
 	ListControllers  *ListControllersCmd `arg:"subcommand:listcontrollers"`
-	EnableMcc  		 *EnableMcc 		 `arg:"subcommand:enableMcc"`
+	EnableMcc        *EnableMcc          `arg:"subcommand:enableMcc"`
 }
 
 func init() {
@@ -250,9 +250,9 @@ func main() {
 					FrontendUrl: "localhost",
 				}
 
-				if (!args.Init.EnableMcc) {
+				if !args.Init.EnableMcc {
 					cfg.SingleController = cmon.Xid
-				} 
+				}
 
 				// configFile := "/etc/cmon.cnf"
 				var cmonConfig string
@@ -384,10 +384,10 @@ func main() {
 		}
 	case args.EnableMcc != nil:
 		{
-			if (args.EnableMcc.Enable) {
+			if args.EnableMcc.Enable {
 				fmt.Println("Enabling MCC")
 				cfg.SingleController = ""
-			} 
+			}
 		}
 	default:
 		fmt.Println("Unknown subcommand, please see", os.Args[0], "--help for documentation.")
