@@ -416,6 +416,10 @@ func Start(cfg *config.Config) {
 
 			auth.POST("/update", proxy.RPCAuthUpdateUserHandler)
 			auth.POST("/setpassword", proxy.RPCAuthSetPasswordHandler)
+
+			auth.POST("/elevate-session", proxy.RPCElevateSession)
+			auth.POST("/check-elevated-session", proxy.RPCCheckElevatedSession)
+			auth.POST("/exit-elevated-session", proxy.RPCExitElevatedSession)
 		}
 
 		mcc := p.Group("/mcc")

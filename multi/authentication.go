@@ -32,6 +32,7 @@ type SessionData struct {
 	User       *config.ProxyUser
 	Login      time.Time
 	LastActive time.Time
+	Elevated   bool
 }
 
 var (
@@ -519,6 +520,9 @@ func (p *Proxy) RPCAuthCheckHandler(ctx *gin.Context) {
 
 	if u := getUserForSession(ctx); u != nil {
 		resp.User = u.Copy(false)
+		session := sessions.Default(ctx)
+		isElevated := session.Get("elevated") == true
+		resp.Elevated = isElevated
 		resp.RequestStatus = cmonapi.RequestStatusOk
 		resp.ErrorString = ""
 	}
@@ -537,6 +541,11 @@ func (p *Proxy) RPCAuthLogoutHandler(ctx *gin.Context) {
 
 		// also make sure we get rid of any unused routers
 		defer cleanupOldSessions(p)
+	}
+	session := sessions.Default(ctx)
+	session.Delete("elevated")
+	if err := session.Save(); err != nil {
+		zap.L().Error("Failed to save session", zap.Error(err))
 	}
 	// I wanted to logout in available controllers
 	// The reason for this was making ssh console session to terminate as well
@@ -736,6 +745,102 @@ func (p *Proxy) RPCAuthSetPasswordHandler(ctx *gin.Context) {
 				resp.ErrorString = ""
 			}
 		}
+	}
+
+	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+}
+
+func (p *Proxy) RPCElevateSession(ctx *gin.Context) {
+	var req api.LoginRequest
+	var resp api.ElevateSessionResponse
+
+	resp.WithResponseData = &cmonapi.WithResponseData{
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+		RequestStatus:    cmonapi.RequestStatusAuthRequired,
+		ErrorString:      "not elevated",
+	}
+
+	if err := ctx.BindJSON(&req); err != nil {
+		resp.WithResponseData.ErrorString = "Invalid request"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	// Get the authenticated user from the session
+	authenticatedUser := getUserForSession(ctx)
+	if authenticatedUser == nil {
+		resp.WithResponseData.ErrorString = "Authentication required"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	// Get the first user from the config's users list
+	user, err := p.Router(nil).Config.GetUser(req.Username)
+	if user == nil || err != nil {
+		resp.WithResponseData.ErrorString = "Invalid credentials"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	// Verify credentials against the first user
+	if user.ValidatePassword(req.Password) != nil {
+		resp.WithResponseData.ErrorString = "Invalid credentials"
+	} else {
+		// Set elevated session flag in the session
+		session := sessions.Default(ctx)
+		session.Set("elevated", true)
+		if err := session.Save(); err != nil {
+			resp.WithResponseData.ErrorString = "Failed to save session"
+		}
+		resp.WithResponseData.RequestStatus = cmonapi.RequestStatusOk
+		resp.WithResponseData.ErrorString = ""
+	}
+
+	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+}
+
+func (p *Proxy) RPCExitElevatedSession(ctx *gin.Context) {
+
+	resp := &cmonapi.WithResponseData{
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+		RequestStatus:    cmonapi.RequestStatusAuthRequired,
+		ErrorString:      "not authenticated",
+	}
+	// Get the authenticated user from the session
+	authenticatedUser := getUserForSession(ctx)
+	if authenticatedUser == nil {
+		resp.ErrorString = "Authentication required"
+	} else {
+		resp.RequestStatus = cmonapi.RequestStatusOk
+		resp.ErrorString = ""	
+	}
+
+	// Remove elevated session flag
+	session := sessions.Default(ctx)
+	session.Delete("elevated")
+	if err := session.Save(); err != nil {
+		resp.ErrorString = "Failed to save session"
+	}
+
+	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+}
+
+func (p *Proxy) RPCCheckElevatedSession(ctx *gin.Context) {
+	resp := &cmonapi.WithResponseData{
+		RequestProcessed: cmonapi.NullTime{T: time.Now()},
+		RequestStatus:    cmonapi.RequestStatusAuthRequired,
+		ErrorString:      "not authenticated",
+	}
+	// Get the authenticated user from the session
+	authenticatedUser := getUserForSession(ctx)
+	if authenticatedUser == nil {
+		resp.ErrorString = "Authentication required"
+	}
+
+	session := sessions.Default(ctx)
+	if session.Get("elevated") == true {
+		resp.RequestStatus = cmonapi.RequestStatusOk
+		resp.ErrorString = ""
 	}
 
 	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)

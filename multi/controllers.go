@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/severalnines/cmon-proxy/cmon"
@@ -186,6 +187,23 @@ func (p *Proxy) RPCControllerTest(ctx *gin.Context) {
 		return
 	}
 
+	// Get current in-memory credentials
+	auth := p.Router(ctx).AuthController
+	if auth.Use {
+		// Use these credentials for a new controller
+		req.Controller.Username = auth.Username
+		req.Controller.Password = auth.Password
+		req.Controller.UseCmonAuth = false
+		// Now you can authenticate this instance
+		client := cmon.NewClient(req.Controller, p.Router(ctx).Config.Timeout)
+		err := client.Authenticate()
+		if err != nil {
+			resp.Controller = p.pingOne(req.Controller)
+			resp.Controller.StatusMessage = err.Error()
+			resp.Controller.Status = api.Failed
+		}
+	}
+
 	resp.Controller = p.pingOne(req.Controller)
 
 	ctx.JSON(http.StatusOK, &resp)
@@ -195,8 +213,10 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 	var req api.AddControllerRequest
 	var resp api.AddControllerResponse
 
+	session := sessions.Default(ctx)
+	elevated := session.Get("elevated") == true
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if !authenticatedUser.Admin {
+		if !authenticatedUser.Admin && !elevated {
 			cmonapi.CtxWriteError(ctx, fmt.Errorf("Only admin users can add controllers"), http.StatusForbidden)
 			return
 		}
@@ -225,8 +245,10 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 	var req api.AddControllerRequest
 	var resp api.AddControllerResponse
 
+	session := sessions.Default(ctx)
+	elevated := session.Get("elevated") == true
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if !authenticatedUser.Admin {
+		if !authenticatedUser.Admin && !elevated {
 			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can update controllers"), http.StatusForbidden)
 			return
 		}
@@ -272,20 +294,22 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 	var req api.RemoveControllerRequest
 
+	session := sessions.Default(ctx)
+	elevated := session.Get("elevated") == true
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if !authenticatedUser.Admin {
+		if !authenticatedUser.Admin && !elevated {
 			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can remove controllers"), http.StatusForbidden)
 			return
 		}
 	}
 
-	if err := ctx.BindJSON(&req); err != nil || len(req.Xid) < 1 {
+	if err := ctx.BindJSON(&req); err != nil || len(req.ControllerXid) < 1 {
 		cmonapi.CtxWriteError(ctx,
 			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "Invalid request."))
 		return
 	}
 
-	if err := p.Router(nil).Config.RemoveController(req.Xid, true); err != nil {
+	if err := p.Router(nil).Config.RemoveController(req.ControllerXid, true); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
 	}
