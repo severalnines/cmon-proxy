@@ -110,6 +110,34 @@ To drop a controller:
        URLORNAME              The controller name or URL from configuration.
        --help, -h             display this help and exit
 
+### Initialize local CMON configuration
+```bash
+ccmgradm init [options]
+
+Options:
+  --local-cmon            Initialize with local CMON installation
+  -p, --port             Port to start the daemon on (default: 19051)
+  -f, --frontend-path    Path to web UI static files
+  -c, --cmon-config      CMON config file path (default: /etc/cmon.cnf)
+  -u, --cmon-url         CMON URL (default: 127.0.0.1:9501)
+  -s, --cmon-ssh-url     CMON SSH URL (default: 127.0.0.1:9511)
+  --enable-mcc           Enable multicontroller mode
+```
+
+Examples:
+
+```bash
+# Initialize with local CMON
+ccmgradm init --local-cmon -p 443 -f /var/www/frontend
+
+# Initialize with custom CMON URL
+ccmgradm init --local-cmon -u host.docker.internal:19501 -f /var/www/frontend
+
+# Initialize with multicontroller mode
+ccmgradm init --local-cmon --enable-mcc -f /var/www/frontend
+```
+
+
 ## Configuration
 
 The daemon expects (for now) the configuration file located in the current
@@ -857,4 +885,30 @@ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filte
     }
   ]
 }
+```
+
+### Debug builds on MacOS
+
+Create builder
+```bash
+make builder
+```
+
+Run builder
+```bash
+make builder-run
+```
+Navigate to codebase
+```bash
+cd /code
+```
+
+Create builds 
+```bash
+make ci
+```
+
+Create packages
+```bash
+make packages
 ```

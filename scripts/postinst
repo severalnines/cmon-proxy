@@ -1,5 +1,58 @@
 #!/usr/bin/env bash
 
+# Create severalnines group if it doesn't exist
+if ! getent group severalnines >/dev/null; then
+    if [ -f /etc/debian_version ]; then
+        addgroup --system severalnines
+    else
+        groupadd -r severalnines
+    fi
+fi
+
+# Create s9s_cc user if it doesn't exist
+if ! getent passwd s9s_cc >/dev/null; then
+    if [ -f /etc/debian_version ]; then
+        adduser --system --ingroup severalnines --no-create-home --home /nonexistent s9s_cc
+    else
+        useradd -r -g severalnines -s /sbin/nologin -d /nonexistent s9s_cc
+    fi
+fi
+
+# Ensure /usr/share/ccmgr directory exists and has correct permissions
+mkdir -p /usr/share/ccmgr
+chown -R s9s_cc:severalnines /usr/share/ccmgr
+# Set directory permissions to ensure new files have proper ownership
+chmod 750 /usr/share/ccmgr
+
+# Set permissions for environment file
+if [ -f /etc/default/cmon-proxy.env ]; then
+    chown root:severalnines /etc/default/cmon-proxy.env
+    chmod 640 /etc/default/cmon-proxy.env
+fi
+
+# Create log directory and set permissions
+mkdir -p /var/log/ccmgr
+chown s9s_cc:severalnines /var/log/ccmgr
+chmod 750 /var/log/ccmgr
+
+# Check config file for logfile path
+CONFIG_FILE="/usr/share/ccmgr/ccmgr.yaml"
+if [ -f "$CONFIG_FILE" ]; then
+    # Extract logfile path using more portable commands
+    LOGFILE=$(grep "logfile:" "$CONFIG_FILE" | sed 's/^logfile: *//' | tr -d '"' | tr -d "'" 2>/dev/null)
+    if [ -n "$LOGFILE" ] && [ "$LOGFILE" != "null" ]; then
+        # If file exists, set ownership; if not, create it
+        if [ -f "$LOGFILE" ]; then
+            chown s9s_cc:severalnines "$LOGFILE" || echo "Warning: Failed to set ownership on $LOGFILE"
+        else
+            touch "$LOGFILE" 2>/dev/null || echo "Warning: Failed to create log file $LOGFILE"
+            if [ -f "$LOGFILE" ]; then
+                chown s9s_cc:severalnines "$LOGFILE" || echo "Warning: Failed to set ownership on $LOGFILE"
+            fi
+        fi
+    fi
+fi
+
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload
 

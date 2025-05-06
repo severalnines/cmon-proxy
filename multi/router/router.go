@@ -631,7 +631,7 @@ func (cmon *Cmon) ControllerID() string {
 		cmon.mtx.Lock()
 		defer cmon.mtx.Unlock()
 
-		if cmon.PingResponse == nil {
+		if cmon.PingResponse == nil || cmon.PingResponse.WithControllerID == nil {
 			if cmon.Client == nil {
 				return ""
 			}

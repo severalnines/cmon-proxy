@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/rs/xid"
+	"github.com/severalnines/cmon-proxy/auth/secret"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/env"
 	"github.com/severalnines/cmon-proxy/logger"
@@ -36,15 +37,16 @@ import (
 )
 
 type ProxyUser struct {
-	Username     string `yaml:"username,omitempty" json:"username,omitempty"`
-	EmailAddress string `yaml:"email,omitempty" json:"email,omitempty"`
-	PasswordHash string `yaml:"passwordhash,omitempty" json:"passwordhash,omitempty"`
-	FirstName    string `yaml:"firstname,omitempty" json:"firstname,omitempty"`
-	LastName     string `yaml:"lastname,omitempty" json:"lastname,omitempty"`
-	LdapUser     bool   `yaml:"ldap,omitempty" json:"ldap,omitempty"`
-	CMONUser     bool   `yaml:"cmon,omitempty" json:"cmon,omitempty"`
-	Admin        bool   `yaml:"admin,omitempty" json:"admin,omitempty"`
-	ControllerId string `yaml:"xid,omitempty" json:"xid,omitempty"`
+	Username     string   `yaml:"username,omitempty" json:"username,omitempty"`
+	EmailAddress string   `yaml:"email,omitempty" json:"email,omitempty"`
+	PasswordHash string   `yaml:"passwordhash,omitempty" json:"passwordhash,omitempty"`
+	FirstName    string   `yaml:"firstname,omitempty" json:"firstname,omitempty"`
+	LastName     string   `yaml:"lastname,omitempty" json:"lastname,omitempty"`
+	LdapUser     bool     `yaml:"ldap,omitempty" json:"ldap,omitempty"`
+	CMONUser     bool     `yaml:"cmon,omitempty" json:"cmon,omitempty"`
+	Admin        bool     `yaml:"admin,omitempty" json:"admin,omitempty"`
+	Groups       []string `yaml:"groups,omitempty" json:"groups,omitempty"`
+	ControllerId string   `yaml:"xid,omitempty" json:"xid,omitempty"`
 }
 
 type CmonInstance struct {
@@ -63,35 +65,38 @@ type CmonInstance struct {
 
 // Config holds the configuration of cmon-proxy, it is pretty minimal now
 type Config struct {
-	Filename         string
-	WebAppRoot       string
-	FetchJobsHours   int             `yaml:"fetch_jobs_hours,omitempty" json:"fetch_jobs_hours,omitempty"`
-	FetchBackupDays  int             `yaml:"fetch_backups_days,omitempty" json:"fetch_backups_days,omitempty"`
-	Instances        []*CmonInstance `yaml:"instances,omitempty"`
-	Timeout          int             `yaml:"timeout,omitempty"`
-	Logfile          string          `yaml:"logfile,omitempty"`
-	Users            []*ProxyUser    `yaml:"users,omitempty"`
-	FrontendPath     string          `yaml:"frontend_path,omitempty" json:"frontend_path,omitempty"`
-	Port             int             `yaml:"port" json:"port"`
-	TlsCert          string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
-	TlsKey           string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
-	SessionTtl       int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
-	SingleController string          `yaml:"single_controller" json:"single_controller"`
-
-	mtx sync.RWMutex
+	Filename          string
+	WebAppRoot        string
+	FetchJobsHours    int             `yaml:"fetch_jobs_hours,omitempty" json:"fetch_jobs_hours,omitempty"`
+	FetchBackupDays   int             `yaml:"fetch_backups_days,omitempty" json:"fetch_backups_days,omitempty"`
+	Instances         []*CmonInstance `yaml:"instances,omitempty"`
+	Timeout           int             `yaml:"timeout,omitempty"`
+	Logfile           string          `yaml:"logfile,omitempty"`
+	Users             []*ProxyUser    `yaml:"users,omitempty"`
+	FrontendPath      string          `yaml:"frontend_path,omitempty" json:"frontend_path,omitempty"`
+	Port              int             `yaml:"port" json:"port"`
+	TlsCert           string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
+	TlsKey            string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
+	SessionTtl        int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
+	SingleController  string          `yaml:"single_controller" json:"single_controller"`
+	K8sProxyURL       string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
+	KubernetesEnabled bool            `yaml:"kubernetes_enabled" json:"kubernetes_enabled"`
+	mtx               sync.RWMutex
 }
 
 var (
 	defaults = &Config{
-		FrontendPath:     "/app",
-		Logfile:          env.DefaultLogfilePath,
-		Port:             19051,
-		SessionTtl:       int64(30 * time.Minute),
-		Instances:        make([]*CmonInstance, 0),
-		FetchBackupDays:  7,
-		FetchJobsHours:   12,
-		Timeout:          30,
-		SingleController: "",
+		FrontendPath:      "/app",
+		Logfile:           env.DefaultLogfilePath,
+		Port:              19051,
+		SessionTtl:        int64(30 * time.Minute),
+		Instances:         make([]*CmonInstance, 0),
+		FetchBackupDays:   7,
+		FetchJobsHours:    12,
+		Timeout:           30,
+		SingleController:  "",
+		KubernetesEnabled: true,
+		K8sProxyURL:       "http://127.0.0.1:8080",
 	}
 )
 
@@ -167,6 +172,10 @@ func (cfg *Config) Upgrade() {
 // Load loads the configuration from the specified file name
 func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	config := new(Config)
+
+	// Set default values before unmarshaling
+	config.KubernetesEnabled = defaults.KubernetesEnabled
+
 	defer func() {
 		if err := config.Save(); err != nil {
 			zap.L().Error("Failed to save config file",
@@ -220,6 +229,13 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	// some env vars are overriding main options
 	if port, _ := strconv.Atoi(os.Getenv("PORT")); port > 0 {
 		config.Port = port
+	}
+
+	if url := os.Getenv("K8S_PROXY_URL"); url != "" {
+		config.K8sProxyURL = url
+	}
+	if config.K8sProxyURL == "" {
+		config.K8sProxyURL = defaults.K8sProxyURL
 	}
 
 	// we don't want nulls
@@ -502,10 +518,22 @@ func (u *ProxyUser) Copy(withCredentials bool) *ProxyUser {
 		LdapUser:     u.LdapUser,
 		CMONUser:     u.CMONUser,
 		Admin:        u.Admin,
+		Groups:       u.Groups,
 	}
 	// by default we don't want to return password hashes to UI
 	if withCredentials {
 		c.PasswordHash = u.PasswordHash
 	}
 	return c
+}
+
+// GetJWTSecret returns the JWT secret as bytes, generating and storing a new one if it doesn't exist
+func (cfg *Config) GetJWTSecret() ([]byte, error) {
+	secretFile := path.Join(opts.Opts.BaseDir, "jwt_secret.key")
+	return secret.LoadOrGenerateSecret(secretFile)
+}
+
+// GetJWTSecretPath returns the path to the JWT secret file
+func (cfg *Config) GetJWTSecretPath() string {
+	return path.Join(opts.Opts.BaseDir, "jwt_secret.key")
 }

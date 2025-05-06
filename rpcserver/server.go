@@ -30,6 +30,7 @@ import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 
 	"github.com/severalnines/cmon-proxy/config"
+	k8s "github.com/severalnines/cmon-proxy/k8s"
 	"github.com/severalnines/cmon-proxy/multi"
 	"github.com/severalnines/cmon-proxy/opts"
 	"github.com/severalnines/cmon-proxy/rpcserver/session"
@@ -157,6 +158,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					"MCC_API_URL":               "/proxy",
 					"SINGLE_CONTROLLER_API_URL": "/single/v2",
 					"MULTI_CONTROLLER_API_URL":  "/v2",
+					"KUBERNETES_ENABLED":        cfg.KubernetesEnabled,
 				}
 
 				jsonBytes, err := json.Marshal(configToReturn)
@@ -352,10 +354,24 @@ func Start(cfg *config.Config) {
 
 	}
 
-	single := s.Group("/single/v2")
+	k8sClient, err := k8s.NewK8sProxyClient(cfg)
+	if err != nil {
+		log.Sugar().Fatalf("initialization problem: %s", err.Error())
+	}
+
+	single := s.Group("/single")
 	{
-		single.POST("/*any", proxy.PRCProxySingleController)
-		single.GET("/*any", proxy.PRCProxySingleController)
+		single.POST("/v2/*any", proxy.PRCProxySingleController)
+		single.GET("/v2/*any", proxy.PRCProxySingleController)
+		k8s := single.Group("/k8s")
+		{
+			k8sProxyHandler := func(c *gin.Context) {
+				path := c.Param("path")
+				k8sClient.ProxyRequest(c, path)
+			}
+			k8s.GET("/*path", k8sProxyHandler)
+			k8s.POST("/*path", k8sProxyHandler)
+		}
 	}
 
 	// Proxy any /v2 requests to the specified (by controller_id) cmon
@@ -405,7 +421,18 @@ func Start(cfg *config.Config) {
 		mcc := p.Group("/mcc")
 		mcc.Use(proxy.RPCAuthMiddleware)
 		{
-			mcc.POST("/enable", proxy.EnableHandler)
+			mcc.POST("/enable", func(c *gin.Context) {
+				proxy.EnableHandler(c)
+				err := k8sClient.InitAuthService(cfg)
+				if err != nil {
+					log.Sugar().Errorf("Failed to initialize auth service: %v", err)
+				}
+			})
+		}
+		k8s := p.Group("/k8s")
+		k8s.Use(proxy.RPCAuthMiddleware)
+		{
+			k8s.POST("/enable", proxy.EnableK8sHandler)
 		}
 
 		clusters := p.Group("/clusters")

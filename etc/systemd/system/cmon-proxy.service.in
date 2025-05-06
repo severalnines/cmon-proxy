@@ -7,8 +7,10 @@ After=network.target
 ExecStart=@CCMGR_PATH@ --basedir=/usr/share/ccmgr/
 PIDFile=/run/cmon-proxy.pid
 Restart=always
-User=root
-Group=root
+User=s9s_cc
+Group=severalnines
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 EnvironmentFile=-/etc/default/cmon-proxy.env
 ExecReload=/bin/kill -HUP $MAINPID
 WorkingDirectory=/usr/bin

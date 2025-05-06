@@ -1,4 +1,4 @@
-.PHONY: ci getfrontendfiles build builder packages run
+.PHONY: ci getfrontendfiles build builder packages run minimal-ci
 
 DEB_PREFIX = /usr
 RPM_PREFIX = /usr
@@ -18,6 +18,23 @@ ci:
         -a \
         -o build/ccmgradm \
         -ldflags "-s -w -extldflags -static" \
+        ./ccmgradm
+
+# Minimal build without forcing dependency rebuilds
+minimal-ci:
+	CGO_ENABLED=0 \
+	GOOS=linux \
+	GO111MODULE=on go build \
+        -gcflags=all="-N -l -m=1" \
+        -o build/ccmgr \
+        -ldflags "-s -w" \
+        .
+	CGO_ENABLED=0 \
+	GOOS=linux \
+	GO111MODULE=on go build \
+        -gcflags=all="-N -l -m=1" \
+        -o build/ccmgradm \
+        -ldflags "-s -w" \
         ./ccmgradm
 
 ci-docker:
@@ -54,7 +71,7 @@ builder:
 	docker buildx build --platform=linux/amd64  -t severalnines/cmon-proxy-builder . -f docker/Dockerfile.builder
 
 builder-run:
-	docker run -v "$(shell pwd):/code" -p 19051:19051 -it severalnines/cmon-proxy-builder
+	docker run --platform=linux/amd64 -v "$(shell pwd):/code" -p 19051:19051 -it severalnines/cmon-proxy-builder
 
 builder-push:
 	docker push severalnines/cmon-proxy-builder:latest
