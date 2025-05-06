@@ -29,6 +29,5 @@ type AddControllerResponse struct {
 
 // RemoveControllerRequest can be sent to remove a controller by URL
 type RemoveControllerRequest struct {
-	Url string `json:"url"`
-	Xid string `json:"xid"`
+	ControllerXid string `json:"controllerXid"`
 }
