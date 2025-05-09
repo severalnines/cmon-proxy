@@ -190,9 +190,13 @@ func (p *Proxy) RPCControllerTest(ctx *gin.Context) {
 	// Get current in-memory credentials
 	auth := p.Router(ctx).AuthController
 	if auth.Use {
+		if req.Controller.Xid != "" { 
+			// which means it is editing existing controller
+			// @TODO: check how LDAP works with this
+			req.Controller.Username = auth.Username
+			req.Controller.Password = auth.Password
+		}
 		// Use these credentials for a new controller
-		req.Controller.Username = auth.Username
-		req.Controller.Password = auth.Password
 		req.Controller.UseCmonAuth = false
 		// Now you can authenticate this instance
 		client := cmon.NewClient(req.Controller, p.Router(ctx).Config.Timeout)
