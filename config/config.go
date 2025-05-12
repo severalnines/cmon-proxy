@@ -81,6 +81,7 @@ type Config struct {
 	SingleController  string          `yaml:"single_controller" json:"single_controller"`
 	K8sProxyURL       string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
 	KubernetesEnabled bool            `yaml:"kubernetes_enabled" json:"kubernetes_enabled"`
+	LicenseProxyURL   string          `yaml:"license_proxy_url" json:"license_proxy_url"`
 	mtx               sync.RWMutex
 }
 
@@ -97,6 +98,7 @@ var (
 		SingleController:  "",
 		KubernetesEnabled: true,
 		K8sProxyURL:       "http://127.0.0.1:8080",
+		LicenseProxyURL:   "https://severalnines.com/service/lic.php",
 	}
 )
 
@@ -236,6 +238,10 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 	if config.K8sProxyURL == "" {
 		config.K8sProxyURL = defaults.K8sProxyURL
+	}
+
+	if config.LicenseProxyURL == "" {
+		config.LicenseProxyURL = defaults.LicenseProxyURL
 	}
 
 	// we don't want nulls
