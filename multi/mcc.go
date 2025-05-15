@@ -73,6 +73,12 @@ func (p *Proxy) EnableHandler(ctx *gin.Context) {
 		}
 	}
 
+	if req.LdapEnabled {
+		cfg.SetLdapEnabled(cfg.SingleController, true, true)
+	} else {
+		cfg.SetLdapEnabled(cfg.SingleController, false, true)
+	}
+
 	// Enable MCC mode
 	cfg.SingleController = ""
 	if err := cfg.Save(); err != nil {

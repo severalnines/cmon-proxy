@@ -347,6 +347,29 @@ func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
 	return nil
 }
 
+func (cfg *Config) SetLdapEnabled(xid string, ldapEnabled bool, persist bool) error {
+	if err := cfg.ControllerById(xid).Verify(); err != nil {	
+		return err
+	}
+
+	cfg.mtx.Lock()
+	
+	for idx, cmon := range cfg.Instances {
+		if cmon.Xid == xid {
+			cfg.Instances[idx].UseLdap = ldapEnabled
+			cfg.Instances[idx].UseCmonAuth = !ldapEnabled
+			break
+		}
+	}
+	
+	cfg.mtx.Unlock()
+
+	if persist {
+		return cfg.Save()
+	}
+	return nil
+}
+
 // RemoveConroller removes a cmon instance from config file and persists the configuration
 func (cfg *Config) RemoveController(xid string, persist bool) error {
 	if cfg.ControllerById(xid) == nil {
