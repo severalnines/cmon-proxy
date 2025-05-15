@@ -16,8 +16,9 @@ import (
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -70,7 +71,7 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 
 	if false {
 		// log the incoming request
-		body, _ := ioutil.ReadAll(c.Copy().Request.Body)
+		body, _ := io.ReadAll(c.Copy().Request.Body)
 		logger.Debugf("Web request [%s] %s %s:\n%s",
 			c.ClientIP(), c.Request.Method, c.Request.RequestURI, string(body))
 	} else {
@@ -177,6 +178,30 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 				c.Abort()
 				return
 			}
+
+			if c.Request.URL.Path == "/cc-license" {
+				targetUrl, err := url.Parse(cfg.LicenseProxyURL)
+				if err != nil {
+					c.String(http.StatusBadGateway, "Invalid license proxy URL: %v", err)
+					c.Abort()
+					return
+				}
+				// Copy query params from incoming request
+				q := c.Request.URL.Query()
+				targetUrl.RawQuery = q.Encode()
+				resp, err := http.Get(targetUrl.String())
+				if err != nil {
+					c.String(http.StatusBadGateway, "Failed to fetch license: %v", err)
+					c.Abort()
+					return
+				}
+				defer resp.Body.Close()
+				body, _ := io.ReadAll(resp.Body)
+				c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
+				c.Abort()
+				return
+			}
+
 			if !strings.HasPrefix(cleanPath, cfg.WebAppRoot) {
 				c.String(http.StatusForbidden, "Access Denied")
 				c.Abort()
@@ -193,7 +218,7 @@ func forwardToCmon(ctx *gin.Context) {
 	// Proxy requests to cmon (must have controller_id)
 	var controllerId cmonapi.WithControllerID
 	method := ctx.Request.Method
-	jsonData, err := ioutil.ReadAll(ctx.Request.Body)
+	jsonData, err := io.ReadAll(ctx.Request.Body)
 
 	if err == nil {
 		err = json.Unmarshal(jsonData, &controllerId)
@@ -237,7 +262,7 @@ func multiCmon(ctx *gin.Context) {
 	// Proxy requests to all cmons
 	var xids cmonapi.WithMultiXIds
 	method := ctx.Request.Method
-	jsonData, err := ioutil.ReadAll(ctx.Request.Body)
+	jsonData, err := io.ReadAll(ctx.Request.Body)
 
 	if err == nil {
 		err = json.Unmarshal(jsonData, &xids)
