@@ -53,8 +53,6 @@ type CmonInstance struct {
 	Xid           string `yaml:"xid" json:"xid"`
 	Url           string `yaml:"url" json:"url"`
 	Name          string `yaml:"name,omitempty" json:"name,omitempty"`
-	UseCmonAuth   bool   `yaml:"use_cmon_auth,omitempty" json:"use_cmon_auth,omitempty"`
-	UseLdap       bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
 	Username      string `yaml:"username,omitempty" json:"username,omitempty"`
 	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
 	Keyfile       string `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
@@ -106,14 +104,6 @@ func (cmon *CmonInstance) Verify() error {
 	if cmon == nil || len(cmon.Url) < 3 {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
 	}
-	if !cmon.UseLdap && !cmon.UseCmonAuth {
-		if len(cmon.Username) < 1 {
-			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing username")
-		}
-		if len(cmon.Password) < 1 && len(cmon.Keyfile) < 1 {
-			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing password or keyfile")
-		}
-	}
 	return nil
 }
 
@@ -122,9 +112,7 @@ func (cmon *CmonInstance) Copy() *CmonInstance {
 		Xid:           cmon.Xid,
 		Url:           cmon.Url,
 		Name:          cmon.Name,
-		UseCmonAuth:   cmon.UseCmonAuth,
 		Username:      cmon.Username,
-		UseLdap:       cmon.UseLdap,
 		Keyfile:       cmon.Keyfile,
 		Password:      cmon.Password,
 		FrontendUrl:   cmon.FrontendUrl,
@@ -339,29 +327,6 @@ func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
 
 	cfg.mtx.Lock()
 	cfg.Instances = append(cfg.Instances, cmon)
-	cfg.mtx.Unlock()
-
-	if persist {
-		return cfg.Save()
-	}
-	return nil
-}
-
-func (cfg *Config) SetLdapEnabled(xid string, ldapEnabled bool, persist bool) error {
-	if err := cfg.ControllerById(xid).Verify(); err != nil {	
-		return err
-	}
-
-	cfg.mtx.Lock()
-	
-	for idx, cmon := range cfg.Instances {
-		if cmon.Xid == xid {
-			cfg.Instances[idx].UseLdap = ldapEnabled
-			cfg.Instances[idx].UseCmonAuth = !ldapEnabled
-			break
-		}
-	}
-	
 	cfg.mtx.Unlock()
 
 	if persist {

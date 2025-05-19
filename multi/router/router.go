@@ -151,7 +151,7 @@ func (router *Router) Sync() {
 		if instance := router.Config.ControllerByUrl(addr); instance != nil {
 			actualConfig := instance.Copy()
 			// in case of LDAP the credentials aren't stored in config, but in runtime only
-			if router.AuthController.Use && (actualConfig.UseLdap || actualConfig.UseCmonAuth) {
+			if router.AuthController.Use {
 				actualConfig.Username = router.AuthController.Username
 				actualConfig.Password = router.AuthController.Password
 			}
@@ -248,8 +248,7 @@ func (router *Router) GetControllerUser() *api.User {
 	for _, addr := range router.Config.ControllerUrls() {
 		if cmon := router.Cmon(addr); cmon != nil &&
 			cmon.Client != nil &&
-			cmon.Client.Instance != nil &&
-			(cmon.Client.Instance.UseLdap || cmon.Client.Instance.UseCmonAuth) {
+			cmon.Client.Instance != nil {
 			user := cmon.Client.User()
 			if user != nil {
 				return user

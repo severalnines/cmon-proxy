@@ -246,7 +246,6 @@ func main() {
 					Url:         cmonUrl,
 					CMONSshHost: cmonSshUrl,
 					Name:        "local",
-					UseCmonAuth: true,
 					FrontendUrl: "localhost",
 				}
 
