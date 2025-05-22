@@ -32,6 +32,15 @@ import (
 	"github.com/severalnines/cmon-proxy/multi/router"
 )
 
+const maxControllerNameLength = 60
+
+func truncateControllerName(name string) string {
+	if len(name) > maxControllerNameLength {
+		return name[:maxControllerNameLength]
+	}
+	return name
+}
+
 func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 	var req api.ControllerStatusRequest
 
@@ -72,7 +81,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 			}
 		}
 
-		status.Name = c.Client.Instance.Name
+		status.Name = truncateControllerName(c.Client.Instance.Name)
 		status.ControllerID = c.ControllerID()
 		status.Xid = c.Xid()
 		status.Status = api.Ok
@@ -147,7 +156,7 @@ func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 		ControllerID: client.ControllerID(),
 		Version:      client.ServerVersion(),
 		Url:          instance.Url,
-		Name:         instance.Name,
+		Name:         truncateControllerName(instance.Name),
 		Ldap:         instance.UseLdap,
 		Status:       api.Ok,
 	}
