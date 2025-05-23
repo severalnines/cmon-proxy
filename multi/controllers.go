@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -199,7 +200,7 @@ func (p *Proxy) RPCControllerTest(ctx *gin.Context) {
 	// Get current in-memory credentials
 	auth := p.Router(ctx).AuthController
 	if auth.Use {
-		if req.Controller.Xid != "" { 
+		if req.Controller.Xid != "" {
 			// which means it is editing existing controller
 			// @TODO: check how LDAP works with this
 			req.Controller.Username = auth.Username
@@ -395,6 +396,15 @@ func (p *Proxy) CmonShhWsProxyRequest(ctx *gin.Context) {
 		http.Error(ctx.Writer, "Could not open websocket connection", http.StatusBadRequest)
 		return
 	}
+	// If ProxyWebSocket succeeds, it takes ownership of conn. If it fails, or we panic,
+	// this defer ensures the client connection is closed.
+	clientConnectionClosed := false
+	defer func() {
+		if !clientConnectionClosed {
+			log.Println("CmonShhWsProxyRequest: Ensuring client-side WebSocket connection is closed due to error or early exit.")
+			conn.Close()
+		}
+	}()
 
 	scheme := "ws"
 	host := c.Client.Instance.CMONSshHost
@@ -415,6 +425,10 @@ func (p *Proxy) CmonShhWsProxyRequest(ctx *gin.Context) {
 		http.Error(ctx.Writer, "Could not connect to target websocket", http.StatusInternalServerError)
 		return
 	}
+
+	// If ProxyWebSocket returned successfully, it now owns the connection.
+	// Mark clientConnectionClosed as true so the defer func doesn't close it.
+	clientConnectionClosed = true
 }
 
 func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, reqBytes []byte) {
@@ -638,6 +652,195 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 		}
 	}
 
+	ctx.Status(response.StatusCode)
+	if response.Body != nil {
+		_, _ = io.Copy(ctx.Writer, response.Body)
+	}
+}
+
+/**
+ * Single controller websocket proxy without authentication
+ * This works like PRCProxySingleController but for websocket connections
+ */
+func (p *Proxy) PRCProxySingleControllerWebSocket(ctx *gin.Context) {
+	if p.cfg.SingleController == "" {
+		http.Error(ctx.Writer, "Single controller is not defined", http.StatusBadRequest)
+		return
+	}
+
+	controller := p.cfg.ControllerById(p.cfg.SingleController)
+	if controller == nil {
+		http.Error(ctx.Writer, "Controller not found", http.StatusBadRequest)
+		return
+	}
+
+	// Upgrade connection to websocket
+	conn, err := upGrader.Upgrade(ctx.Writer, ctx.Request, nil)
+	if err != nil {
+		log.Printf("PRCProxySingleControllerWebSocket: Failed to upgrade to websocket: %v\n", err)
+		return
+	}
+
+	clientConnectionClosed := false
+	defer func() {
+		if !clientConnectionClosed {
+			log.Println("PRCProxySingleControllerWebSocket: Ensuring client-side WebSocket connection is closed due to error or early exit.")
+			conn.Close()
+		}
+	}()
+
+	// Construct target websocket URL - matching original logic
+	scheme := "ws"
+	host := controller.CMONSshHost
+	if host == "" {
+		host = controller.Url + "/v2/cmon-ssh/"
+		scheme = "wss"
+	}
+	if controller.CMONSshSecure {
+		scheme = "wss"
+	}
+	postfix := ctx.Param("any")
+	targetURL := scheme + "://" + host + postfix
+
+	log.Printf("PRCProxySingleControllerWebSocket: Constructed target WebSocket URL: %s\n", targetURL)
+
+	// Create websocket dialer with TLS config
+	dialer := websocket.Dialer{}
+
+	// Copy headers from original request
+	headers := http.Header{}
+	for key, values := range ctx.Request.Header {
+		// Skip websocket-specific headers that the dialer will add automatically
+		lowerKey := strings.ToLower(key)
+		if lowerKey == "sec-websocket-version" ||
+			lowerKey == "sec-websocket-key" ||
+			lowerKey == "sec-websocket-extensions" ||
+			lowerKey == "sec-websocket-protocol" ||
+			lowerKey == "connection" ||
+			lowerKey == "upgrade" {
+			continue
+		}
+		for _, value := range values {
+			headers.Add(key, value)
+		}
+	}
+	headers.Set("Origin", ctx.Request.Header.Get("Origin"))
+
+	// Connect to target websocket without authentication
+	targetConn, _, err := dialer.Dial(targetURL, headers)
+	if err != nil {
+		log.Printf("PRCProxySingleControllerWebSocket: Error connecting to target %s: %v\n", targetURL, err)
+		return
+	}
+	defer targetConn.Close()
+
+	// Handle message proxying in both directions
+	go func() {
+		for {
+			messageType, p, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			err = targetConn.WriteMessage(messageType, p)
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	for {
+		messageType, p, err := targetConn.ReadMessage()
+		if err != nil {
+			log.Printf("PRCProxySingleControllerWebSocket: Error reading message from target: %v\n", err)
+			return
+		}
+		err = conn.WriteMessage(messageType, p)
+		if err != nil {
+			log.Printf("PRCProxySingleControllerWebSocket: Error writing message to client: %v\n", err)
+			return
+		}
+	}
+}
+
+/**
+ * Single controller HTTP proxy without authentication
+ * This works like PRCProxySingleController but specifically for HTTP requests to cmon-ssh
+ */
+func (p *Proxy) PRCProxySingleControllerHttp(ctx *gin.Context) {
+	if p.cfg.SingleController == "" {
+		http.Error(ctx.Writer, "Single controller is not defined", http.StatusBadRequest)
+		return
+	}
+
+	controller := p.cfg.ControllerById(p.cfg.SingleController)
+	if controller == nil {
+		http.Error(ctx.Writer, "Controller not found", http.StatusBadRequest)
+		return
+	}
+
+	// Construct target URL - matching original logic
+	scheme := "http"
+	host := controller.CMONSshHost
+	if host == "" {
+		host = controller.Url + "/v2/cmon-ssh"
+		scheme = "https"
+	}
+	if controller.CMONSshSecure {
+		scheme = "https"
+	}
+	targetURL := scheme + "://" + host + ctx.Param("any")
+
+	// Create HTTP request
+	var body io.Reader
+	if ctx.Request.Body != nil {
+		bodyBytes, err := io.ReadAll(ctx.Request.Body)
+		if err != nil {
+			http.Error(ctx.Writer, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+		body = bytes.NewReader(bodyBytes)
+	}
+
+	req, err := http.NewRequest(ctx.Request.Method, targetURL, body)
+	if err != nil {
+		http.Error(ctx.Writer, "Failed to create request", http.StatusBadRequest)
+		return
+	}
+
+	// Copy headers from original request
+	for key, values := range ctx.Request.Header {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+
+	// Create HTTP client with TLS config
+	tr := &http.Transport{}
+	client := &http.Client{Transport: tr}
+
+	// Execute request
+	response, err := client.Do(req)
+	if err != nil {
+		http.Error(ctx.Writer, "Failed to forward request: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer response.Body.Close()
+
+	// Copy response headers
+	for key, values := range response.Header {
+		for _, value := range values {
+			ctx.Writer.Header().Add(key, value)
+		}
+	}
+
+	// Copy cookies
+	cookies := response.Cookies()
+	for _, cookie := range cookies {
+		cookie.Path = "/"
+		http.SetCookie(ctx.Writer, cookie)
+	}
+
+	// Copy status and body
 	ctx.Status(response.StatusCode)
 	if response.Body != nil {
 		_, _ = io.Copy(ctx.Writer, response.Body)
