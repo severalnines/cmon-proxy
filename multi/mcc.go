@@ -73,6 +73,16 @@ func (p *Proxy) EnableHandler(ctx *gin.Context) {
 		}
 	}
 
+	controller := cfg.ControllerById(cfg.SingleController)
+	if err := controller.Verify(); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid controller: " + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+	controller.UseLdap = req.LdapEnabled
+	controller.UseCmonAuth = !req.LdapEnabled
+
 	// Enable MCC mode
 	cfg.SingleController = ""
 	if err := cfg.Save(); err != nil {

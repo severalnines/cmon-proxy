@@ -106,14 +106,7 @@ func (cmon *CmonInstance) Verify() error {
 	if cmon == nil || len(cmon.Url) < 3 {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
 	}
-	if !cmon.UseLdap && !cmon.UseCmonAuth {
-		if len(cmon.Username) < 1 {
-			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing username")
-		}
-		if len(cmon.Password) < 1 && len(cmon.Keyfile) < 1 {
-			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing password or keyfile")
-		}
-	}
+	
 	return nil
 }
 
