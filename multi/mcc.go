@@ -73,11 +73,15 @@ func (p *Proxy) EnableHandler(ctx *gin.Context) {
 		}
 	}
 
-	if req.LdapEnabled {
-		cfg.SetLdapEnabled(cfg.SingleController, true, true)
-	} else {
-		cfg.SetLdapEnabled(cfg.SingleController, false, true)
+	controller := cfg.ControllerById(cfg.SingleController)
+	if err := controller.Verify(); err != nil {
+		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
+		resp.ErrorString = "Invalid controller: " + err.Error()
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
 	}
+	controller.UseLdap = req.LdapEnabled
+	controller.UseCmonAuth = !req.LdapEnabled
 
 	// Enable MCC mode
 	cfg.SingleController = ""

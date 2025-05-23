@@ -106,14 +106,7 @@ func (cmon *CmonInstance) Verify() error {
 	if cmon == nil || len(cmon.Url) < 3 {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
 	}
-	if !cmon.UseLdap && !cmon.UseCmonAuth {
-		if len(cmon.Username) < 1 {
-			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing username")
-		}
-		if len(cmon.Password) < 1 && len(cmon.Keyfile) < 1 {
-			return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "missing password or keyfile")
-		}
-	}
+	
 	return nil
 }
 
@@ -339,33 +332,6 @@ func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
 
 	cfg.mtx.Lock()
 	cfg.Instances = append(cfg.Instances, cmon)
-	cfg.mtx.Unlock()
-
-	if persist {
-		return cfg.Save()
-	}
-	return nil
-}
-
-func (cfg *Config) SetLdapEnabled(xid string, ldapEnabled bool, persist bool) error {
-	controller := cfg.ControllerById(xid)
-	if controller == nil {
-		return fmt.Errorf("controller with ID %s not found", xid)
-	}
-	if err := controller.Verify(); err != nil {
-		return err
-	}
-
-	cfg.mtx.Lock()
-	
-	for idx, cmon := range cfg.Instances {
-		if cmon.Xid == xid {
-			cfg.Instances[idx].UseLdap = ldapEnabled
-			cfg.Instances[idx].UseCmonAuth = !ldapEnabled
-			break
-		}
-	}
-	
 	cfg.mtx.Unlock()
 
 	if persist {
