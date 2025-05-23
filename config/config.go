@@ -348,7 +348,11 @@ func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
 }
 
 func (cfg *Config) SetLdapEnabled(xid string, ldapEnabled bool, persist bool) error {
-	if err := cfg.ControllerById(xid).Verify(); err != nil {	
+	controller := cfg.ControllerById(xid)
+	if controller == nil {
+		return fmt.Errorf("controller with ID %s not found", xid)
+	}
+	if err := controller.Verify(); err != nil {
 		return err
 	}
 
