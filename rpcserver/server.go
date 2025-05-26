@@ -400,7 +400,7 @@ func Start(cfg *config.Config) {
 
 		single.GET("/cmon-ssh/*any", func(c *gin.Context) {
 			// could not find better to check if it is a websocket request or not
-			if c.GetHeader("Upgrade") == "websocket" {
+			if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
 				proxy.PRCProxySingleControllerWebSocket(c)
 			} else {
 				proxy.PRCProxySingleControllerHttp(c)
