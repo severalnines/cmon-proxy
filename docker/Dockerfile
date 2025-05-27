@@ -10,7 +10,8 @@ RUN go build -o ccmgr ./main.go
 RUN cd ccmgradm && go build -o ccmgradm .
 
 # Get frontend files from the frontend image
-FROM europe-docker.pkg.dev/severalnines-dev/clustercontrol/frontend:latest AS frontend
+ARG FRONTEND_TAG=latest
+FROM europe-docker.pkg.dev/severalnines-public/clustercontrol/mcc-frontend:${FRONTEND_TAG} AS frontend
 
 FROM alpine:latest
 
