@@ -1,0 +1,100 @@
+name: Docker Build and Push CMON Proxy
+
+on:
+  push:
+    branches:
+      - main
+      - 'release-*'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [frontend-build-completed]
+
+
+env:
+  REGISTRY: europe-docker.pkg.dev/severalnines-public/clustercontrol
+  IMAGE_NAME: ccmgr
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.branch || github.ref_name }}
+      - run: |
+          echo "Currently on branch: $(git rev-parse --abbrev-ref HEAD)"
+
+      - name: Determine tags and frontend image
+        id: set-tags
+        run: |
+          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          echo "Branch name: $BRANCH_NAME"
+          
+          if [[ "$BRANCH_NAME" == release-* ]]; then
+            # Release branch: use version from file and also tag as latest
+            if [[ ! -f "version" ]]; then
+              echo "Error: version file not found for release branch"
+              exit 1
+            fi
+            VERSION=$(cat version | tr -d '\n' | tr -d ' ')
+            if [[ -z "$VERSION" ]]; then
+              echo "Error: version file is empty"
+              exit 1
+            fi
+            echo "VERSION_TAG=$VERSION" >> $GITHUB_ENV
+            echo "LATEST_TAG=latest" >> $GITHUB_ENV
+            echo "IS_RELEASE=true" >> $GITHUB_ENV
+            echo "FRONTEND_TAG=$VERSION" >> $GITHUB_ENV
+            echo "Release build - using version: $VERSION, frontend tag: $VERSION"
+          else
+            # Other branches: use branch-dev-latest format
+            CLEAN_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9-]/-/g')
+            DEV_TAG="${CLEAN_BRANCH_NAME}-dev-latest"
+            echo "DEV_TAG=$DEV_TAG" >> $GITHUB_ENV
+            echo "IS_RELEASE=false" >> $GITHUB_ENV
+            echo "FRONTEND_TAG=main-dev-latest" >> $GITHUB_ENV
+            echo "Development build - using tag: $DEV_TAG, frontend tag: main-dev-latest"
+          fi
+          
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.S9S_PUBLIC_GCP_SA_KEY }}'
+
+      - name: Configure Docker for GCP Artifact Registry
+        run: |
+          gcloud auth configure-docker europe-docker.pkg.dev --quiet
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          build-args: |
+            FRONTEND_TAG=${{ env.FRONTEND_TAG }}
+          tags: ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG || env.DEV_TAG }}
+
+      - name: Tag and Push Docker images
+        run: |
+          if [[ "${{ env.IS_RELEASE }}" == "true" ]]; then
+            # Release build: tag and push both version and latest
+            docker tag ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}
+            docker tag ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
+            echo "Pushed tags: ${{ env.VERSION_TAG }}, ${{ env.LATEST_TAG }}"
+          else
+            # Development build: tag and push dev tag only
+            docker tag ${{ env.IMAGE_NAME }}:${{ env.DEV_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_TAG }}
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_TAG }}
+            echo "Pushed tag: ${{ env.DEV_TAG }}"
+          fi 
