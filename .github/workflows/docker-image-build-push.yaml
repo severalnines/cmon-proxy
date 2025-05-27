@@ -26,13 +26,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.client_payload.branch || github.ref_name }}
-      - run: |
+      
+      - name: Debug environment
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Ref name: ${{ github.ref_name }}"
+          echo "Client payload branch: ${{ github.event.client_payload.branch }}"
           echo "Currently on branch: $(git rev-parse --abbrev-ref HEAD)"
 
       - name: Determine tags and frontend image
         id: set-tags
         run: |
-          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          # Use github.ref_name for push events, fallback to git command
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            BRANCH_NAME="${{ github.ref_name }}"
+          else
+            BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          fi
           echo "Branch name: $BRANCH_NAME"
           
           if [[ "$BRANCH_NAME" == release-* ]]; then
@@ -60,6 +70,13 @@ jobs:
             echo "FRONTEND_TAG=main-dev-latest" >> $GITHUB_ENV
             echo "Development build - using tag: $DEV_TAG, frontend tag: main-dev-latest"
           fi
+          
+      - name: Debug environment variables
+        run: |
+          echo "VERSION_TAG: ${{ env.VERSION_TAG }}"
+          echo "DEV_TAG: ${{ env.DEV_TAG }}"
+          echo "FRONTEND_TAG: ${{ env.FRONTEND_TAG }}"
+          echo "IS_RELEASE: ${{ env.IS_RELEASE }}"
           
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'
