@@ -397,6 +397,16 @@ func Start(cfg *config.Config) {
 			k8s.GET("/*path", k8sProxyHandler)
 			k8s.POST("/*path", k8sProxyHandler)
 		}
+
+		single.GET("/cmon-ssh/*any", func(c *gin.Context) {
+			// could not find better to check if it is a websocket request or not
+			if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
+				proxy.PRCProxySingleControllerWebSocket(c)
+			} else {
+				proxy.PRCProxySingleControllerHttp(c)
+			}
+		})
+
 	}
 
 	// Proxy any /v2 requests to the specified (by controller_id) cmon
