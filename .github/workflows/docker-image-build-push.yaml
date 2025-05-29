@@ -50,13 +50,13 @@ jobs:
           CUSTOM_TAG="${{ github.event.inputs.custom_tag }}"
           CUSTOM_FRONTEND_TAG="${{ github.event.inputs.frontend_tag }}"
           
-          if [[ -n "$CUSTOM_TAG" && "$CUSTOM_TAG" != "" ]]; then
+          if [[ -n "$CUSTOM_TAG" ]]; then
             # Custom tag provided - use it directly
             echo "CUSTOM_TAG=$CUSTOM_TAG" >> $GITHUB_ENV
             echo "IS_RELEASE=false" >> $GITHUB_ENV
             
             # Use custom frontend tag if provided, otherwise use main-dev-latest
-            if [[ -n "$CUSTOM_FRONTEND_TAG" && "$CUSTOM_FRONTEND_TAG" != "" ]]; then
+            if [[ -n "$CUSTOM_FRONTEND_TAG" ]]; then
               echo "FRONTEND_TAG=$CUSTOM_FRONTEND_TAG" >> $GITHUB_ENV
               echo "Custom build - using custom tag: $CUSTOM_TAG, custom frontend tag: $CUSTOM_FRONTEND_TAG"
             else
