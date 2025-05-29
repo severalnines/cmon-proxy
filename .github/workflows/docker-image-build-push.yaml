@@ -6,6 +6,15 @@ on:
       - main
       - 'release-*'
   workflow_dispatch:
+    inputs:
+      custom_tag:
+        description: 'Custom image tag (optional). If provided, this tag will be used instead of the automatic tagging strategy.'
+        required: false
+        type: string
+      frontend_tag:
+        description: 'Frontend image tag (optional). If not provided, will use appropriate default based on branch.'
+        required: false
+        type: string
   repository_dispatch:
     types: [frontend-build-completed]
 
@@ -37,42 +46,62 @@ jobs:
       - name: Determine tags and frontend image
         id: set-tags
         run: |
-          # Use github.ref_name for push events, fallback to git command
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            BRANCH_NAME="${{ github.ref_name }}"
-          else
-            BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-          fi
-          echo "Branch name: $BRANCH_NAME"
+          # Check if custom tag is provided
+          CUSTOM_TAG="${{ github.event.inputs.custom_tag }}"
+          CUSTOM_FRONTEND_TAG="${{ github.event.inputs.frontend_tag }}"
           
-          if [[ "$BRANCH_NAME" == release-* ]]; then
-            # Release branch: use version from file and also tag as latest
-            if [[ ! -f "version" ]]; then
-              echo "Error: version file not found for release branch"
-              exit 1
-            fi
-            VERSION=$(cat version | tr -d '\n' | tr -d ' ')
-            if [[ -z "$VERSION" ]]; then
-              echo "Error: version file is empty"
-              exit 1
-            fi
-            echo "VERSION_TAG=$VERSION" >> $GITHUB_ENV
-            echo "LATEST_TAG=latest" >> $GITHUB_ENV
-            echo "IS_RELEASE=true" >> $GITHUB_ENV
-            echo "FRONTEND_TAG=$VERSION" >> $GITHUB_ENV
-            echo "Release build - using version: $VERSION, frontend tag: $VERSION"
-          else
-            # Other branches: use branch-dev-latest format
-            CLEAN_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9-]/-/g')
-            DEV_TAG="${CLEAN_BRANCH_NAME}-dev-latest"
-            echo "DEV_TAG=$DEV_TAG" >> $GITHUB_ENV
+          if [[ -n "$CUSTOM_TAG" ]]; then
+            # Custom tag provided - use it directly
+            echo "CUSTOM_TAG=$CUSTOM_TAG" >> $GITHUB_ENV
             echo "IS_RELEASE=false" >> $GITHUB_ENV
-            echo "FRONTEND_TAG=main-dev-latest" >> $GITHUB_ENV
-            echo "Development build - using tag: $DEV_TAG, frontend tag: main-dev-latest"
+            
+            # Use custom frontend tag if provided, otherwise use main-dev-latest
+            if [[ -n "$CUSTOM_FRONTEND_TAG" ]]; then
+              echo "FRONTEND_TAG=$CUSTOM_FRONTEND_TAG" >> $GITHUB_ENV
+              echo "Custom build - using custom tag: $CUSTOM_TAG, custom frontend tag: $CUSTOM_FRONTEND_TAG"
+            else
+              echo "FRONTEND_TAG=main-dev-latest" >> $GITHUB_ENV
+              echo "Custom build - using custom tag: $CUSTOM_TAG, default frontend tag: main-dev-latest"
+            fi
+          else
+            # Use github.ref_name for push events, fallback to git command
+            if [[ "${{ github.event_name }}" == "push" ]]; then
+              BRANCH_NAME="${{ github.ref_name }}"
+            else
+              BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+            fi
+            echo "Branch name: $BRANCH_NAME"
+            
+            if [[ "$BRANCH_NAME" == release-* ]]; then
+              # Release branch: use version from file and also tag as latest
+              if [[ ! -f "version" ]]; then
+                echo "Error: version file not found for release branch"
+                exit 1
+              fi
+              VERSION=$(cat version | tr -d '\n' | tr -d ' ')
+              if [[ -z "$VERSION" ]]; then
+                echo "Error: version file is empty"
+                exit 1
+              fi
+              echo "VERSION_TAG=$VERSION" >> $GITHUB_ENV
+              echo "LATEST_TAG=latest" >> $GITHUB_ENV
+              echo "IS_RELEASE=true" >> $GITHUB_ENV
+              echo "FRONTEND_TAG=$VERSION" >> $GITHUB_ENV
+              echo "Release build - using version: $VERSION, frontend tag: $VERSION"
+            else
+              # Other branches: use branch-dev-latest format
+              CLEAN_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9-]/-/g')
+              DEV_TAG="${CLEAN_BRANCH_NAME}-dev-latest"
+              echo "DEV_TAG=$DEV_TAG" >> $GITHUB_ENV
+              echo "IS_RELEASE=false" >> $GITHUB_ENV
+              echo "FRONTEND_TAG=main-dev-latest" >> $GITHUB_ENV
+              echo "Development build - using tag: $DEV_TAG, frontend tag: main-dev-latest"
+            fi
           fi
           
       - name: Debug environment variables
         run: |
+          echo "CUSTOM_TAG: ${{ env.CUSTOM_TAG }}"
           echo "VERSION_TAG: ${{ env.VERSION_TAG }}"
           echo "DEV_TAG: ${{ env.DEV_TAG }}"
           echo "FRONTEND_TAG: ${{ env.FRONTEND_TAG }}"
@@ -98,11 +127,16 @@ jobs:
           load: true
           build-args: |
             FRONTEND_TAG=${{ env.FRONTEND_TAG }}
-          tags: ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG || env.DEV_TAG }}
+          tags: ${{ env.IMAGE_NAME }}:${{ env.CUSTOM_TAG || env.VERSION_TAG || env.DEV_TAG }}
 
       - name: Tag and Push Docker images
         run: |
-          if [[ "${{ env.IS_RELEASE }}" == "true" ]]; then
+          if [[ -n "${{ env.CUSTOM_TAG }}" ]]; then
+            # Custom tag build: tag and push custom tag only
+            docker tag ${{ env.IMAGE_NAME }}:${{ env.CUSTOM_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CUSTOM_TAG }}
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CUSTOM_TAG }}
+            echo "Pushed custom tag: ${{ env.CUSTOM_TAG }}"
+          elif [[ "${{ env.IS_RELEASE }}" == "true" ]]; then
             # Release build: tag and push both version and latest
             docker tag ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}
             docker tag ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
