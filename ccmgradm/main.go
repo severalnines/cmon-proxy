@@ -237,7 +237,7 @@ func main() {
 				if len(args.Init.CMONSshUrl) > 0 {
 					cmonSshUrl = args.Init.CMONSshUrl
 				}
-				kuberProxyUrl := "127.0.0.1:8080"
+				kuberProxyUrl := "http://127.0.0.1:8080"
 				if len(args.Init.KuberProxyUrl) > 0 {
 					kuberProxyUrl = args.Init.KuberProxyUrl
 				}
