@@ -157,6 +157,8 @@ instances: # List of controller
       username: admin
       password: password
       frontend_url: http://hostname:9443/ # Url of Cluster Control web interface
+      cmon_ssh_host: 127.0.0.1:9511 # cmon-ssh host and port, used for web ssh console. Default for single controller - 127.0.0.1:9511
+      cmon_ssh_secure: false # if true - use TLS for cmon-ssh connection
     - xid: cnoi4d3fo0o9e9m7hap0 # Controller id. Generated automatically
       # ....
 timeout: 30 # request timeout in seconds. Default 30
@@ -171,6 +173,10 @@ tls_key: server.key # Default server.key can be set from env TLS_KEY_FILE variab
 session_ttl: 3600000000000 # Session time to live in nanoseconds. Default 1 hour
 fetch_backups_days: 7 # How many days in the past cmon-proxy should look for backup data. Default is 7 days
 fetch_jobs_hours: 12 # How many hours in the past cmon-proxy should look for jobs data. Default is 12 hours
+single_controller: chebjd8gfi863qqhrolg # ID of single controller, if it is set - multi-controller is disabled
+k8s_proxy_url: http://127.0.0.1:8080 # Kubernetes proxy URL. Default is http://127.0.0.1:8080 
+kubernetes_enabled: true # Enable Kubernetes proxy. Default is true
+license_proxy_url: "https://severalnines.com/service/lic.php" # URL to request demo license during registration. Default - https://severalnines.com/service/lic.php
 ```
 
 ## RPC endpoints
