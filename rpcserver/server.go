@@ -341,8 +341,6 @@ func Start(cfg *config.Config) {
 	if err != nil {
 		log.Sugar().Fatalf("initialization problem: %s", err.Error())
 	}
-	// do initial connection to the nodes
-	proxy.Authenticate()
 
 	multi.StartSessionCleanupScheduler(proxy)
 
