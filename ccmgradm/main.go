@@ -54,13 +54,14 @@ type AddControllerCmd struct {
 }
 
 type InitCmd struct {
-	LocalCmon    bool   `arg:"--local-cmon" help:"Initialize with local cmon installation"`
-	Port         int    `arg:"-p,--port" help:"Port to start the daemon on (default: 19051)"`
-	FrontendPath string `arg:"-f,--frontend-path" help:"Path to web ui static files"`
-	Config       string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
-	Url          string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
-	CMONSshUrl   string `arg:"-s,--cmon-ssh-url" help:"cmon-ssh url (default: 127.0.0.1:9511)"`
-	EnableMcc    bool   `arg:"-s,--enable-mcc" help:"Enable multicontroller mode"`
+	LocalCmon     bool   `arg:"--local-cmon" help:"Initialize with local cmon installation"`
+	Port          int    `arg:"-p,--port" help:"Port to start the daemon on (default: 19051)"`
+	FrontendPath  string `arg:"-f,--frontend-path" help:"Path to web ui static files"`
+	Config        string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
+	Url           string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
+	CMONSshUrl    string `arg:"-s,--cmon-ssh-url" help:"cmon-ssh url (default: 127.0.0.1:9511)"`
+	KuberProxyUrl string `arg:"-k,--kuber-proxy-url" help:"kuber-proxy url (default: 127.0.0.1:8080)"`
+	EnableMcc     bool   `arg:"-s,--enable-mcc" help:"Enable multicontroller mode"`
 }
 
 type DropControllerCmd struct {
@@ -236,6 +237,11 @@ func main() {
 				if len(args.Init.CMONSshUrl) > 0 {
 					cmonSshUrl = args.Init.CMONSshUrl
 				}
+				kuberProxyUrl := "http://127.0.0.1:8080"
+				if len(args.Init.KuberProxyUrl) > 0 {
+					kuberProxyUrl = args.Init.KuberProxyUrl
+				}
+				cfg.K8sProxyURL = kuberProxyUrl
 				cmon := cfg.ControllerByUrl(cmonUrl)
 				if cmon != nil {
 					fmt.Println("Controller already exists with this URL.")

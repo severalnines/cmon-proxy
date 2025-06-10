@@ -1,3 +1,6 @@
+# Frontend image tag argument (must be before FROM statements that use it)
+ARG FRONTEND_TAG=latest
+
 FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
@@ -10,7 +13,7 @@ RUN go build -o ccmgr ./main.go
 RUN cd ccmgradm && go build -o ccmgradm .
 
 # Get frontend files from the frontend image
-FROM europe-docker.pkg.dev/severalnines-dev/clustercontrol/frontend:latest AS frontend
+FROM europe-docker.pkg.dev/severalnines-public/clustercontrol/mcc-frontend:${FRONTEND_TAG} AS frontend
 
 FROM alpine:latest
 
