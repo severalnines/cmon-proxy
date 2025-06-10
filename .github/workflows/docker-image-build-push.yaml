@@ -41,7 +41,35 @@ jobs:
           echo "Event name: ${{ github.event_name }}"
           echo "Ref name: ${{ github.ref_name }}"
           echo "Client payload branch: ${{ github.event.client_payload.branch }}"
+          echo "Client payload build_number: ${{ github.event.client_payload.build_number }}"
           echo "Currently on branch: $(git rev-parse --abbrev-ref HEAD)"
+
+      - name: Validate release branch format
+        id: validate-branch
+        run: |
+          BRANCH_NAME="${{ github.event.client_payload.branch || github.ref_name }}"
+          echo "Branch name: $BRANCH_NAME"
+          echo "Trigger event: ${{ github.event_name }}"
+          
+          # Only validate semver format for automatic push triggers, not manual dispatches or repository dispatches
+          if [[ "${{ github.event_name }}" == "push" && "$BRANCH_NAME" == release-* ]]; then
+            # Extract version part after 'release-'
+            VERSION_PART="${BRANCH_NAME#release-}"
+            
+            # Validate semver format (X.Y.Z where X, Y, Z are numbers)
+            if [[ "$VERSION_PART" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Valid release branch format: $BRANCH_NAME"
+              echo "VALID_RELEASE_BRANCH=true" >> $GITHUB_ENV
+            else
+              echo "Invalid release branch format: $BRANCH_NAME"
+              echo "Release branches must follow format: release-X.Y.Z (e.g., release-1.2.3)"
+              echo "Automatic builds from release branches require strict semver format"
+              echo "VALID_RELEASE_BRANCH=false" >> $GITHUB_ENV
+              exit 1
+            fi
+          else
+            echo "VALID_RELEASE_BRANCH=true" >> $GITHUB_ENV
+          fi
 
       - name: Determine tags and frontend image
         id: set-tags
@@ -49,6 +77,9 @@ jobs:
           # Check if custom tag is provided
           CUSTOM_TAG="${{ github.event.inputs.custom_tag }}"
           CUSTOM_FRONTEND_TAG="${{ github.event.inputs.frontend_tag }}"
+          
+          BUILD_NUMBER="${{ github.run_number }}"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           
           if [[ -n "$CUSTOM_TAG" ]]; then
             # Custom tag provided - use it directly
@@ -64,8 +95,9 @@ jobs:
               echo "Custom build - using custom tag: $CUSTOM_TAG, default frontend tag: main-dev-latest"
             fi
           else
-            # Use github.ref_name for push events, fallback to git command
-            if [[ "${{ github.event_name }}" == "push" ]]; then
+            if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+              BRANCH_NAME="${{ github.event.client_payload.branch }}"
+            elif [[ "${{ github.event_name }}" == "push" ]]; then
               BRANCH_NAME="${{ github.ref_name }}"
             else
               BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
@@ -83,11 +115,20 @@ jobs:
                 echo "Error: version file is empty"
                 exit 1
               fi
-              echo "VERSION_TAG=$VERSION" >> $GITHUB_ENV
+              VERSION_WITH_BUILD="release-${VERSION}-${BUILD_NUMBER}"
+              echo "VERSION_TAG=$VERSION_WITH_BUILD" >> $GITHUB_ENV
               echo "LATEST_TAG=latest" >> $GITHUB_ENV
               echo "IS_RELEASE=true" >> $GITHUB_ENV
-              echo "FRONTEND_TAG=$VERSION" >> $GITHUB_ENV
-              echo "Release build - using version: $VERSION, frontend tag: $VERSION"
+              
+              # For frontend tag, use the version with build number if triggered by repository_dispatch
+              if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+                FRONTEND_BUILD_NUMBER="${{ github.event.client_payload.build_number }}"
+                echo "FRONTEND_TAG=release-${VERSION}-${FRONTEND_BUILD_NUMBER}" >> $GITHUB_ENV
+                echo "Release build - using version: $VERSION_WITH_BUILD, frontend tag: release-${VERSION}-${FRONTEND_BUILD_NUMBER}"
+              else
+                echo "FRONTEND_TAG=release-${VERSION}" >> $GITHUB_ENV
+                echo "Release build - using version: $VERSION_WITH_BUILD, frontend tag: release-${VERSION}"
+              fi
             else
               # Other branches: use branch-dev-latest format
               CLEAN_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9-]/-/g')
@@ -105,6 +146,7 @@ jobs:
           echo "VERSION_TAG: ${{ env.VERSION_TAG }}"
           echo "DEV_TAG: ${{ env.DEV_TAG }}"
           echo "FRONTEND_TAG: ${{ env.FRONTEND_TAG }}"
+          echo "BUILD_NUMBER: ${{ env.BUILD_NUMBER }}"
           echo "IS_RELEASE: ${{ env.IS_RELEASE }}"
           
       - id: 'auth'
@@ -137,7 +179,7 @@ jobs:
             docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CUSTOM_TAG }}
             echo "Pushed custom tag: ${{ env.CUSTOM_TAG }}"
           elif [[ "${{ env.IS_RELEASE }}" == "true" ]]; then
-            # Release build: tag and push both version and latest
+            # Release build: tag and push both version with build number and latest
             docker tag ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}
             docker tag ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
             docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}
