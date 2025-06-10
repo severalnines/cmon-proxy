@@ -343,7 +343,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 	// check if we have any cmon configured to use LDAP or CMON authentication
 	useController := false
 	for _, instance := range p.cfg.Instances {
-		if instance != nil && (instance.UseLdap || instance.UseCmonAuth) {
+		if instance != nil {
 			useController = true
 			break
 		}

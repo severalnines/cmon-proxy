@@ -86,8 +86,6 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		status.ControllerID = c.ControllerID()
 		status.Xid = c.Xid()
 		status.Status = api.Ok
-		status.Ldap = c.Client.Instance.UseLdap
-		status.UseCmonAuth = c.Client.Instance.UseCmonAuth
 		status.FrontendUrl = c.Client.Instance.FrontendUrl
 		status.LastUpdated.T = time.Now()
 
@@ -121,18 +119,6 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 			status.LastSeen.T = time.Now()
 		}
 
-		if c.Client.Instance.UseLdap {
-			if status.Status == api.Ok {
-				status.StatusMessage = "LDAP authentication ok."
-			} else if status.Status == api.AuthenticationError {
-				if len(status.StatusMessage) > 1 && !strings.HasPrefix(status.StatusMessage, "LDAP") {
-					status.StatusMessage = "LDAP: " + status.StatusMessage
-				} else {
-					status.StatusMessage = "LDAP authentication failed."
-				}
-			}
-		}
-
 		// persist in cache for later use
 		mtx.Lock()
 		controllerStatusCache[addr] = status
@@ -158,7 +144,6 @@ func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 		Version:      client.ServerVersion(),
 		Url:          instance.Url,
 		Name:         truncateControllerName(instance.Name),
-		Ldap:         instance.UseLdap,
 		Status:       api.Ok,
 	}
 	if resp != nil && len(resp.Version) > 0 {
@@ -174,17 +159,7 @@ func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 			retval.Status = api.AuthenticationError
 		}
 	}
-	if instance.UseLdap {
-		if retval.Status == api.Ok {
-			retval.StatusMessage = "LDAP authentication ok."
-		} else if retval.Status == api.AuthenticationError {
-			if len(retval.StatusMessage) > 1 {
-				retval.StatusMessage = "LDAP: " + retval.StatusMessage
-			} else {
-				retval.StatusMessage = "LDAP authentication failed."
-			}
-		}
-	}
+
 	return retval
 }
 
