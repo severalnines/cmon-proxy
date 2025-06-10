@@ -207,7 +207,6 @@ func main() {
 				Xid:         xid.New().String(),
 				Url:         args.AddController.Url,
 				Name:        args.AddController.Name,
-				UseLdap:     args.AddController.UseLdap,
 				FrontendUrl: args.AddController.FrontendUrl,
 			}
 			if len(cmon.Name) < 1 {
@@ -216,10 +215,8 @@ func main() {
 				}
 			}
 			// save static credentials only for non-LDAP controllers
-			if !cmon.UseLdap {
-				cmon.Username = args.AddController.Username
-				cmon.Password = args.AddController.Password
-			}
+			cmon.Username = args.AddController.Username
+			cmon.Password = args.AddController.Password
 			if err := cfg.AddController(cmon, false); err != nil {
 				fmt.Println("Couldn't add controller:", err.Error())
 				os.Exit(1)
@@ -252,7 +249,6 @@ func main() {
 					Url:         cmonUrl,
 					CMONSshHost: cmonSshUrl,
 					Name:        "local",
-					UseCmonAuth: true,
 					FrontendUrl: "localhost",
 				}
 
@@ -345,21 +341,15 @@ func main() {
 					cmon.Name = u.Hostname()
 				}
 			}
-			cmon.UseLdap = args.UpdateController.UseLdap
-			if args.UpdateController.UseLdap {
-				cmon.Username = ""
-				cmon.Password = ""
-			} else {
-				if len(args.UpdateController.Username) > 0 {
-					cmon.Username = args.UpdateController.Username
-				}
-				if len(args.UpdateController.Password) > 0 {
-					cmon.Password = args.UpdateController.Password
-				}
-				if len(cmon.Username) < 1 || len(cmon.Password) < 1 {
-					fmt.Println("Controller credentials can not be empty (for non LDAP logins).")
-					os.Exit(1)
-				}
+			if len(args.UpdateController.Username) > 0 {
+				cmon.Username = args.UpdateController.Username
+			}
+			if len(args.UpdateController.Password) > 0 {
+				cmon.Password = args.UpdateController.Password
+			}
+			if len(cmon.Username) < 1 || len(cmon.Password) < 1 {
+				fmt.Println("Controller credentials can not be empty (for non LDAP logins).")
+				os.Exit(1)
 			}
 			if len(args.UpdateController.FrontendUrl) > 0 {
 				cmon.FrontendUrl = args.UpdateController.FrontendUrl
@@ -376,11 +366,6 @@ func main() {
 				fmt.Print("* ", cmon.Url)
 				if len(cmon.Name) > 0 {
 					fmt.Print(" [", cmon.Name, "]")
-				}
-				if cmon.UseLdap {
-					fmt.Print(" *LDAP authentication*")
-				} else {
-					fmt.Print(" Static user: ", cmon.Username)
 				}
 				if len(cmon.FrontendUrl) > 0 {
 					fmt.Print(" Web-UI:", cmon.FrontendUrl)

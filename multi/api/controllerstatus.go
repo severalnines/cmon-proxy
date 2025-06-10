@@ -46,8 +46,6 @@ type ControllerStatus struct {
 	FrontendUrl   string                    `json:"frontend_url,omitempty"`
 	Version       string                    `json:"version"`
 	StatusMessage string                    `json:"status_message"`
-	Ldap          bool                      `json:"ldap"`
-	UseCmonAuth   bool                      `json:"use_cmon_auth"`
 	Status        CmonStatus                `json:"status"`
 	LastUpdated   cmonapi.NullTime          `json:"last_updated"`
 	LastSeen      cmonapi.NullTime          `json:"last_seen"`
