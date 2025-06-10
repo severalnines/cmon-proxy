@@ -188,6 +188,32 @@ func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 	return retval
 }
 
+func (p *Proxy) infoOne(instance *config.CmonInstance) *api.ControllerStatus {
+	client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
+	resp, err := client.InfoPing()
+
+	retval := &api.ControllerStatus{
+		Xid:          instance.Xid,
+		ControllerID: client.ControllerID(),
+		Version:      "",
+		Url:          instance.Url,
+		Name:         truncateControllerName(instance.Name),
+		Status:       api.Ok,
+	}
+
+	if resp != nil {
+		retval.Version = resp.Version
+	}
+
+	if err != nil {
+		retval.StatusMessage = err.Error()
+		retval.Status = api.Failed
+	}
+	
+	return retval
+}
+
+
 func (p *Proxy) RPCControllerTest(ctx *gin.Context) {
 	var req api.AddControllerRequest
 	var resp api.AddControllerResponse
@@ -197,28 +223,7 @@ func (p *Proxy) RPCControllerTest(ctx *gin.Context) {
 		return
 	}
 
-	// Get current in-memory credentials
-	auth := p.Router(ctx).AuthController
-	if auth.Use {
-		if req.Controller.Xid != "" {
-			// which means it is editing existing controller
-			// @TODO: check how LDAP works with this
-			req.Controller.Username = auth.Username
-			req.Controller.Password = auth.Password
-		}
-		// Use these credentials for a new controller
-		req.Controller.UseCmonAuth = false
-		// Now you can authenticate this instance
-		client := cmon.NewClient(req.Controller, p.Router(ctx).Config.Timeout)
-		err := client.Authenticate()
-		if err != nil {
-			resp.Controller = p.pingOne(req.Controller)
-			resp.Controller.StatusMessage = err.Error()
-			resp.Controller.Status = api.Failed
-		}
-	}
-
-	resp.Controller = p.pingOne(req.Controller)
+	resp.Controller = p.infoOne(req.Controller)
 
 	ctx.JSON(http.StatusOK, &resp)
 }
@@ -297,7 +302,6 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 	c.InvalidateCache()
 	c.Client.ResetSession()
 
-	resp.Controller = p.pingOne(req.Controller)
 
 	// it is going to refresh everything
 	p.Refresh()
