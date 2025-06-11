@@ -442,6 +442,7 @@ func Start(cfg *config.Config) {
 
 			auth.POST("/register", proxy.RPCAuthRegisterUserHandler)
 			auth.POST("/login", proxy.RPCAuthLoginHandler)
+			auth.POST("/controller-login", proxy.RPCAuthControllerLoginHandler)
 			auth.POST("/apply-controller-session", proxy.RPCAuthCookieHandler)
 
 			auth.GET("/logout", proxy.RPCAuthLogoutHandler)
@@ -552,6 +553,8 @@ func Start(cfg *config.Config) {
 		{
 			admin.GET("/reload", proxy.RPCAdminReload)
 			admin.POST("/reload", proxy.RPCAdminReload)
+			admin.GET("/controllers/status", proxy.RPCControllerStatus)
+			admin.POST("/controllers/status", proxy.RPCControllerStatus)
 		}
 	}
 
