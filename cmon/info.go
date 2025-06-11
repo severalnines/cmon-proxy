@@ -1,4 +1,4 @@
-package api
+package cmon
 
 // Copyright 2022 Severalnines AB
 //
@@ -10,28 +10,20 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
+import (
+	"github.com/severalnines/cmon-proxy/cmon/api"
+)
 
-type PingRequest struct {
-	*WithOperation       `json:",inline"`
-	*WithClusterIDForced `json:",inline"`
-}
-
-type PingResponse struct {
-	*WithControllerID `json:",inline"`
-	*WithResponseData `json:",inline"`
-
-	Name    string `json:"package_name"`
-	Version string `json:"package_version"`
-}
-
-type InfoPingRequest struct {
-	*WithOperation       `json:",inline"`
-}
-
-type InfoPingResponse struct {
-	*WithControllerID `json:",inline"`
-	*WithResponseData `json:",inline"`
-
-	Name    string `json:"package_name"`
-	Version string `json:"package_version"`
+func (client *Client) InfoPing() (*api.InfoPingResponse, error) {
+	req := api.InfoPingRequest{
+		WithOperation: &api.WithOperation{Operation: "ping"},
+	}
+	res := &api.InfoPingResponse{}
+	if err := client.Request(api.ModuleInfo, req, res, true); err != nil {
+		return nil, err
+	}
+	if res.RequestStatus != api.RequestStatusOk {
+		return nil, api.NewErrorFromResponseData(res.WithResponseData)
+	}
+	return res, nil
 }
