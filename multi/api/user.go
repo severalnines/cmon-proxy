@@ -19,7 +19,6 @@ type LoginRequest struct {
 	Username string `json:"username,omitempty"`
 	Password string `json:"password,omitempty"`
 	LdapOnly bool   `json:"ldap_only,omitempty"`
-	Xid      string `json:"xid,omitempty"`
 }
 
 type LoginResponse struct {

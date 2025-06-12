@@ -406,6 +406,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 		})
 	}
 
+	r.Ping(true);
 	// okay, keep this router as login succeed to some of the cmon's
 	if user := getUserForSession(ctx); authSucceed && user != nil {
 		p.r[req.Username] = r
@@ -500,120 +501,6 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 
 	zap.L().Info(
 		fmt.Sprintf("[AUDIT] Login attempt %s '%s' (source %s / %s)",
-			resp.RequestStatus, req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
-
-	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
-}
-
-func (p *Proxy) RPCAuthControllerLoginHandler(ctx *gin.Context) {
-	var req api.LoginRequest
-	var resp api.LoginResponse
-
-	resp.WithResponseData = &cmonapi.WithResponseData{
-		RequestStatus:    cmonapi.RequestStatusOk,
-		RequestProcessed: cmonapi.NullTime{T: time.Now()},
-	}
-
-	if ctx.Request.Method == http.MethodPost {
-		if err := ctx.BindJSON(&req); err != nil {
-			cmonapi.CtxWriteError(ctx,
-				cmonapi.NewError(cmonapi.RequestStatusInvalidRequest,
-					fmt.Sprint("Invalid request:", err.Error())))
-			return
-		}
-	}
-
-	// Log which parameters are set
-	paramsSet := []string{}
-	if req.Username != "" {
-		paramsSet = append(paramsSet, "username")
-	}
-	if req.Password != "" {
-		paramsSet = append(paramsSet, "password")
-	}
-	if req.Xid != "" {
-		paramsSet = append(paramsSet, "xid")
-	}
-	zap.L().Info("RPCAuthControllerLoginHandler request parameters set", zap.Strings("params", paramsSet))
-
-	// Find the controller by Xid (from request or fallback)
-	controllerXid := req.Xid
-	if controllerXid == "" {
-		controllerXid = p.cfg.SingleController
-	}
-	var controller *config.CmonInstance
-	for _, c := range p.cfg.Instances {
-		if c != nil && c.Xid == controllerXid {
-			controller = c
-			break
-		}
-	}
-
-	if controller == nil {
-		resp.RequestStatus = cmonapi.RequestStatusUnknownError
-		resp.ErrorString = "Controller not found"
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
-		return
-	}
-
-	r, err := router.New(p.cfg)
-	if err != nil {
-		resp.RequestStatus = cmonapi.RequestStatusUnknownError
-		resp.ErrorString = "Failed to create router: " + err.Error()
-		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
-		return
-	}
-
-	r.AuthController.Use = true
-	r.AuthController.Username = req.Username
-	r.AuthController.Password = req.Password
-
-	// Only authenticate against the single controller
-	r.Authenticate()
-	user := r.GetControllerUser()
-
-	authSucceed := user != nil
-	if authSucceed {
-		// Extract group names from user.Groups
-		groupNames := make([]string, 0, len(user.Groups))
-		for _, group := range user.Groups {
-			if group != nil {
-				groupNames = append(groupNames, group.GroupName)
-			}
-		}
-
-		resp.RequestStatus = cmonapi.RequestStatusOk
-		resp.User = &config.ProxyUser{
-			Username:     user.UserName,
-			LdapUser:     user.Origin == "LDAP",
-			CMONUser:     user.Origin == "CmonDb",
-			FirstName:    user.FirstName,
-			LastName:     user.LastName,
-			EmailAddress: user.EmailAddress,
-			Admin:        false,
-			Groups:       groupNames,
-		}
-
-		// Update controller status in memory
-		mtx.Lock()
-		controllerStatusCache[controller.Url] = &api.ControllerStatus{
-			Xid:           controller.Xid,
-			ControllerID:  "", // If you have a way to get ControllerID, set it here
-			Name:          controller.Name,
-			Url:           controller.Url,
-			FrontendUrl:   controller.FrontendUrl,
-			Status:        api.Ok,
-			LastUpdated:   cmonapi.NullTime{T: time.Now()},
-			LastSeen:      cmonapi.NullTime{T: time.Now()},
-		}
-		mtx.Unlock()
-	} else {
-		resp.RequestStatus = cmonapi.RequestStatusAccessDenied
-		resp.ErrorString = "User not found or wrong password"
-	}
-
-	zap.L().Info(
-		fmt.Sprintf("[AUDIT] Controller login attempt %s '%s' (source %s / %s)",
 			resp.RequestStatus, req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
 
 	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)

@@ -11,27 +11,20 @@ package main
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
-	"bufio"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	arg "github.com/alexflint/go-arg"
 	"github.com/go-ini/ini"
 	"github.com/rs/xid"
 	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/multi/api"
 	"github.com/severalnines/cmon-proxy/opts"
-	"golang.org/x/term"
 )
 
 var (
