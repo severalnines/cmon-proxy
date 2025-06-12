@@ -259,7 +259,7 @@ func (router *Router) GetControllerUser() *api.User {
 }
 
 // Ping pings the controllers to see their statuses
-func (router *Router) Ping() {
+func (router *Router) Ping(forceUpdate bool) {
 	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
@@ -268,7 +268,10 @@ func (router *Router) Ping() {
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
-		if c == nil || c.cacheValid(Ping) {
+		if c == nil {
+			continue
+		}
+		if !forceUpdate && c.cacheValid(Ping) {
 			continue
 		}
 

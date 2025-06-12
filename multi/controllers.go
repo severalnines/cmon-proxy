@@ -58,7 +58,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 	retval := api.ControllerStatusList{Controllers: make([]*api.ControllerStatus, 0, 16)}
 
 	// this will ping the controllers
-	p.Router(ctx).Ping()
+	p.Router(ctx).Ping(false)
 
 	if forceLicenseCheck || req.ForceUpdate {
 		// make sure license info is re-freshed
