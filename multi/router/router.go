@@ -231,6 +231,7 @@ func (router *Router) Authenticate() {
 			syncChannel <- true
 			if cli != nil {
 				if err := cli.Authenticate(); err != nil {
+					router.Cmon(addr).Client.SetLastAuthError(err.Error())
 					logger.Warnf("Cmon [%s] auth failure: %s", cli.Instance.Url, err.Error())
 				} else {
 					// if any has passed we are good

@@ -25,8 +25,9 @@ type LoginRequest struct {
 type LoginResponse struct {
 	*cmonapi.WithResponseData `json:",inline"`
 
-	User *config.ProxyUser `json:"user,omitempty"`
-	Elevated bool `json:"elevated,omitempty"`
+	User       *config.ProxyUser `json:"user,omitempty"`
+	Elevated   bool              `json:"elevated,omitempty"`
+	AuthErrors []string          `json:"auth_errors,omitempty"`
 }
 
 type UpdateUserRequest struct {
@@ -47,5 +48,5 @@ type SetPasswordRequest struct {
 
 type ElevateSessionResponse struct {
 	*cmonapi.WithResponseData `json:",inline"`
-	Elevated bool `json:"elevated,omitempty"`
+	Elevated                  bool `json:"elevated,omitempty"`
 }

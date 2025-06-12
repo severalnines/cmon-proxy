@@ -52,6 +52,7 @@ type Client struct {
 	user              *api.User
 	controllerID      string // the controllerID obtained from the replies
 	lastRequestStatus string // the last request status
+	lastAuthError     string // the last authentication error, if any
 	serverVersion     string // the server version obtained from the headers
 }
 
@@ -251,7 +252,7 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 // Authenticate does RPCv2 authentication.
 func (client *Client) Authenticate() error {
 	if len(client.Instance.Password) > 0 {
-		return client.AuthenticateWithPassword()	
+		return client.AuthenticateWithPassword()
 	}
 
 	if len(client.Instance.Keyfile) > 0 {
@@ -278,6 +279,7 @@ func (client *Client) AuthenticateWithPassword() error {
 	}
 
 	if ar.RequestStatus != api.RequestStatusOk {
+		client.lastAuthError = ar.ErrorString
 		return api.NewErrorFromResponseData(ar.WithResponseData)
 	}
 
@@ -454,4 +456,12 @@ func (client *Client) RequestStatus() string {
 
 func (client *Client) ServerVersion() string {
 	return client.serverVersion
+}
+
+func (client *Client) LastAuthError() string {
+	return client.lastAuthError
+}
+
+func (client *Client) SetLastAuthError(err string) {
+	client.lastAuthError = err
 }

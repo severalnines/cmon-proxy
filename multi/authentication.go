@@ -46,6 +46,11 @@ var (
 	sessIdKey = "s"
 )
 
+type ControllerLoginResult struct {
+	Success    bool
+	AuthErrors []string
+}
+
 func cleanupOldSessions(p *Proxy) {
 	sesssMtx.Lock()
 
@@ -335,10 +340,10 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 // Attempts to do login in controllers when there are any controllers
 // configured to use LDAP authentication or CMON authentication
 // (call this only after we checked that there is no such local user)
-func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) bool {
+func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *api.LoginResponse) ControllerLoginResult {
 	// missing/incomplete configuration
 	if p == nil || p.cfg == nil || len(p.cfg.Instances) < 1 {
-		return false
+		return ControllerLoginResult{Success: false}
 	}
 	// check if we have any cmon configured to use LDAP or CMON authentication
 	useController := false
@@ -349,13 +354,13 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 		}
 	}
 	if !useController {
-		return false
+		return ControllerLoginResult{Success: false}
 	}
 
 	r, err := router.New(p.cfg)
 	if err != nil {
 		zap.L().Error("Can't create router for controller login", zap.Error(err))
-		return false
+		return ControllerLoginResult{Success: false}
 	}
 
 	// configure this router to use the specified controller credentials for cmon auth or ldap enabled cmon instances
@@ -414,14 +419,25 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 		resp.RequestStatus = cmonapi.RequestStatusOk
 		resp.User = user
 
-		return true
+		return ControllerLoginResult{Success: true}
+	}
+
+	// Collect authentication errors from temporary router
+	authErrors := make([]string, 0)
+	for _, url := range r.Urls() {
+		tempCmon := r.Cmon(url)
+		if tempCmon != nil && tempCmon.Client != nil {
+			if lastAuthError := tempCmon.Client.LastAuthError(); lastAuthError != "" {
+				authErrors = append(authErrors, fmt.Sprintf("%s: %s", url, lastAuthError))
+			}
+		}
 	}
 
 	zap.L().Info(
 		fmt.Sprintf("[AUDIT] Controllers authentication (user %s) has failed to all cmon instances. (source %s / %s)",
 			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
 
-	return false
+	return ControllerLoginResult{Success: false, AuthErrors: authErrors}
 }
 
 func (p *Proxy) RPCAuthCookieHandler(ctx *gin.Context) {
@@ -476,10 +492,11 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 
 	user, err := p.r[router.DefaultRouter].Config.GetUser(req.Username)
 	if err != nil {
-		externalLoginSucceed := p.controllerLogin(ctx, &req, &resp)
-		if !externalLoginSucceed {
+		externalLoginResult := p.controllerLogin(ctx, &req, &resp)
+		if !externalLoginResult.Success {
 			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
 			resp.ErrorString = "User not found or wrong password"
+			resp.AuthErrors = externalLoginResult.AuthErrors
 		}
 	}
 
@@ -597,14 +614,14 @@ func (p *Proxy) RPCAuthControllerLoginHandler(ctx *gin.Context) {
 		// Update controller status in memory
 		mtx.Lock()
 		controllerStatusCache[controller.Url] = &api.ControllerStatus{
-			Xid:           controller.Xid,
-			ControllerID:  "", // If you have a way to get ControllerID, set it here
-			Name:          controller.Name,
-			Url:           controller.Url,
-			FrontendUrl:   controller.FrontendUrl,
-			Status:        api.Ok,
-			LastUpdated:   cmonapi.NullTime{T: time.Now()},
-			LastSeen:      cmonapi.NullTime{T: time.Now()},
+			Xid:          controller.Xid,
+			ControllerID: "", // If you have a way to get ControllerID, set it here
+			Name:         controller.Name,
+			Url:          controller.Url,
+			FrontendUrl:  controller.FrontendUrl,
+			Status:       api.Ok,
+			LastUpdated:  cmonapi.NullTime{T: time.Now()},
+			LastSeen:     cmonapi.NullTime{T: time.Now()},
 		}
 		mtx.Unlock()
 	} else {
@@ -926,7 +943,7 @@ func (p *Proxy) RPCExitElevatedSession(ctx *gin.Context) {
 		resp.ErrorString = "Authentication required"
 	} else {
 		resp.RequestStatus = cmonapi.RequestStatusOk
-		resp.ErrorString = ""	
+		resp.ErrorString = ""
 	}
 
 	// Remove elevated session flag
