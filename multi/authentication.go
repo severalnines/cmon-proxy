@@ -406,6 +406,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 		})
 	}
 
+	r.Ping(true);
 	// okay, keep this router as login succeed to some of the cmon's
 	if user := getUserForSession(ctx); authSucceed && user != nil {
 		p.r[req.Username] = r
