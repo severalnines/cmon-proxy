@@ -251,7 +251,7 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 // Authenticate does RPCv2 authentication.
 func (client *Client) Authenticate() error {
 	if len(client.Instance.Password) > 0 {
-		return client.AuthenticateWithPassword()
+		return client.AuthenticateWithPassword()	
 	}
 
 	if len(client.Instance.Keyfile) > 0 {
@@ -260,9 +260,6 @@ func (client *Client) Authenticate() error {
 
 	client.lastRequestStatus = api.RequestStatusAuthRequired
 
-	if client.Instance.UseLdap {
-		return fmt.Errorf("LDAP authentication is required")
-	}
 	return fmt.Errorf("no password or keyfile is defined")
 }
 
@@ -271,7 +268,6 @@ func (client *Client) AuthenticateWithPassword() error {
 		WithOperation: &api.WithOperation{
 			Operation: "authenticateWithPassword",
 		},
-		LdapOnly: client.Instance.UseLdap && !client.Instance.UseCmonAuth,
 		UserName: client.Instance.Username,
 		Password: client.Instance.Password,
 	}
@@ -283,11 +279,6 @@ func (client *Client) AuthenticateWithPassword() error {
 
 	if ar.RequestStatus != api.RequestStatusOk {
 		return api.NewErrorFromResponseData(ar.WithResponseData)
-	}
-
-	if ar.User.Origin == "LDAP" && !client.Instance.UseLdap {
-		client.ResetSession()
-		return fmt.Errorf("ldap user is not allowed to login")
 	}
 
 	client.mtx.Lock()

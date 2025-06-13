@@ -53,8 +53,6 @@ type CmonInstance struct {
 	Xid           string `yaml:"xid" json:"xid"`
 	Url           string `yaml:"url" json:"url"`
 	Name          string `yaml:"name,omitempty" json:"name,omitempty"`
-	UseCmonAuth   bool   `yaml:"use_cmon_auth,omitempty" json:"use_cmon_auth,omitempty"`
-	UseLdap       bool   `yaml:"useldap,omitempty" json:"useldap,omitempty"`
 	Username      string `yaml:"username,omitempty" json:"username,omitempty"`
 	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
 	Keyfile       string `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
@@ -115,9 +113,7 @@ func (cmon *CmonInstance) Copy() *CmonInstance {
 		Xid:           cmon.Xid,
 		Url:           cmon.Url,
 		Name:          cmon.Name,
-		UseCmonAuth:   cmon.UseCmonAuth,
 		Username:      cmon.Username,
-		UseLdap:       cmon.UseLdap,
 		Keyfile:       cmon.Keyfile,
 		Password:      cmon.Password,
 		FrontendUrl:   cmon.FrontendUrl,
