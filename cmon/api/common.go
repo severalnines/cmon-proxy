@@ -39,6 +39,7 @@ const (
 	ModuleJobs        = "jobs"
 	ModuleLog         = "log"
 	ModuleStat        = "stat"
+	ModuleInfo        = "info"
 
 	RequestStatusOk              = "Ok"              // The request was successfully processed.
 	RequestStatusInvalidRequest  = "InvalidRequest"  // Something was fundamentally wrong with the request.

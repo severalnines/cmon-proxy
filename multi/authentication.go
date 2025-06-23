@@ -343,7 +343,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 	// check if we have any cmon configured to use LDAP or CMON authentication
 	useController := false
 	for _, instance := range p.cfg.Instances {
-		if instance != nil && (instance.UseLdap || instance.UseCmonAuth) {
+		if instance != nil {
 			useController = true
 			break
 		}
@@ -406,6 +406,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 		})
 	}
 
+	r.Ping(true);
 	// okay, keep this router as login succeed to some of the cmon's
 	if user := getUserForSession(ctx); authSucceed && user != nil {
 		p.r[req.Username] = r

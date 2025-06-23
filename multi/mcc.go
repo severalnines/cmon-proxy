@@ -80,8 +80,6 @@ func (p *Proxy) EnableHandler(ctx *gin.Context) {
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
-	controller.UseLdap = req.LdapEnabled
-	controller.UseCmonAuth = !req.LdapEnabled
 
 	// Enable MCC mode
 	cfg.SingleController = ""

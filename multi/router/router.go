@@ -151,7 +151,7 @@ func (router *Router) Sync() {
 		if instance := router.Config.ControllerByUrl(addr); instance != nil {
 			actualConfig := instance.Copy()
 			// in case of LDAP the credentials aren't stored in config, but in runtime only
-			if router.AuthController.Use && (actualConfig.UseLdap || actualConfig.UseCmonAuth) {
+			if router.AuthController.Use {
 				actualConfig.Username = router.AuthController.Username
 				actualConfig.Password = router.AuthController.Password
 			}
@@ -248,8 +248,7 @@ func (router *Router) GetControllerUser() *api.User {
 	for _, addr := range router.Config.ControllerUrls() {
 		if cmon := router.Cmon(addr); cmon != nil &&
 			cmon.Client != nil &&
-			cmon.Client.Instance != nil &&
-			(cmon.Client.Instance.UseLdap || cmon.Client.Instance.UseCmonAuth) {
+			cmon.Client.Instance != nil {
 			user := cmon.Client.User()
 			if user != nil {
 				return user
@@ -260,7 +259,7 @@ func (router *Router) GetControllerUser() *api.User {
 }
 
 // Ping pings the controllers to see their statuses
-func (router *Router) Ping() {
+func (router *Router) Ping(forceUpdate bool) {
 	var mtx sync.Mutex
 	toCommit := make(map[string]*Cmon)
 	wg := &sync.WaitGroup{}
@@ -269,7 +268,10 @@ func (router *Router) Ping() {
 
 	for _, addr := range router.Urls() {
 		c := router.Cmon(addr)
-		if c == nil || c.cacheValid(Ping) {
+		if c == nil {
+			continue
+		}
+		if !forceUpdate && c.cacheValid(Ping) {
 			continue
 		}
 
