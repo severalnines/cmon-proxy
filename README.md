@@ -893,6 +893,37 @@ curl -XPOST -k 'https://home.kedz.eu:19051/proxy/backups/schedules'  -d'{"{filte
 }
 ```
 
+## Development Setup
+
+To set up a local development environment for cmon-proxy, follow these steps:
+
+### Prerequisites
+
+Install Go version 1.22 or later. You can download it from [https://golang.org/dl/](https://golang.org/dl/).
+
+### Install Dependencies
+
+Clone the repository and install the required dependencies:
+
+```bash
+go mod download
+```
+
+### Run the Application
+
+To run the application with debug logging for development:
+
+```bash
+LOG_LEVEL=debug go run -tags=dev main.go
+```
+
+This command will:
+- Set the log level to debug for verbose output
+- Use the `dev` build tags which configure the application for local development
+- Start the application on the default port (19051)
+
+The application will create a self-signed TLS certificate automatically and be accessible at `https://localhost:19051`.
+
 ### Debug builds on MacOS
 
 Create builder
