@@ -160,6 +160,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					"SINGLE_CONTROLLER_API_URL": "/single/v2",
 					"MULTI_CONTROLLER_API_URL":  "/v2",
 					"KUBERNETES_ENABLED":        cfg.KubernetesEnabled,
+					"INSTANCES":                 cfg.Instances,
 				}
 
 				jsonBytes, err := json.Marshal(configToReturn)
