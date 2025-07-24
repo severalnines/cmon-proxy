@@ -190,7 +190,36 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 				// Copy query params from incoming request
 				q := c.Request.URL.Query()
 				targetUrl.RawQuery = q.Encode()
-				resp, err := http.Get(targetUrl.String())
+				
+				// Create a new request to preserve headers
+				req, err := http.NewRequest("GET", targetUrl.String(), nil)
+				if err != nil {
+					c.String(http.StatusBadGateway, "Failed to create request: %v", err)
+					c.Abort()
+					return
+				}
+				
+				// Forward the original client's IP address
+				clientIP := c.ClientIP()
+				req.Header.Set("X-Forwarded-For", clientIP)
+				req.Header.Set("X-Real-IP", clientIP)
+				
+				// Forward other relevant headers that might be needed for geo-location
+				if userAgent := c.GetHeader("User-Agent"); userAgent != "" {
+					req.Header.Set("User-Agent", userAgent)
+				}
+				if acceptLanguage := c.GetHeader("Accept-Language"); acceptLanguage != "" {
+					req.Header.Set("Accept-Language", acceptLanguage)
+				}
+				if accept := c.GetHeader("Accept"); accept != "" {
+					req.Header.Set("Accept", accept)
+				}
+				
+				// Create HTTP client and make the request
+				client := &http.Client{
+					Timeout: time.Second * 30,
+				}
+				resp, err := client.Do(req)
 				if err != nil {
 					c.String(http.StatusBadGateway, "Failed to fetch license: %v", err)
 					c.Abort()
