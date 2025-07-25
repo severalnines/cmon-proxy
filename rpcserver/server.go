@@ -424,6 +424,8 @@ func Start(cfg *config.Config) {
 			}
 			k8s.GET("/*path", k8sProxyHandler)
 			k8s.POST("/*path", k8sProxyHandler)
+			k8s.PUT("/*path", k8sProxyHandler)
+			k8s.DELETE("/*path", k8sProxyHandler)
 		}
 
 		single.GET("/cmon-ssh/*any", func(c *gin.Context) {
