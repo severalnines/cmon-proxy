@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,6 +30,8 @@ import (
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
+	"golang.org/x/crypto/acme"
+	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/severalnines/cmon-proxy/config"
 	k8s "github.com/severalnines/cmon-proxy/k8s"
@@ -39,8 +42,9 @@ import (
 )
 
 var (
-	httpServer *http.Server
-	proxy      *multi.Proxy
+	httpServer      *http.Server
+	httpServerPlain *http.Server
+	proxy           *multi.Proxy
 )
 
 type GinWriteInterceptor struct {
@@ -190,7 +194,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 				// Copy query params from incoming request
 				q := c.Request.URL.Query()
 				targetUrl.RawQuery = q.Encode()
-				
+
 				// Create a new request to preserve headers
 				req, err := http.NewRequest("GET", targetUrl.String(), nil)
 				if err != nil {
@@ -198,12 +202,12 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					c.Abort()
 					return
 				}
-				
+
 				// Forward the original client's IP address
 				clientIP := c.ClientIP()
 				req.Header.Set("X-Forwarded-For", clientIP)
 				req.Header.Set("X-Real-IP", clientIP)
-				
+
 				// Forward other relevant headers that might be needed for geo-location
 				if userAgent := c.GetHeader("User-Agent"); userAgent != "" {
 					req.Header.Set("User-Agent", userAgent)
@@ -214,7 +218,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 				if accept := c.GetHeader("Accept"); accept != "" {
 					req.Header.Set("Accept", accept)
 				}
-				
+
 				// Create HTTP client and make the request
 				client := &http.Client{
 					Timeout: time.Second * 30,
@@ -332,6 +336,8 @@ func multiCmon(ctx *gin.Context) {
 // Start is starting the service
 func Start(cfg *config.Config) {
 	var err error
+	var certManager *autocert.Manager
+
 	// get logger
 	log := zap.L()
 
@@ -339,6 +345,77 @@ func Start(cfg *config.Config) {
 		log.Sugar().Fatalln("rpcserver is already running")
 		return
 	}
+
+	// Setup Let's Encrypt if enabled
+	if cfg.AcmeEnabled {
+		if len(cfg.AcmeDomains) == 0 {
+			log.Sugar().Fatal("Let's Encrypt is enabled, but no domains are configured (acme_domains)")
+		}
+		if !cfg.AcmeAcceptTOS {
+			log.Sugar().Fatal("Let's Encrypt is enabled, but 'acme_accept_tos' is not set to true in the configuration. You must accept the Let's Encrypt Terms of Service.")
+		}
+		if cfg.HTTPPort != 80 {
+			log.Sugar().Warn("Let's Encrypt is enabled, but HTTP port is not 80. ACME http-01 challenge might fail.")
+		}
+
+		var renewBefore time.Duration
+		if cfg.AcmeRenewBefore != "" {
+			var err error
+			renewBefore, err = time.ParseDuration(cfg.AcmeRenewBefore)
+			if err != nil {
+				log.Sugar().Fatalf("Invalid acme_renew_before duration: %v", err)
+			}
+		}
+
+		certManager = &autocert.Manager{
+			Cache:       autocert.DirCache(cfg.AcmeCacheDir),
+			Email:       cfg.AcmeEmail,
+			RenewBefore: renewBefore,
+			Prompt:      autocert.AcceptTOS,
+		}
+		if cfg.AcmeDirectoryURL != "" {
+			certManager.Client = &acme.Client{DirectoryURL: cfg.AcmeDirectoryURL}
+		}
+
+		if cfg.AcmeHostPolicyStrict {
+			certManager.HostPolicy = autocert.HostWhitelist(cfg.AcmeDomains...)
+		}
+	}
+
+	// HTTP server for redirection and Let's Encrypt challenges
+	go func() {
+		httpLog := zap.L().Sugar().Named("http-server")
+
+		redirectHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			host, _, err := net.SplitHostPort(r.Host)
+			if err != nil {
+				host = r.Host
+			}
+
+			target := "https://" + host
+			if cfg.Port != 443 {
+				target += ":" + strconv.Itoa(cfg.Port)
+			}
+			target += r.URL.RequestURI()
+
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+		})
+
+		var httpHandler http.Handler = redirectHandler
+		if certManager != nil {
+			httpHandler = certManager.HTTPHandler(httpHandler)
+		}
+
+		httpServerPlain = &http.Server{
+			Addr:    ":" + strconv.Itoa(cfg.HTTPPort),
+			Handler: httpHandler,
+		}
+
+		httpLog.Infof("Starting HTTP Server on port %d for redirection and ACME challenges", cfg.HTTPPort)
+		if err := httpServerPlain.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			httpLog.Fatalf("HTTP server failure on port %d: %s", cfg.HTTPPort, err.Error())
+		}
+	}()
 
 	s := gin.New()
 	s.Use(ginzap.RecoveryWithZap(log, true))
@@ -593,23 +670,42 @@ func Start(cfg *config.Config) {
 		IdleTimeout:  time.Second * 180,
 	}
 
-	if _, err := os.Stat(cfg.TlsCert); os.IsNotExist(err) {
-		log.Info("Creating TLS certificate")
-		err = CreateTLSCertificate(cfg.TlsCert, cfg.TlsKey)
-		if err != nil {
-			log.Fatal("Cant generate TLS cert: " + err.Error())
+	if cfg.AcmeEnabled {
+		httpServer.TLSConfig = certManager.TLSConfig()
+		log.Sugar().Infof("Starting HTTPS Server with Let's Encrypt on port %d for domains %s", cfg.Port, strings.Join(cfg.AcmeDomains, ", "))
+		if err := httpServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			log.Sugar().Fatalf("HTTPS Server failure on port %d: %s", cfg.Port, err.Error())
 		}
-	}
+	} else {
+		if _, err := os.Stat(cfg.TlsCert); os.IsNotExist(err) {
+			log.Info("Creating TLS certificate")
+			err = CreateTLSCertificate(cfg.TlsCert, cfg.TlsKey)
+			if err != nil {
+				log.Fatal("Cant generate TLS cert: " + err.Error())
+			}
+		}
 
-	log.Sugar().Infof("Starting HTTPS Server on port %d", cfg.Port)
-	if err := httpServer.ListenAndServeTLS(cfg.TlsCert, cfg.TlsKey); err != nil && err != http.ErrServerClosed {
-		log.Sugar().Fatalf("HTTPS Server failure on port %d: %s", cfg.Port, err.Error())
+		log.Sugar().Infof("Starting HTTPS Server on port %d", cfg.Port)
+		if err := httpServer.ListenAndServeTLS(cfg.TlsCert, cfg.TlsKey); err != nil && err != http.ErrServerClosed {
+			log.Sugar().Fatalf("HTTPS Server failure on port %d: %s", cfg.Port, err.Error())
+		}
 	}
 }
 
 func Stop() {
 	// get logger
 	log := zap.L()
+
+	if httpServerPlain != nil {
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			time.Second*5)
+		defer cancel()
+		if err := httpServerPlain.Shutdown(ctx); err != nil && err != context.DeadlineExceeded {
+			log.Sugar().Errorf("Failed to shutdown plain http server: %s", err.Error())
+		}
+		httpServerPlain = nil
+	}
 
 	if httpServer == nil {
 		return
