@@ -80,7 +80,21 @@ type Config struct {
 	K8sProxyURL       string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
 	KubernetesEnabled bool            `yaml:"kubernetes_enabled" json:"kubernetes_enabled"`
 	LicenseProxyURL   string          `yaml:"license_proxy_url" json:"license_proxy_url"`
-	mtx               sync.RWMutex
+
+	// Let's Encrypt settings
+	AcmeEnabled  bool     `yaml:"acme_enabled,omitempty" json:"acme_enabled,omitempty"`
+	AcmeStaging  bool     `yaml:"acme_staging,omitempty" json:"acme_staging,omitempty"`
+	AcmeDomains  []string `yaml:"acme_domains,omitempty" json:"acme_domains,omitempty"`
+	AcmeEmail    string   `yaml:"acme_email,omitempty" json:"acme_email,omitempty"`
+	AcmeCacheDir string   `yaml:"acme_cache_dir,omitempty" json:"acme_cache_dir,omitempty"`
+	HTTPPort     int      `yaml:"http_port,omitempty" json:"http_port,omitempty"`
+
+	AcmeDirectoryURL     string `yaml:"acme_directory_url,omitempty" json:"acme_directory_url,omitempty"`
+	AcmeAcceptTOS        bool   `yaml:"acme_accept_tos,omitempty" json:"acme_accept_tos,omitempty"`
+	AcmeRenewBefore      string `yaml:"acme_renew_before,omitempty" json:"acme_renew_before,omitempty"`
+	AcmeHostPolicyStrict bool   `yaml:"acme_host_policy_strict,omitempty" json:"acme_host_policy_strict,omitempty"`
+
+	mtx sync.RWMutex
 }
 
 var (
@@ -88,6 +102,7 @@ var (
 		FrontendPath:      "/app",
 		Logfile:           env.DefaultLogfilePath,
 		Port:              19051,
+		HTTPPort:          80,
 		SessionTtl:        int64(30 * time.Minute),
 		Instances:         make([]*CmonInstance, 0),
 		FetchBackupDays:   7,
@@ -97,6 +112,8 @@ var (
 		KubernetesEnabled: true,
 		K8sProxyURL:       "http://127.0.0.1:8080",
 		LicenseProxyURL:   "https://severalnines.com/service/lic.php",
+		AcmeAcceptTOS:     true,
+		AcmeRenewBefore:   "720h",
 	}
 )
 
@@ -104,7 +121,7 @@ func (cmon *CmonInstance) Verify() error {
 	if cmon == nil || len(cmon.Url) < 3 {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
 	}
-	
+
 	return nil
 }
 
@@ -166,6 +183,7 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 
 	// Set default values before unmarshaling
 	config.KubernetesEnabled = defaults.KubernetesEnabled
+	config.AcmeAcceptTOS = defaults.AcmeAcceptTOS
 
 	defer func() {
 		if err := config.Save(); err != nil {
@@ -213,6 +231,27 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	if config.Port <= 0 {
 		config.Port = defaults.Port
 	}
+
+	if config.HTTPPort <= 0 {
+		config.HTTPPort = defaults.HTTPPort
+	}
+	if v, _ := strconv.Atoi(os.Getenv("HTTP_PORT")); v > 0 {
+		config.HTTPPort = v
+	}
+	if config.AcmeCacheDir == "" {
+		config.AcmeCacheDir = path.Join(opts.Opts.BaseDir, "autocert-cache")
+	}
+
+	if config.AcmeDirectoryURL == "" {
+		if config.AcmeStaging {
+			config.AcmeDirectoryURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
+		}
+	}
+
+	if config.AcmeRenewBefore == "" {
+		config.AcmeRenewBefore = defaults.AcmeRenewBefore
+	}
+
 	if config.SessionTtl <= defaults.SessionTtl {
 		config.SessionTtl = defaults.SessionTtl
 	}
