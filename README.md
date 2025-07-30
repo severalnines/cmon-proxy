@@ -185,7 +185,7 @@ acme_staging: false # Use Let's Encrypt staging environment. Default is false
 acme_domains: [] # List of domains to obtain certificates for.
 acme_email: "" # Email address for Let's Encrypt registration and notifications.
 acme_cache_dir: "autocert-cache" # Directory to cache ACME certificates. Default is "autocert-cache" in the base directory.
-acme_directory_url: "https://acme-v02.api.letsencrypt.org/directory" # The ACME directory URL. Defaults to Let's Encrypt production, or staging if acme_staging is true.
+acme_directory_url: "" # The ACME directory URL. Defaults is empty (using library pre-defined), or staging (https://acme-staging-v02.api.letsencrypt.org/directory) if acme_staging is true.
 acme_accept_tos: true # Automatically accept the ACME provider's Terms of Service. Default is true.
 acme_renew_before: "720h" # Renewal window before certificate expiration (a Go duration string, e.g., "720h" for 30 days). Default is 30 days (720h).
 acme_host_policy_strict: false # If true, strictly enforce that certs are only issued for domains in acme_domains. Recommended for production. Default is false.
