@@ -113,6 +113,7 @@ var (
 		K8sProxyURL:       "http://127.0.0.1:8080",
 		LicenseProxyURL:   "https://severalnines.com/service/lic.php",
 		AcmeAcceptTOS:     true,
+		AcmeRenewBefore:   "720h",
 	}
 )
 
@@ -245,6 +246,10 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 		if config.AcmeStaging {
 			config.AcmeDirectoryURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
 		}
+	}
+
+	if config.AcmeRenewBefore == "" {
+		config.AcmeRenewBefore = defaults.AcmeRenewBefore
 	}
 
 	if config.SessionTtl <= defaults.SessionTtl {
