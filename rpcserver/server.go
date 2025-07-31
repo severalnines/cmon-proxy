@@ -479,6 +479,47 @@ func applyWebServerConfig(r *gin.Engine, cfg config.WebServer) {
 	r.Use(gzip.Gzip(cfg.Gzip.Level))
 }
 
+// fetchMissingControllerIDs checks all instances for missing controller_id and fetches them
+func fetchMissingControllerIDs(proxy *multi.Proxy) {
+	log := zap.L()
+	
+	cfg := proxy.Router(nil).Config
+	if cfg == nil {
+		log.Warn("Config is nil, cannot fetch missing controller IDs")
+		return
+	}
+	
+	changed := false
+	for _, instance := range cfg.Instances {
+		if instance != nil && instance.ControllerId == "" {
+			log.Info("Found instance with missing controller_id, attempting to fetch", 
+				zap.String("url", instance.Url),
+				zap.String("xid", instance.Xid))
+			
+			controllerID, err := proxy.FetchControllerIDFromInfo(instance)
+			if err != nil {
+				log.Warn("Failed to fetch controller_id from /info endpoint", 
+					zap.String("url", instance.Url), 
+					zap.Error(err))
+			} else {
+				log.Info("Successfully fetched controller_id", 
+					zap.String("url", instance.Url),
+					zap.String("controller_id", controllerID))
+				instance.ControllerId = controllerID
+				changed = true
+			}
+		}
+	}
+	
+	// Save the config if any controller_ids were fetched
+	if changed {
+		if err := cfg.Save(); err != nil {
+			log.Error("Failed to save config after fetching controller_ids", zap.Error(err))
+		} else {
+			log.Info("Successfully saved config with updated controller_ids")
+		}
+	}
+}
 // Start is starting the service
 func Start(cfg *config.Config) {
 	var err error
@@ -601,6 +642,9 @@ func Start(cfg *config.Config) {
 	if err != nil {
 		log.Sugar().Fatalf("initialization problem: %s", err.Error())
 	}
+
+	// Fetch missing controller_ids during startup
+	fetchMissingControllerIDs(proxy)
 
 	multi.StartSessionCleanupScheduler(proxy)
 
