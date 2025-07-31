@@ -31,6 +31,7 @@ import (
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/multi/api"
 	"github.com/severalnines/cmon-proxy/multi/router"
+	"go.uber.org/zap"
 )
 
 const maxControllerNameLength = 60
@@ -130,6 +131,33 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, retval)
 }
 
+func (p *Proxy) FetchControllerIDFromInfo(instance *config.CmonInstance) (string, error) {
+	client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
+	
+	// Call the /info endpoint with ping operation
+	resp, err := client.InfoPing()
+	if err != nil {
+		return "", err
+	}
+	
+	// Check if resp is nil before accessing its fields
+	if resp == nil {
+		return "", fmt.Errorf("received nil response from info endpoint")
+	}
+	
+	// Check if the embedded WithControllerID pointer is nil
+	if resp.WithControllerID == nil {
+		return "", fmt.Errorf("controller_id not found in info response")
+	}
+	
+	// Now safely access ControllerID from the embedded struct
+	if resp.WithControllerID.ControllerID != "" {
+		return resp.WithControllerID.ControllerID, nil
+	}
+	
+	return "", fmt.Errorf("controller_id not found in info response")
+}
+
 func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 	client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
 	var resp *cmonapi.PingResponse
@@ -178,6 +206,10 @@ func (p *Proxy) infoOne(instance *config.CmonInstance) *api.ControllerStatus {
 
 	if resp != nil {
 		retval.Version = resp.Version
+		// If we got a controller_id from the response and it's not in the config, use it
+		if resp.WithControllerID != nil && resp.WithControllerID.ControllerID != "" && instance.ControllerId == "" {
+			retval.ControllerID = resp.WithControllerID.ControllerID
+		}
 	}
 
 	if err != nil {
@@ -222,6 +254,20 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 		return
 	}
 
+	// Check if controller_id is missing and fetch it from /info endpoint
+	if req.Controller.ControllerId == "" {
+		controllerID, err := p.FetchControllerIDFromInfo(req.Controller)
+		if err != nil {
+			// If we can't fetch the controller_id, still proceed with pingOne to get status
+			// but log the error
+			zap.L().Warn("Failed to fetch controller_id from /info endpoint", 
+				zap.String("url", req.Controller.Url), 
+				zap.Error(err))
+		} else {
+			req.Controller.ControllerId = controllerID
+		}
+	}
+
 	resp.Controller = p.pingOne(req.Controller)
 
 	if err := p.Router(nil).Config.AddController(req.Controller, true); err != nil {
@@ -255,6 +301,20 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 	}
 	if err := req.Controller.Verify(); err != nil {
 		cmonapi.CtxWriteError(ctx, err)
+	}
+
+	// Check if controller_id is missing and fetch it from /info endpoint
+	if req.Controller.ControllerId == "" {
+		controllerID, err := p.FetchControllerIDFromInfo(req.Controller)
+		if err != nil {
+			// If we can't fetch the controller_id, still proceed with the update
+			// but log the error
+			zap.L().Warn("Failed to fetch controller_id from /info endpoint", 
+				zap.String("url", req.Controller.Url), 
+				zap.Error(err))
+		} else {
+			req.Controller.ControllerId = controllerID
+		}
 	}
 
 	c, err := p.GetCmonById(req.Controller.Xid, nil)
