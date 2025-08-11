@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/rs/xid"
 	"github.com/severalnines/cmon-proxy/auth/secret"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -35,6 +36,11 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 	"gopkg.in/yaml.v3"
 )
+
+// Bool returns a pointer to the provided bool value
+func Bool(v bool) *bool {
+	return &v
+}
 
 type ProxyUser struct {
 	Username     string   `yaml:"username,omitempty" json:"username,omitempty"`
@@ -61,6 +67,46 @@ type CmonInstance struct {
 	CMONSshSecure bool   `yaml:"cmon_ssh_secure,omitempty" json:"cmon_ssh_secure,omitempty"`
 }
 
+type WebServerSecurity struct {
+	FrameDeny                       *bool  `yaml:"frame_deny,omitempty"`
+	STSSeconds                      int64  `yaml:"sts_seconds,omitempty"`
+	STSIncludeSubdomains            *bool  `yaml:"sts_include_subdomains,omitempty"`
+	STSPreload                      *bool  `yaml:"sts_preload,omitempty"`
+	ForceSTSHeader                  *bool  `yaml:"force_sts_header,omitempty"`
+	ContentTypeNosniff              *bool  `yaml:"content_type_nosniff,omitempty"`
+	BrowserXssFilter                *bool  `yaml:"browser_xss_filter,omitempty"`
+	ContentSecurityPolicy           string `yaml:"content_security_policy,omitempty"`
+	ContentSecurityPolicyReportOnly *bool  `yaml:"content_security_policy_report_only,omitempty"`
+	ReferrerPolicy                  string `yaml:"referrer_policy,omitempty"`
+	PermissionsPolicy               string `yaml:"permissions_policy,omitempty"`
+}
+
+type WebServerCORS struct {
+	AllowOrigins     []string `yaml:"allow_origins,omitempty"`
+	AllowMethods     []string `yaml:"allow_methods,omitempty"`
+	AllowHeaders     []string `yaml:"allow_headers,omitempty"`
+	ExposeHeaders    []string `yaml:"expose_headers,omitempty"`
+	AllowCredentials *bool    `yaml:"allow_credentials,omitempty"`
+	MaxAgeSeconds    int      `yaml:"max_age_seconds,omitempty"`
+}
+
+type WebServerGzip struct {
+	Level int `yaml:"level,omitempty"` // -2..9 (see gzip middleware)
+}
+
+type WebServerFrontend struct {
+	NonceReplacementFiles []string `yaml:"nonce_replacement_files,omitempty"`
+}
+
+type WebServer struct {
+	TrustedProxies  []string          `yaml:"trusted_proxies,omitempty"`
+	TrustedPlatform string            `yaml:"trusted_platform,omitempty"` // e.g. "X-Forwarded-For" or "CF-Connecting-IP"
+	Security        WebServerSecurity `yaml:"security,omitempty"`
+	CORS            WebServerCORS     `yaml:"cors,omitempty"`
+	Gzip            WebServerGzip     `yaml:"gzip,omitempty"`
+	Frontend        WebServerFrontend `yaml:"frontend,omitempty"`
+}
+
 // Config holds the configuration of cmon-proxy, it is pretty minimal now
 type Config struct {
 	Filename          string
@@ -80,19 +126,20 @@ type Config struct {
 	K8sProxyURL       string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
 	KubernetesEnabled bool            `yaml:"kubernetes_enabled" json:"kubernetes_enabled"`
 	LicenseProxyURL   string          `yaml:"license_proxy_url" json:"license_proxy_url"`
+	WebServer         WebServer       `yaml:"web_server" json:"web_server"`
 
 	// Let's Encrypt settings
-	AcmeEnabled  bool     `yaml:"acme_enabled,omitempty" json:"acme_enabled,omitempty"`
-	AcmeStaging  bool     `yaml:"acme_staging,omitempty" json:"acme_staging,omitempty"`
+	AcmeEnabled  bool     `yaml:"acme_enabled" json:"acme_enabled"`
+	AcmeStaging  bool     `yaml:"acme_staging" json:"acme_staging"`
 	AcmeDomains  []string `yaml:"acme_domains,omitempty" json:"acme_domains,omitempty"`
 	AcmeEmail    string   `yaml:"acme_email,omitempty" json:"acme_email,omitempty"`
 	AcmeCacheDir string   `yaml:"acme_cache_dir,omitempty" json:"acme_cache_dir,omitempty"`
 	HTTPPort     int      `yaml:"http_port,omitempty" json:"http_port,omitempty"`
 
 	AcmeDirectoryURL     string `yaml:"acme_directory_url,omitempty" json:"acme_directory_url,omitempty"`
-	AcmeAcceptTOS        bool   `yaml:"acme_accept_tos,omitempty" json:"acme_accept_tos,omitempty"`
+	AcmeAcceptTOS        bool   `yaml:"acme_accept_tos" json:"acme_accept_tos"`
 	AcmeRenewBefore      string `yaml:"acme_renew_before,omitempty" json:"acme_renew_before,omitempty"`
-	AcmeHostPolicyStrict bool   `yaml:"acme_host_policy_strict,omitempty" json:"acme_host_policy_strict,omitempty"`
+	AcmeHostPolicyStrict bool   `yaml:"acme_host_policy_strict" json:"acme_host_policy_strict"`
 
 	mtx sync.RWMutex
 }
@@ -114,6 +161,40 @@ var (
 		LicenseProxyURL:   "https://severalnines.com/service/lic.php",
 		AcmeAcceptTOS:     true,
 		AcmeRenewBefore:   "720h",
+		WebServer: WebServer{
+			TrustedProxies:  nil,
+			TrustedPlatform: "",
+			Security: WebServerSecurity{
+				FrameDeny:                       Bool(true),
+				STSSeconds:                      31536000,
+				STSIncludeSubdomains:            Bool(true),
+				STSPreload:                      Bool(true),
+				ForceSTSHeader:                  Bool(true),
+				ContentTypeNosniff:              Bool(true),
+				BrowserXssFilter:                Bool(false),
+				ContentSecurityPolicyReportOnly: Bool(true),
+				ContentSecurityPolicy: "default-src 'self'; " +
+					"base-uri 'self'; " +
+					"object-src 'none'; " +
+					"frame-ancestors 'none'; " +
+					"script-src 'self' 'nonce-{{nonce}}' 'strict-dynamic'; " +
+					"style-src 'self' 'unsafe-inline'; " +
+					"img-src 'self' data:; " +
+					"font-src 'self' data:; " +
+					"connect-src 'self' https://severalnines.piwik.pro; " +
+					"worker-src 'self' blob:; " +
+					"form-action 'self'; " +
+					"upgrade-insecure-requests",
+				ReferrerPolicy:    "strict-origin-when-cross-origin",
+				PermissionsPolicy: "camera=(), microphone=(), geolocation=()",
+			},
+			Gzip: WebServerGzip{
+				Level: gzip.BestSpeed,
+			},
+			Frontend: WebServerFrontend{
+				NonceReplacementFiles: []string{"index.html"},
+			},
+		},
 	}
 )
 
@@ -177,20 +258,25 @@ func (cfg *Config) Upgrade() {
 	}
 }
 
-// Load loads the configuration from the specified file name
 func Load(filename string, loadFromCli ...bool) (*Config, error) {
+
+	config, err := LoadFromFile(filename, loadFromCli...)
+	if err != nil {
+		return nil, err
+	}
+	// Apply WebServer defaults after saving (for runtime use only)
+	applyWebServerDefaults(config)
+
+	return config, nil
+}
+
+// Load loads the configuration from the specified file name
+func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 	config := new(Config)
 
 	// Set default values before unmarshaling
 	config.KubernetesEnabled = defaults.KubernetesEnabled
 	config.AcmeAcceptTOS = defaults.AcmeAcceptTOS
-
-	defer func() {
-		if err := config.Save(); err != nil {
-			zap.L().Error("Failed to save config file",
-				zap.Error(err))
-		}
-	}()
 
 	contents, err := ioutil.ReadFile(filename)
 	if err == nil && len(contents) > 0 {
@@ -304,6 +390,10 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	loggerConfig.LogFileName = config.Logfile
 	logger.New(loggerConfig) // this replaces the global
 
+	// Save the configuration first (preserves user-provided WebServer config)
+	if saveErr := config.Save(); saveErr != nil {
+		zap.L().Error("Failed to save config file", zap.Error(saveErr))
+	}
 	// do not log, and do not create default user when invoked from CLI
 	if len(loadFromCli) < 1 || !loadFromCli[0] {
 		zap.L().Info(fmt.Sprintf("Loaded configuration (%d cmon instances)", len(config.Instances)))
@@ -311,6 +401,104 @@ func Load(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 
 	return config, err
+}
+
+// applyWebServerDefaults applies default WebServer configuration values
+// without overriding values that are already set in the config
+func applyWebServerDefaults(config *Config) {
+	if config == nil {
+		return
+	}
+
+	// Merge individual fields that are not set
+	applyWebServerSecurityDefaults(&config.WebServer.Security)
+	applyWebServerCORSDefaults(&config.WebServer.CORS)
+	applyWebServerGzipDefaults(&config.WebServer.Gzip)
+	applyWebServerFrontendDefaults(&config.WebServer.Frontend)
+
+	// Apply TrustedProxies and TrustedPlatform if not set
+	if config.WebServer.TrustedProxies == nil {
+		config.WebServer.TrustedProxies = defaults.WebServer.TrustedProxies
+	}
+	if config.WebServer.TrustedPlatform == "" {
+		config.WebServer.TrustedPlatform = defaults.WebServer.TrustedPlatform
+	}
+}
+
+// applyWebServerSecurityDefaults applies security defaults without overriding existing values
+func applyWebServerSecurityDefaults(security *WebServerSecurity) {
+	if security.STSSeconds == 0 {
+		security.STSSeconds = defaults.WebServer.Security.STSSeconds
+	}
+	if security.ContentSecurityPolicy == "" {
+		security.ContentSecurityPolicy = defaults.WebServer.Security.ContentSecurityPolicy
+	}
+	if security.ReferrerPolicy == "" {
+		security.ReferrerPolicy = defaults.WebServer.Security.ReferrerPolicy
+	}
+	if security.PermissionsPolicy == "" {
+		security.PermissionsPolicy = defaults.WebServer.Security.PermissionsPolicy
+	}
+	if security.ContentSecurityPolicyReportOnly == nil {
+		security.ContentSecurityPolicyReportOnly = defaults.WebServer.Security.ContentSecurityPolicyReportOnly
+	}
+
+	// For pointer boolean fields, nil means unset, so we apply defaults
+	if security.FrameDeny == nil {
+		security.FrameDeny = defaults.WebServer.Security.FrameDeny
+	}
+	if security.STSIncludeSubdomains == nil {
+		security.STSIncludeSubdomains = defaults.WebServer.Security.STSIncludeSubdomains
+	}
+	if security.STSPreload == nil {
+		security.STSPreload = defaults.WebServer.Security.STSPreload
+	}
+	if security.ForceSTSHeader == nil {
+		security.ForceSTSHeader = defaults.WebServer.Security.ForceSTSHeader
+	}
+	if security.ContentTypeNosniff == nil {
+		security.ContentTypeNosniff = defaults.WebServer.Security.ContentTypeNosniff
+	}
+	if security.BrowserXssFilter == nil {
+		security.BrowserXssFilter = defaults.WebServer.Security.BrowserXssFilter
+	}
+}
+
+// applyWebServerCORSDefaults applies CORS defaults without overriding existing values
+func applyWebServerCORSDefaults(cors *WebServerCORS) {
+	if cors.AllowOrigins == nil {
+		cors.AllowOrigins = defaults.WebServer.CORS.AllowOrigins
+	}
+	if cors.AllowMethods == nil {
+		cors.AllowMethods = defaults.WebServer.CORS.AllowMethods
+	}
+	if cors.AllowHeaders == nil {
+		cors.AllowHeaders = defaults.WebServer.CORS.AllowHeaders
+	}
+	if cors.ExposeHeaders == nil {
+		cors.ExposeHeaders = defaults.WebServer.CORS.ExposeHeaders
+	}
+	if cors.MaxAgeSeconds == 0 {
+		cors.MaxAgeSeconds = defaults.WebServer.CORS.MaxAgeSeconds
+	}
+	// For pointer boolean fields, nil means unset, so we apply defaults
+	if cors.AllowCredentials == nil {
+		cors.AllowCredentials = defaults.WebServer.CORS.AllowCredentials
+	}
+}
+
+// applyWebServerGzipDefaults applies Gzip defaults without overriding existing values
+func applyWebServerGzipDefaults(gzip *WebServerGzip) {
+	if gzip.Level == 0 {
+		gzip.Level = defaults.WebServer.Gzip.Level
+	}
+}
+
+// applyWebServerFrontendDefaults applies Frontend defaults without overriding existing values
+func applyWebServerFrontendDefaults(frontend *WebServerFrontend) {
+	if frontend.NonceReplacementFiles == nil {
+		frontend.NonceReplacementFiles = defaults.WebServer.Frontend.NonceReplacementFiles
+	}
 }
 
 // ControllerUrls returns the URLs of the configured controllers

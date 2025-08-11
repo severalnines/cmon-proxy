@@ -183,7 +183,6 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.logger.Errorf("Failed to send proxy request: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to proxy request"})
 		return
 	}

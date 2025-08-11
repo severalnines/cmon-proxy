@@ -14,9 +14,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,7 +29,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"
+	"github.com/gin-contrib/secure"
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -94,7 +99,7 @@ func WebRpcDebugMiddleware(c *gin.Context) {
 		c.ClientIP(), int64(elapsed/time.Millisecond), c.Copy().Writer.Status(), bodyWriter.responseBody.String())
 }
 
-func serveStaticOrIndex(c *gin.Context, path string) {
+func serveStaticOrIndex(c *gin.Context, path string, cfg *config.Config) {
 	filePath := filepath.Join(path, c.Request.URL.Path)
 	filePath, err := filepath.EvalSymlinks(filePath)
 	if err != nil || !strings.HasPrefix(filePath, path) {
@@ -109,8 +114,58 @@ func serveStaticOrIndex(c *gin.Context, path string) {
 			return
 		}
 	}
+
+	// Check if this file needs nonce replacement based on configuration
+	needsNonceReplacement := false
+	fileName := filepath.Base(filePath)
+	for _, configuredFile := range cfg.WebServer.Frontend.NonceReplacementFiles {
+		if fileName == configuredFile {
+			needsNonceReplacement = true
+			break
+		}
+	}
+
+	if needsNonceReplacement {
+		// Read the HTML file and replace __NONCE__ with actual nonce
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+			c.Abort()
+			return
+		}
+
+		// Generate a fresh nonce and set CSP header here for HTML
+		nonce := generateNonce()
+		if cfg.WebServer.Security.ContentSecurityPolicy != "" {
+			csp := strings.ReplaceAll(cfg.WebServer.Security.ContentSecurityPolicy, "{{nonce}}", nonce)
+			if *cfg.WebServer.Security.ContentSecurityPolicyReportOnly {
+				// Remove invalid directives in report-only mode and normalize
+				csp = sanitizeCSPForReportOnly(csp)
+				c.Header("Content-Security-Policy-Report-Only", csp)
+			} else {
+				c.Header("Content-Security-Policy", csp)
+			}
+		}
+		// Store nonce in context for potential downstream usage
+		c.Set("csp-nonce", nonce)
+
+		// Replace __NONCE__ placeholders with actual nonce
+		contentStr := strings.ReplaceAll(string(content), "__NONCE__", nonce)
+		content = []byte(contentStr)
+
+		// Set appropriate headers for HTML content
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.Header("Cache-Control", "no-cache, no-store, must-revalidate") // Don't cache HTML with nonces
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
+
+		c.Data(http.StatusOK, "text/html; charset=utf-8", content)
+		c.Abort()
+		return
+	}
+
+	// For non-HTML files, serve normally with caching
 	c.Header("Cache-Control", "public, max-age=31536000")
-	c.Header("Content-Length", fmt.Sprintf("%d", info.Size()))
 	lastModified := info.ModTime().UTC().Format(http.TimeFormat)
 	c.Header("Last-Modified", lastModified)
 	etag := generateETag(info)
@@ -126,6 +181,36 @@ func generateETag(info os.FileInfo) string {
 	return fmt.Sprintf(`"%x"`, hash.Sum(nil))
 }
 
+// generateNonce creates a cryptographically secure random nonce for CSP
+func generateNonce() string {
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		// fallback to a timestamp-based nonce if random generation fails
+		return base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))
+	}
+	return base64.URLEncoding.EncodeToString(nonceBytes)
+}
+
+// sanitizeCSPForReportOnly removes directives that are invalid in report-only mode
+// and normalizes the directive list formatting.
+func sanitizeCSPForReportOnly(csp string) string {
+	// Remove the standalone directive token 'upgrade-insecure-requests'
+	// by splitting into directives and filtering.
+	directives := strings.Split(csp, ";")
+	cleaned := make([]string, 0, len(directives))
+	for _, directive := range directives {
+		directive = strings.TrimSpace(directive)
+		if directive == "" {
+			continue
+		}
+		if strings.EqualFold(directive, "upgrade-insecure-requests") {
+			continue
+		}
+		cleaned = append(cleaned, directive)
+	}
+	return strings.Join(cleaned, "; ")
+}
+
 func getFrontendPath(cfg *config.Config) (string, error) {
 	cleanPath, err := filepath.EvalSymlinks(cfg.FrontendPath)
 	if err != nil {
@@ -136,7 +221,6 @@ func getFrontendPath(cfg *config.Config) (string, error) {
 
 func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 	cleanPath, err := getFrontendPath(cfg)
-	s.Use(gzip.Gzip(gzip.BestSpeed))
 	s.Use(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/proxy/") ||
 			strings.HasPrefix(c.Request.URL.Path, "/single/") ||
@@ -153,7 +237,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 			// Handling the special case for config.js
 			if c.Request.URL.Path == "/ccmgr.js" {
 				registration := false
-				if cfg.Users == nil || len(cfg.Users) < 1 {
+				if len(cfg.Users) < 1 {
 					registration = true
 				}
 				// Generate another object to filter some fields from config
@@ -241,7 +325,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 				c.Abort()
 				return
 			}
-			serveStaticOrIndex(c, cleanPath)
+			serveStaticOrIndex(c, cleanPath, cfg)
 		}
 	})
 
@@ -333,6 +417,68 @@ func multiCmon(ctx *gin.Context) {
 	proxy.RPCProxyMany(ctx, xids.Xids, method, jsonData)
 }
 
+func applyWebServerConfig(r *gin.Engine, cfg config.WebServer) {
+
+	// Trust chain/IP handling (important if behind LB)
+	if cfg.TrustedProxies != nil {
+		if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+			log.Fatalf("trusted proxies: %v", err)
+		}
+	}
+	if cfg.TrustedPlatform != "" {
+		// r.SetTrustedPlatform(cfg.Server.TrustedPlatform)
+		r.TrustedPlatform = cfg.TrustedPlatform
+	}
+
+	// Security headers (excluding CSP which needs per-request nonce)
+	sec := secure.New(secure.Config{
+		FrameDeny:            *cfg.Security.FrameDeny,
+		STSSeconds:           cfg.Security.STSSeconds,
+		STSIncludeSubdomains: *cfg.Security.STSIncludeSubdomains,
+		STSPreload:           *cfg.Security.STSPreload,
+		ContentTypeNosniff:   *cfg.Security.ContentTypeNosniff,
+		BrowserXssFilter:     *cfg.Security.BrowserXssFilter,
+		ReferrerPolicy:       cfg.Security.ReferrerPolicy,
+	})
+	r.Use(sec)
+
+	// CORS - only apply if configured
+	if len(cfg.CORS.AllowOrigins) > 0 || len(cfg.CORS.AllowMethods) > 0 {
+		r.Use(cors.New(cors.Config{
+			AllowOrigins:     cfg.CORS.AllowOrigins,
+			AllowMethods:     cfg.CORS.AllowMethods,
+			AllowHeaders:     cfg.CORS.AllowHeaders,
+			ExposeHeaders:    cfg.CORS.ExposeHeaders,
+			AllowCredentials: *cfg.CORS.AllowCredentials,
+			MaxAge:           time.Duration(cfg.CORS.MaxAgeSeconds) * time.Second,
+		}))
+	}
+
+	// Custom security headers middleware; CSP handled where HTML is served
+	r.Use(func(c *gin.Context) {
+		// Handle ForceSTSHeader - force STS header with configured values
+		if *cfg.Security.ForceSTSHeader {
+			stsValue := fmt.Sprintf("max-age=%d", cfg.Security.STSSeconds)
+			if *cfg.Security.STSIncludeSubdomains {
+				stsValue += "; includeSubDomains"
+			}
+			if *cfg.Security.STSPreload {
+				stsValue += "; preload"
+			}
+			c.Header("Strict-Transport-Security", stsValue)
+		}
+
+		// CSP is attached only when serving HTML in serveStaticOrIndex
+
+		if cfg.Security.PermissionsPolicy != "" {
+			c.Header("Permissions-Policy", cfg.Security.PermissionsPolicy)
+		}
+	})
+
+	// Gzip (responses)
+	r.Use(gzip.Gzip(cfg.Gzip.Level))
+}
+
 // Start is starting the service
 func Start(cfg *config.Config) {
 	var err error
@@ -417,13 +563,19 @@ func Start(cfg *config.Config) {
 		}
 	}()
 
+	// Create gin engine and apply web server configuration
 	s := gin.New()
+
+	// Apply web server configuration (CORS, security headers, gzip, etc.)
+	applyWebServerConfig(s, cfg.WebServer)
+
+	// Add application-specific middleware
 	s.Use(ginzap.RecoveryWithZap(log, true))
 	s.NoMethod(func(c *gin.Context) { c.JSON(http.StatusMethodNotAllowed, gin.H{"err": "method not allowed"}) })
+
+	// Custom CORS handling for legacy compatibility (this will work alongside the CORS middleware)
 	s.Use(func(c *gin.Context) {
-		// Middleware attaches CORS (access-control-allow-*) headers
-		// to gin.Context on every request to allow cross-domain
-		// requests from the frontend.
+		// Additional CORS headers for legacy frontend compatibility
 		origin := c.GetHeader("origin")
 		if origin == "" {
 			origin = "*"
@@ -436,6 +588,7 @@ func Start(cfg *config.Config) {
 		c.Header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,HEAD")
 		c.Status(http.StatusOK)
 	})
+
 	s.Use(session.Sessions(cfg))
 
 	if opts.Opts.DebugWebRpc {
@@ -450,12 +603,6 @@ func Start(cfg *config.Config) {
 	}
 
 	multi.StartSessionCleanupScheduler(proxy)
-
-	s.Use(func(c *gin.Context) {
-		// Based on PEN test report https://severalnines.atlassian.net/browse/CLUS-4437
-		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-		c.Header("X-Content-Type-Options", "nosniff")
-	})
 
 	// to serve the static files
 	err = serveFrontend(s, cfg)
