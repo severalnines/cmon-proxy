@@ -57,6 +57,7 @@ type ProxyUser struct {
 
 type CmonInstance struct {
 	Xid           string `yaml:"xid" json:"xid"`
+    PoolId        string `yaml:"pool_id,omitempty" json:"pool_id,omitempty"`
 	Url           string `yaml:"url" json:"url"`
 	Name          string `yaml:"name,omitempty" json:"name,omitempty"`
 	Username      string `yaml:"username,omitempty" json:"username,omitempty"`
@@ -210,6 +211,7 @@ func (cmon *CmonInstance) Verify() error {
 func (cmon *CmonInstance) Copy() *CmonInstance {
 	instance := &CmonInstance{
 		Xid:           cmon.Xid,
+        PoolId:        cmon.PoolId,
 		Url:           cmon.Url,
 		Name:          cmon.Name,
 		Username:      cmon.Username,
@@ -246,12 +248,17 @@ func (cfg *Config) Upgrade() {
 		return
 	}
 	changed := false
-	// make sure all instances have a local ID
+    // make sure all instances have a local ID
 	for _, cmon := range cfg.Instances {
 		if len(cmon.Xid) < 4 {
 			cmon.Xid = xid.New().String()
 			changed = true
 		}
+        // ensure pool_id is present and independent from xid
+        if len(cmon.PoolId) < 1 || cmon.PoolId == cmon.Xid {
+            cmon.PoolId = xid.New().String()
+            changed = true
+        }
 	}
 	if changed && len(cfg.Filename) > 0 {
 		if err := cfg.Save(); err != nil {
@@ -554,6 +561,10 @@ func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
 	if len(cmon.Xid) < 4 {
 		cmon.Xid = xid.New().String()
 	}
+    // generate pool_id independently when missing or equals xid
+    if len(cmon.PoolId) < 1 || cmon.PoolId == cmon.Xid {
+        cmon.PoolId = xid.New().String()
+    }
 
 	cfg.mtx.Lock()
 	cfg.Instances = append(cfg.Instances, cmon)

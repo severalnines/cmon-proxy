@@ -85,7 +85,8 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 
 		status.Name = truncateControllerName(c.Client.Instance.Name)
 		status.ControllerID = c.ControllerID()
-		status.Xid = c.Xid()
+        status.Xid = c.Xid()
+        status.PoolId = c.Client.Instance.PoolId
 		status.Status = api.Ok
 		status.FrontendUrl = c.Client.Instance.FrontendUrl
 		status.LastUpdated.T = time.Now()
@@ -166,8 +167,9 @@ func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 		resp, err = client.Ping()
 	}
 
-	retval := &api.ControllerStatus{
-		Xid:          instance.Xid,
+    retval := &api.ControllerStatus{
+        Xid:          instance.Xid,
+        PoolId:       instance.PoolId,
 		ControllerID: client.ControllerID(),
 		Version:      client.ServerVersion(),
 		Url:          instance.Url,
@@ -195,8 +197,9 @@ func (p *Proxy) infoOne(instance *config.CmonInstance) *api.ControllerStatus {
 	client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
 	resp, err := client.InfoPing()
 
-	retval := &api.ControllerStatus{
-		Xid:          instance.Xid,
+    retval := &api.ControllerStatus{
+        Xid:          instance.Xid,
+        PoolId:       instance.PoolId,
 		ControllerID: client.ControllerID(),
 		Version:      "",
 		Url:          instance.Url,

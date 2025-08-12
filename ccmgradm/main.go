@@ -204,8 +204,9 @@ func main() {
 				fmt.Println("Controller already exists with this URL.")
 				os.Exit(1)
 			}
-			cmon = &config.CmonInstance{
-				Xid:         xid.New().String(),
+            cmon = &config.CmonInstance{
+                Xid:         xid.New().String(),
+                PoolId:      xid.New().String(),
 				Url:         args.AddController.Url,
 				Name:        args.AddController.Name,
 				FrontendUrl: args.AddController.FrontendUrl,
@@ -245,8 +246,9 @@ func main() {
 					fmt.Println("Controller already exists with this URL.")
 					os.Exit(1)
 				}
-				cmon = &config.CmonInstance{
-					Xid:         xid.New().String(),
+                cmon = &config.CmonInstance{
+                    Xid:         xid.New().String(),
+                    PoolId:      xid.New().String(),
 					Url:         cmonUrl,
 					CMONSshHost: cmonSshUrl,
 					Name:        "local",
@@ -336,10 +338,13 @@ func main() {
 				fmt.Println("Couldn't find controller.")
 				os.Exit(1)
 			}
-			// make sure all instances have a valid internal ID
-			if len(cmon.Xid) < 4 {
-				cmon.Xid = xid.New().String()
-			}
+            // make sure all instances have a valid internal ID and pool_id
+            if len(cmon.Xid) < 4 {
+                cmon.Xid = xid.New().String()
+            }
+            if len(cmon.PoolId) < 1 {
+                cmon.PoolId = cmon.Xid
+            }
 			// Name
 			if len(args.UpdateController.Name) > 0 {
 				cmon.Name = args.UpdateController.Name

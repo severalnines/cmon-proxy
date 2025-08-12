@@ -40,6 +40,7 @@ type ControllerStatusRequest struct {
 
 type ControllerStatus struct {
 	Xid           string                    `json:"xid"`
+    PoolId        string                    `json:"pool_id,omitempty"`
 	ControllerID  string                    `json:"controller_id"`
 	Name          string                    `json:"controller_name"`
 	Url           string                    `json:"url"`
