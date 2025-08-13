@@ -19,6 +19,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/rs/xid"
 	"github.com/severalnines/cmon-proxy/cmon"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
@@ -133,30 +135,100 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 }
 
 func (p *Proxy) FetchControllerIDFromInfo(instance *config.CmonInstance) (string, error) {
-	client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
-	
-	// Call the /info endpoint with ping operation
-	resp, err := client.InfoPing()
-	if err != nil {
-		return "", err
-	}
-	
-	// Check if resp is nil before accessing its fields
-	if resp == nil {
-		return "", fmt.Errorf("received nil response from info endpoint")
-	}
-	
-	// Check if the embedded WithControllerID pointer is nil
-	if resp.WithControllerID == nil {
-		return "", fmt.Errorf("controller_id not found in info response")
-	}
-	
-	// Now safely access ControllerID from the embedded struct
-	if resp.WithControllerID.ControllerID != "" {
-		return resp.WithControllerID.ControllerID, nil
-	}
-	
-	return "", fmt.Errorf("controller_id not found in info response")
+    // Reuse the combined enrichment so we avoid duplicate /info calls elsewhere
+    if _, err := p.EnrichControllerFromInfo(instance); err != nil {
+        return "", err
+    }
+    if instance.ControllerId != "" {
+        return instance.ControllerId, nil
+    }
+    return "", fmt.Errorf("controller_id not found in info response")
+}
+
+// FetchHostPortFromInfo gets hostname and port for the given instance via /info ping.
+// It prefers matching by controller_id when available; falls back to matching by URL.
+func (p *Proxy) FetchHostPortFromInfo(instance *config.CmonInstance) (string, int, error) {
+    if _, err := p.EnrichControllerFromInfo(instance); err != nil {
+        return "", 0, err
+    }
+    if instance.Hostname != "" && instance.Port > 0 {
+        return instance.Hostname, instance.Port, nil
+    }
+    return "", 0, fmt.Errorf("could not determine hostname/port from info response")
+}
+
+// EnrichControllerFromInfo performs a single /info ping and fills missing
+// ControllerId, Hostname and Port fields when possible. Returns true if any field was updated.
+func (p *Proxy) EnrichControllerFromInfo(instance *config.CmonInstance) (bool, error) {
+    client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
+    resp, err := client.InfoPing()
+    if err != nil {
+        return false, err
+    }
+    if resp == nil {
+        return false, fmt.Errorf("received nil response from info endpoint")
+    }
+
+    changed := false
+
+    // controller_id
+    if resp.WithControllerID != nil && resp.WithControllerID.ControllerID != "" {
+        if instance.ControllerId == "" {
+            instance.ControllerId = resp.WithControllerID.ControllerID
+            changed = true
+        }
+    }
+
+    // hostname/ports: prefer top-level fields when present
+    if instance.Hostname == "" || instance.Port == 0 || instance.RpcV2Port == 0 {
+        if resp.Hostname != "" {
+            instance.Hostname = resp.Hostname
+        }
+        if resp.Port > 0 {
+            instance.Port = resp.Port
+        }
+        if resp.RpcV2Port > 0 {
+            instance.RpcV2Port = resp.RpcV2Port
+        }
+        if instance.Hostname != "" && instance.Port > 0 && instance.RpcV2Port > 0 {
+            return true, nil
+        }
+    }
+
+    // hostname/ports: try to match by controller_id first
+    var targetID uint64
+    if resp.WithControllerID != nil && len(resp.WithControllerID.ControllerID) > 0 {
+        if parsed, err := strconv.ParseUint(resp.WithControllerID.ControllerID, 10, 64); err == nil {
+            targetID = parsed
+        }
+    }
+    if instance.Hostname == "" || instance.Port == 0 || instance.RpcV2Port == 0 {
+        for _, entry := range resp.ControllersPool {
+            if targetID > 0 && entry.ControllerID == targetID {
+                instance.Hostname = entry.Hostname
+                instance.Port = entry.Port
+                instance.RpcV2Port = entry.RpcV2Port
+                changed = true
+                break
+            }
+        }
+    }
+    if (instance.Hostname == "" || instance.Port == 0 || instance.RpcV2Port == 0) && len(resp.ControllersPool) > 0 {
+        // fallback match by URL
+        normalized := strings.TrimRight(instance.Url, "/")
+        for _, entry := range resp.ControllersPool {
+            url := fmt.Sprintf("%s:%d", entry.Hostname, entry.Port)
+            if url == normalized {
+                instance.Hostname = entry.Hostname
+                instance.Port = entry.Port
+                instance.RpcV2Port = entry.RpcV2Port
+                changed = true
+                break
+            }
+        }
+    }
+
+    return changed, nil
 }
 
 func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
@@ -233,7 +305,38 @@ func (p *Proxy) RPCControllerTest(ctx *gin.Context) {
 		return
 	}
 
-	resp.Controller = p.infoOne(req.Controller)
+	// Ensure name is set; default to URL (hostname:port) when missing
+	if req.Controller != nil && len(req.Controller.Name) < 1 && len(req.Controller.Url) > 0 {
+		req.Controller.Name = req.Controller.Url
+	}
+
+    // Build controller status and optionally include pool info from /info ping
+    controllerStatus := p.infoOne(req.Controller)
+    resp.Controller = controllerStatus
+
+    // If controller status is ok, try to include the pool info
+    if controllerStatus != nil && controllerStatus.Status == api.Ok {
+        client := cmon.NewClient(req.Controller, p.Router(nil).Config.Timeout)
+        if infoResp, err := client.InfoPing(); err == nil && infoResp != nil {
+            if len(infoResp.ControllersPool) > 0 {
+                pool := &api.PoolInfo{Cmons: make([]api.PoolCmon, 0, len(infoResp.ControllersPool))}
+                for _, entry := range infoResp.ControllersPool {
+                    pool.Cmons = append(pool.Cmons, api.PoolCmon{
+                        ControllerID: entry.ControllerID,
+                        Hostname:     entry.Hostname,
+                        Port:         entry.Port,
+                        RpcV2Port:    entry.RpcV2Port,
+                        Properties:   entry.Properties,
+                        ReportTs:     entry.ReportTs,
+                        Status:       entry.Status,
+                    })
+                }
+                resp.Pool = pool
+            }
+        } else if err != nil {
+            zap.L().Warn("Failed to fetch controllers pool from /info ping", zap.Error(err))
+        }
+    }
 
 	ctx.JSON(http.StatusOK, &resp)
 }
@@ -245,8 +348,8 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 	session := sessions.Default(ctx)
 	elevated := session.Get("elevated") == true
 	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if !authenticatedUser.Admin && !elevated {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("Only admin users can add controllers"), http.StatusForbidden)
+        if !authenticatedUser.Admin && !elevated {
+            cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can add controllers"), http.StatusForbidden)
 			return
 		}
 	}
@@ -255,6 +358,10 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 		cmonapi.CtxWriteError(ctx,
 			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "Invalid request."))
 		return
+	}
+	// Ensure name is set; default to URL (hostname:port) when missing
+	if req.Controller != nil && len(req.Controller.Name) < 1 && len(req.Controller.Url) > 0 {
+		req.Controller.Name = req.Controller.Url
 	}
 
 	// Check if controller_id is missing and fetch it from /info endpoint
@@ -271,6 +378,24 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 		}
 	}
 
+	// Enrich hostname/port/rpcv2_port from info and compute effective URL
+	if updated, err := p.EnrichControllerFromInfo(req.Controller); err != nil {
+		zap.L().Warn("Failed to enrich controller from /info endpoint",
+			zap.String("url", req.Controller.Url),
+			zap.Error(err))
+	} else if updated {
+		// build url as hostname:rpcv2_port if exists else hostname:(port+1)
+		effectivePort := 0
+		if req.Controller.RpcV2Port > 0 {
+			effectivePort = req.Controller.RpcV2Port
+		} else if req.Controller.Port > 0 {
+			effectivePort = req.Controller.Port + 1
+		}
+		if len(req.Controller.Hostname) > 0 && effectivePort > 0 {
+			req.Controller.Url = fmt.Sprintf("%s:%d", req.Controller.Hostname, effectivePort)
+		}
+	}
+
 	resp.Controller = p.pingOne(req.Controller)
 
 	if err := p.Router(nil).Config.AddController(req.Controller, true); err != nil {
@@ -282,6 +407,102 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 	p.Refresh()
 
 	ctx.JSON(http.StatusOK, &resp)
+}
+
+// RPCControllersAddPool discovers the pool via /info ping on the provided controller
+// and adds all pool members with names derived from the provided base name
+func (p *Proxy) RPCControllersAddPool(ctx *gin.Context) {
+    var req api.AddControllersFromPoolRequest
+    var resp api.AddControllersFromPoolResponse
+
+    session := sessions.Default(ctx)
+    elevated := session.Get("elevated") == true
+    if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
+        if !authenticatedUser.Admin && !elevated {
+            cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can add controllers"), http.StatusForbidden)
+            return
+        }
+    }
+
+    if err := ctx.BindJSON(&req); err != nil || req.Controller == nil {
+        cmonapi.CtxWriteError(ctx,
+            cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "Invalid request."))
+        return
+    }
+
+    baseName := strings.TrimSpace(req.Controller.Name)
+    // unify pool id for this bulk add so that all controllers share it
+    poolId := strings.TrimSpace(req.Controller.PoolId)
+    if len(poolId) < 1 {
+        poolId = xid.New().String()
+    }
+
+    client := cmon.NewClient(req.Controller, p.Router(nil).Config.Timeout)
+    infoResp, err := client.InfoPing()
+    if err != nil || infoResp == nil || len(infoResp.ControllersPool) == 0 {
+        if err != nil {
+            cmonapi.CtxWriteError(ctx, err)
+        } else {
+            cmonapi.CtxWriteError(ctx, cmonapi.NewError(cmonapi.RequestStatusTryAgain, "No controllers pool information available"))
+        }
+        return
+    }
+
+    resp.Added = make([]*api.ControllerStatus, 0, len(infoResp.ControllersPool))
+    resp.Failed = make([]string, 0)
+
+    for idx, entry := range infoResp.ControllersPool {
+        // compute effective URL using rpcv2_port if present otherwise port+1
+        urlPort := entry.RpcV2Port
+        if urlPort <= 0 {
+            urlPort = entry.Port + 1
+        }
+        url := fmt.Sprintf("%s:%d", entry.Hostname, urlPort)
+
+        if p.Router(nil).Config.ControllerByUrl(url) != nil {
+            resp.Failed = append(resp.Failed, fmt.Sprintf("%s (duplicate)", url))
+            continue
+        }
+
+        // copy controller credentials and set per-entry url and name
+        add := req.Controller.Copy()
+        add.Url = url
+        add.Hostname = entry.Hostname
+        add.Port = entry.Port
+        add.RpcV2Port = entry.RpcV2Port
+        add.PoolId = poolId
+        if len(baseName) > 0 {
+            add.Name = fmt.Sprintf("%s_%d", baseName, idx+1)
+        } else {
+            add.Name = url
+        }
+
+        // fetch controller_id when possible; continue on error
+        if add.ControllerId == "" {
+            if controllerID, err := p.FetchControllerIDFromInfo(add); err == nil {
+                add.ControllerId = controllerID
+            }
+        }
+
+        if err := p.Router(nil).Config.AddController(add, true); err != nil {
+            resp.Failed = append(resp.Failed, fmt.Sprintf("%s (%s)", url, err.Error()))
+            continue
+        }
+
+        // get live status
+        status := p.pingOne(add)
+        if status != nil {
+            status.Hostname = add.Hostname
+            status.Port = add.Port
+            status.RpcV2Port = add.RpcV2Port
+        }
+        resp.Added = append(resp.Added, status)
+    }
+
+    // it is going to refresh everything
+    p.Refresh()
+
+    ctx.JSON(http.StatusOK, &resp)
 }
 
 func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {

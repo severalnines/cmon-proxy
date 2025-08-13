@@ -25,6 +25,39 @@ type AddControllerResponse struct {
 	*cmonapi.Error
 
 	Controller *ControllerStatus `json:"controller"`
+    Pool       *PoolInfo         `json:"pool,omitempty"`
+}
+
+// AddControllersFromPoolRequest instructs the server to discover the pool via /info ping
+// and add all controllers from that pool using the provided controller credentials.
+// The base name is taken from Controller.Name; when present the added controllers will be named
+// baseName_1, baseName_2, ... according to their index in the discovered list.
+type AddControllersFromPoolRequest struct {
+    Controller *config.CmonInstance `json:"controller"`
+}
+
+// AddControllersFromPoolResponse reports added controllers and failures
+type AddControllersFromPoolResponse struct {
+    *cmonapi.Error
+
+    Added   []*ControllerStatus `json:"added"`
+    Failed  []string            `json:"failed"`
+}
+
+// PoolInfo carries information about the controller pool discovered via /info ping
+type PoolInfo struct {
+    Cmons []PoolCmon `json:"cmons"`
+}
+
+// PoolCmon represents a single controller in the pool response
+type PoolCmon struct {
+    ControllerID uint64 `json:"controller_id"`
+    Hostname     string `json:"hostname"`
+    Port         int    `json:"port"`
+    RpcV2Port    int    `json:"rpcv2_port,omitempty"`
+    Properties   string `json:"properties"`
+    ReportTs     string `json:"report_ts"`
+    Status       string `json:"status"`
 }
 
 // RemoveControllerRequest can be sent to remove a controller by URL

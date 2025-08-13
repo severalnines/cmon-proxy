@@ -520,6 +520,7 @@ func fetchMissingControllerIDs(proxy *multi.Proxy) {
 		}
 	}
 }
+
 // Start is starting the service
 func Start(cfg *config.Config) {
 	var err error
@@ -643,8 +644,9 @@ func Start(cfg *config.Config) {
 		log.Sugar().Fatalf("initialization problem: %s", err.Error())
 	}
 
-	// Fetch missing controller_ids during startup
-	fetchMissingControllerIDs(proxy)
+    // Fetch missing controller_ids and host/port during startup
+    fetchMissingControllerIDs(proxy)
+    fetchMissingHostPort(proxy)
 
 	multi.StartSessionCleanupScheduler(proxy)
 
@@ -795,6 +797,7 @@ func Start(cfg *config.Config) {
 			cmons.POST("/status", proxy.RPCControllerStatus)
 			cmons.POST("/test", proxy.RPCControllerTest)
 			cmons.POST("/add", proxy.RPCControllerAdd)
+            cmons.POST("/addPool", proxy.RPCControllersAddPool)
 			cmons.POST("/update", proxy.RPCControllerUpdate)
 			cmons.POST("/remove", proxy.RPCControllerRemove)
 		}

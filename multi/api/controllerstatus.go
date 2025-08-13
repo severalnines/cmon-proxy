@@ -43,7 +43,10 @@ type ControllerStatus struct {
     PoolId        string                    `json:"pool_id,omitempty"`
 	ControllerID  string                    `json:"controller_id"`
 	Name          string                    `json:"controller_name"`
-	Url           string                    `json:"url"`
+    Url           string                    `json:"url"`
+    Hostname      string                    `json:"hostname,omitempty"`
+    Port          int                       `json:"port,omitempty"`
+    RpcV2Port     int                       `json:"rpcv2_port,omitempty"`
 	FrontendUrl   string                    `json:"frontend_url,omitempty"`
 	Version       string                    `json:"version"`
 	StatusMessage string                    `json:"status_message"`

@@ -59,6 +59,9 @@ type CmonInstance struct {
 	Xid           string `yaml:"xid" json:"xid"`
     PoolId        string `yaml:"pool_id,omitempty" json:"pool_id,omitempty"`
 	Url           string `yaml:"url" json:"url"`
+    Hostname      string `yaml:"hostname,omitempty" json:"hostname,omitempty"`
+    Port          int    `yaml:"port,omitempty" json:"port,omitempty"`
+    RpcV2Port     int    `yaml:"rpcv2_port,omitempty" json:"rpcv2_port,omitempty"`
 	Name          string `yaml:"name,omitempty" json:"name,omitempty"`
 	Username      string `yaml:"username,omitempty" json:"username,omitempty"`
 	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
@@ -213,6 +216,9 @@ func (cmon *CmonInstance) Copy() *CmonInstance {
 		Xid:           cmon.Xid,
         PoolId:        cmon.PoolId,
 		Url:           cmon.Url,
+        Hostname:      cmon.Hostname,
+        Port:          cmon.Port,
+        RpcV2Port:     cmon.RpcV2Port,
 		Name:          cmon.Name,
 		Username:      cmon.Username,
 		Keyfile:       cmon.Keyfile,
