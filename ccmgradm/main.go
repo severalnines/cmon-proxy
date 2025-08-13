@@ -54,14 +54,15 @@ type AddControllerCmd struct {
 }
 
 type InitCmd struct {
-	LocalCmon     bool   `arg:"--local-cmon" help:"Initialize with local cmon installation"`
-	Port          int    `arg:"-p,--port" help:"Port to start the daemon on (default: 19051)"`
-	FrontendPath  string `arg:"-f,--frontend-path" help:"Path to web ui static files"`
-	Config        string `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
-	Url           string `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
-	CMONSshUrl    string `arg:"-s,--cmon-ssh-url" help:"cmon-ssh url (default: 127.0.0.1:9511)"`
-	KuberProxyUrl string `arg:"-k,--kuber-proxy-url" help:"kuber-proxy url (default: 127.0.0.1:8080)"`
-	EnableMcc     bool   `arg:"-s,--enable-mcc" help:"Enable multicontroller mode"`
+	LocalCmon     bool     `arg:"--local-cmon" help:"Initialize with local cmon installation"`
+	Port          int      `arg:"-p,--port" help:"Port to start the daemon on (default: 19051)"`
+	FrontendPath  string   `arg:"-f,--frontend-path" help:"Path to web ui static files"`
+	Config        string   `arg:"-c,--cmon-config" help:"Cmon config (default: /etc/cmon.cnf)"`
+	Url           string   `arg:"-u,--cmon-url" help:"Cmon url (default: 127.0.0.1:9501)"`
+	CMONSshUrl    string   `arg:"-s,--cmon-ssh-url" help:"cmon-ssh url (default: 127.0.0.1:9511)"`
+	KuberProxyUrl string   `arg:"-k,--kuber-proxy-url" help:"kuber-proxy url (default: 127.0.0.1:8080)"`
+	EnableMcc     bool     `arg:"-s,--enable-mcc" help:"Enable multicontroller mode"`
+	ConfigParams  []string `arg:"--set,separate" help:"Set arbitrary config parameters in format key=value (e.g., --set acme_enabled=true --set http_port=8080)"`
 }
 
 type DropControllerCmd struct {
@@ -110,14 +111,14 @@ func main() {
 	saveAndReload := true
 
 	// Load configuration
-	cfg, err := config.Load(path.Join(opts.Opts.BaseDir, configFile), true)
+	cfg, err := config.LoadFromFile(path.Join(opts.Opts.BaseDir, configFile), true)
 	if err != nil {
 		// 2nd chance for docker
-		cfg, err = config.Load(path.Join("/data", configFile), true)
+		cfg, err = config.LoadFromFile(path.Join("/data", configFile), true)
 	}
 	if err != nil {
 		// 3nd chance for dev
-		cfg, err = config.Load(path.Join("", configFile), true)
+		cfg, err = config.LoadFromFile(path.Join("", configFile), true)
 	}
 	if err != nil {
 		fmt.Println("Config file load error:", err.Error())
@@ -313,6 +314,12 @@ func main() {
 						fmt.Println("File", filePath, "updated successfully")
 					}
 				}
+			}
+
+			// Apply arbitrary config parameters
+			if err := applyConfigParams(cfg, args.Init.ConfigParams); err != nil {
+				fmt.Println("Error applying config parameters:", err.Error())
+				os.Exit(1)
 			}
 			if err := cfg.Save(); err != nil {
 				fmt.Println("Couldn't update configuration:", err.Error())

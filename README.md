@@ -104,7 +104,7 @@ To drop a controller:
 
      $ ccmgradm dropcontroller --help
      ClusterControl Manager - admin CLI v2.2
-     Usage: main dropcontroller [URLORNAME]
+   Usage: main dropcontroller [URLORNAME]
 
      Positional arguments:
        URLORNAME              The controller name or URL from configuration.
@@ -122,6 +122,7 @@ Options:
   -u, --cmon-url         CMON URL (default: 127.0.0.1:9501)
   -s, --cmon-ssh-url     CMON SSH URL (default: 127.0.0.1:9511)
   --enable-mcc           Enable multicontroller mode
+  --set                  Set arbitrary config parameters in format key=value
 ```
 
 Examples:
@@ -135,6 +136,10 @@ ccmgradm init --local-cmon -u host.docker.internal:19501 -f /var/www/frontend
 
 # Initialize with multicontroller mode
 ccmgradm init --local-cmon --enable-mcc -f /var/www/frontend
+
+# Initialize with nested config parameters using dot notation
+ccmgradm init --set web_server.security.content_security_policy_report_only=false --set acme_enabled=true
+
 ```
 
 
@@ -189,7 +194,47 @@ acme_directory_url: "" # The ACME directory URL. Defaults is empty (using librar
 acme_accept_tos: true # Automatically accept the ACME provider's Terms of Service. Default is true.
 acme_renew_before: "720h" # Renewal window before certificate expiration (a Go duration string, e.g., "720h" for 30 days). Default is 30 days (720h).
 acme_host_policy_strict: false # If true, strictly enforce that certs are only issued for domains in acme_domains. Recommended for production. Default is false.
+web_server:
+  trusted_proxies: [] # List of trusted proxy IPs. Default is empty.
+  trusted_platform: "" # Platform header for identifying client IPs (e.g., "X-Forwarded-For"). Default is empty.
+  security:
+    frame_deny: true # Sets X-Frame-Options to DENY. Default is true.
+    sts_seconds: 31536000 # HSTS max-age in seconds. Default is 31536000 (1 year).
+    sts_include_subdomains: true # Include subdomains in HSTS policy. Default is true.
+    sts_preload: true # Enable HSTS preload. Default is true.
+    force_sts_header: true # Force HSTS header even for non-TLS requests. Default is true.
+    content_type_nosniff: true # Sets X-Content-Type-Options to nosniff. Default is true.
+    browser_xss_filter: false # Disables the browser's XSS filter. Default is false.
+    content_security_policy: "default-src 'self'; ..." # Content Security Policy. See below for details.
+    content_security_policy_report_only: true # Use CSP in report-only mode. Default is true.
+    referrer_policy: "strict-origin-when-cross-origin" # Referrer-Policy header. Default is "strict-origin-when-cross-origin".
+    permissions_policy: "camera=(), microphone=(), geolocation=()" # Permissions-Policy header. Default is "camera=(), microphone=(), geolocation=()".
+  cors:
+    allow_origins: [] # List of allowed origins for CORS. Default is empty.
+    allow_methods: [] # List of allowed methods for CORS. Default is empty.
+    allow_headers: [] # List of allowed headers for CORS. Default is empty.
+    expose_headers: [] # List of headers to expose for CORS. Default is empty.
+    allow_credentials: true # Allow credentials for CORS. Default is true.
+    max_age_seconds: 0 # Max age for preflight requests. Default is 0.
+  gzip:
+    level: 1 # Gzip compression level (1 to 9). Default is 1 (BestSpeed).
+  frontend:
+    nonce_replacement_files: ["index.html"] # Files to replace CSP nonce in. Default is ["index.html"].
 ```
+
+The default `content_security_policy` is a string that sets several security policies for the web interface. Here is a breakdown of its directives:
+- `default-src 'self'`: Restricts all resources to be loaded from the same origin.
+- `base-uri 'self'`: Specifies the possible URLs that can be used in a document's `<base>` element.
+- `object-src 'none'`: Prevents the use of plugins, such as Flash or Java.
+- `frame-ancestors 'none'`: Blocks the page from being displayed in a frame, iframe, object, embed, or applet.
+- `script-src 'self' 'nonce-{{nonce}}' 'strict-dynamic'`: Allows scripts from the same origin, scripts with a cryptographic nonce, and allows scripts to load other scripts.
+- `style-src 'self' 'unsafe-inline'`: Allows stylesheets from the same origin and inline styles.
+- `img-src 'self' data:`: Allows images from the same origin and from data URIs.
+- `font-src 'self' data:`: Allows fonts from the same origin and from data URIs.
+- `connect-src 'self' https://severalnines.piwik.pro`: Restricts connections (e.g., AJAX) to the same origin and the Piwik Pro analytics service.
+- `worker-src 'self' blob:`: Allows web workers from the same origin and from blob URLs.
+- `form-action 'self'`: Specifies valid endpoints for submissions from `<form>` tags.
+- `upgrade-insecure-requests`: Instructs browsers to upgrade HTTP connections to HTTPS.
 
 ## RPC endpoints
 

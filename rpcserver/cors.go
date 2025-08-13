@@ -20,13 +20,7 @@ import (
 // to gin.Context on every request to allow cross-domain
 // requests from the frontend.
 func Middleware(ctx *gin.Context) {
-	origin := ctx.GetHeader("origin")
-	if origin == "" {
-		origin = "*"
-	}
-	ctx.Header("access-control-allow-origin", origin)
 	ctx.Header("access-control-allow-headers", "content-type, accept")
-	ctx.Header("access-control-allow-credentials", "true")
 	ctx.Next()
 }
 
