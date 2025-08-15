@@ -482,27 +482,27 @@ func applyWebServerConfig(r *gin.Engine, cfg config.WebServer) {
 // fetchMissingControllerIDs checks all instances for missing controller_id and fetches them
 func fetchMissingControllerIDs(proxy *multi.Proxy) {
 	log := zap.L()
-	
+
 	cfg := proxy.Router(nil).Config
 	if cfg == nil {
 		log.Warn("Config is nil, cannot fetch missing controller IDs")
 		return
 	}
-	
+
 	changed := false
 	for _, instance := range cfg.Instances {
 		if instance != nil && instance.ControllerId == "" {
-			log.Info("Found instance with missing controller_id, attempting to fetch", 
+			log.Info("Found instance with missing controller_id, attempting to fetch",
 				zap.String("url", instance.Url),
 				zap.String("xid", instance.Xid))
-			
+
 			controllerID, err := proxy.FetchControllerIDFromInfo(instance)
 			if err != nil {
-				log.Warn("Failed to fetch controller_id from /info endpoint", 
-					zap.String("url", instance.Url), 
+				log.Warn("Failed to fetch controller_id from /info endpoint",
+					zap.String("url", instance.Url),
 					zap.Error(err))
 			} else {
-				log.Info("Successfully fetched controller_id", 
+				log.Info("Successfully fetched controller_id",
 					zap.String("url", instance.Url),
 					zap.String("controller_id", controllerID))
 				instance.ControllerId = controllerID
@@ -510,7 +510,7 @@ func fetchMissingControllerIDs(proxy *multi.Proxy) {
 			}
 		}
 	}
-	
+
 	// Save the config if any controller_ids were fetched
 	if changed {
 		if err := cfg.Save(); err != nil {
@@ -615,17 +615,6 @@ func Start(cfg *config.Config) {
 	s.Use(ginzap.RecoveryWithZap(log, true))
 	s.NoMethod(func(c *gin.Context) { c.JSON(http.StatusMethodNotAllowed, gin.H{"err": "method not allowed"}) })
 
-	// Custom CORS handling for legacy compatibility (this will work alongside the CORS middleware)
-	s.Use(func(c *gin.Context) {
-		// Additional CORS headers for legacy frontend compatibility
-		origin := c.GetHeader("origin")
-		if origin == "" {
-			origin = "*"
-		}
-		c.Header("access-control-allow-origin", origin)
-		c.Header("access-control-allow-credentials", "true")
-		c.Next()
-	})
 	s.OPTIONS("*any", func(c *gin.Context) {
 		c.Header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,HEAD")
 		c.Status(http.StatusOK)
