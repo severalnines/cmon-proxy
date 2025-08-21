@@ -195,8 +195,6 @@ acme_accept_tos: true # Automatically accept the ACME provider's Terms of Servic
 acme_renew_before: "720h" # Renewal window before certificate expiration (a Go duration string, e.g., "720h" for 30 days). Default is 30 days (720h).
 acme_host_policy_strict: false # If true, strictly enforce that certs are only issued for domains in acme_domains. Recommended for production. Default is false.
 web_server:
-  trusted_proxies: [] # List of trusted proxy IPs. Default is empty.
-  trusted_platform: "" # Platform header for identifying client IPs (e.g., "X-Forwarded-For"). Default is empty.
   security:
     frame_deny: true # Sets X-Frame-Options to DENY. Default is true.
     sts_seconds: 31536000 # HSTS max-age in seconds. Default is 31536000 (1 year).
@@ -204,7 +202,6 @@ web_server:
     sts_preload: false # Enable HSTS preload. Default is false.
     force_sts_header: false # Force HSTS header on every response. Default is false.
     content_type_nosniff: true # Sets X-Content-Type-Options to nosniff. Default is true.
-    browser_xss_filter: false # Disables the browser's XSS filter. Default is false.
     content_security_policy: "default-src 'self'; ..." # Content Security Policy. See below for details.
     content_security_policy_report_only: true # Use CSP in report-only mode. Default is true.
     referrer_policy: "strict-origin-when-cross-origin" # Referrer-Policy header. Default is "strict-origin-when-cross-origin".
@@ -226,96 +223,6 @@ web_server:
 
 This section explains `web_server` settings in simple terms and shows what headers they add. These settings do not change the app logic; they only affect how requests are interpreted and what security headers are sent.
 
-#### Client IP when behind proxies/CDNs
-
-- `trusted_proxies`: list of IPs or CIDRs of your own reverse proxies/LBs (e.g., NGINX, ALB inside your VPC). This tells the server “I trust these hops to add correct forwarding headers.”
-- `trusted_platform`: name of a single header your platform uses for the end-user IP (e.g., Cloudflare uses `CF-Connecting-IP`). If set, the server reads the client IP from this header.
-
-How `trusted_proxies` works with `X-Forwarded-For` (XFF):
-
-- XFF is a comma-separated list of addresses. Leftmost is the original client; rightmost are the most recent proxies.
-- The server looks from right to left and skips any IPs that belong to your `trusted_proxies`. The first IP that is NOT trusted is treated as the real client IP.
-
-Example:
-
-```
-X-Forwarded-For: 203.0.113.10, 198.51.100.20, 10.0.1.5
-```
-
-- Suppose your NGINX runs in `10.0.0.0/8` and is therefore trusted (`10.0.1.5` ∈ 10.0.0.0/8). The server skips `10.0.1.5` and picks `198.51.100.20` as the client IP. If `198.51.100.0/24` is also trusted, it would then pick `203.0.113.10`.
-
-Recommended setups:
-
-```yaml
-# NGINX/ALB behind VPC: trust only your private subnets
-web_server:
-  trusted_proxies: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-  # trusted_platform: ""   # leave empty; server uses X-Forwarded-For safely
-
-# Cloudflare: let Cloudflare tell us the real IP via a single header
-web_server:
-  trusted_platform: "CF-Connecting-IP"
-  # trusted_proxies: []     # not required in this case
-```
-
-These settings do not block traffic. They only help compute the correct end‑user IP and ignore forged XFF values from the public internet.
-
-#### HTTPS enforcement (HSTS)
-
-Header sent (by default on HTTPS):
-
-```
-Strict-Transport-Security: max-age=31536000; includeSubDomains
-```
-
-- `max-age=31536000`: for 1 year, the browser must only use HTTPS for this site.
-- `includeSubDomains`: apply to all subdomains too.
-- `preload`: opt‑in signal for browser vendors’ HSTS preload list.
-
-Important:
-
-- HSTS does NOT perform redirects. It tells browsers to auto‑upgrade to HTTPS and refuse HTTP after they have seen the header once over HTTPS. This app separately runs a plain HTTP server that sends a 301 redirect to HTTPS.
-- By default, this system does not force the HSTS header on every response and does not enable `preload`. Enable them only when you know you need them:
-
-```yaml
-web_server:
-  security:
-    force_sts_header: true
-    sts_preload: true
-```
-
-- HSTS Preload list: if you do want preload, you must submit your domain to the official list and meet their requirements. See [HSTS Preload submission](https://hstspreload.org).
-
-#### MIME type sniffing protection
-
-Header sent:
-
-```
-X-Content-Type-Options: nosniff
-```
-
-Why: Some browsers “guess” file types. If an uploaded file that looks like JavaScript is served as `text/plain` and included via `<script>`, the browser might execute it. `nosniff` tells the browser to obey the declared `Content-Type` and refuse executing if types don’t match.
-
-#### Legacy XSS filter
-
-- Setting: `browser_xss_filter` (default: false)
-- When enabled, header sent:
-
-```
-X-XSS-Protection: 1; mode=block
-```
-
-This is for very old browsers and is generally not needed today. Recommended to keep disabled.
-
-#### Referrer policy
-
-Header sent (default):
-
-```
-Referrer-Policy: strict-origin-when-cross-origin
-```
-
-Meaning: send the full referrer for same‑origin navigations, and only the origin (scheme+host+port) when navigating to a different origin. This avoids leaking full paths or query strings to third parties.
 
 #### Content Security Policy (CSP)
 
@@ -323,7 +230,7 @@ What it does:
 
 - Limits where scripts, styles, images, etc. can load from.
 - Supports a per‑response nonce so inline scripts can be allowed safely.
-- Can run in report‑only mode while you test your policy.
+- Can run in report‑only mode while you test your policy (report-only by default).
 
 How it’s applied here:
 
@@ -398,6 +305,23 @@ Access-Control-Allow-Headers: Content-Type,Authorization
 Access-Control-Allow-Credentials: true
 Access-Control-Max-Age: 600
 ```
+
+#### HTTPS enforcement (HSTS)
+
+Header sent (by default on HTTPS):
+
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+```
+
+- `max-age=31536000`: for 1 year, the browser must only use HTTPS for this site.
+- `includeSubDomains`: apply to all subdomains too.
+- `preload`: opt‑in signal for browser vendors’ HSTS preload list.
+
+- HSTS tells browsers to auto‑upgrade to HTTPS and refuse HTTP after they have seen the header once over HTTPS. This app separately runs a plain HTTP server that sends a 301 redirect to HTTPS.
+- By default, this system does not force the HSTS header on every response and does not enable `preload`. Enable them only when you know you need them:
+
+
 
 
 ## RPC endpoints
