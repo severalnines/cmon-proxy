@@ -201,8 +201,8 @@ web_server:
     frame_deny: true # Sets X-Frame-Options to DENY. Default is true.
     sts_seconds: 31536000 # HSTS max-age in seconds. Default is 31536000 (1 year).
     sts_include_subdomains: true # Include subdomains in HSTS policy. Default is true.
-    sts_preload: true # Enable HSTS preload. Default is true.
-    force_sts_header: true # Force HSTS header even for non-TLS requests. Default is true.
+    sts_preload: false # Enable HSTS preload. Default is false.
+    force_sts_header: false # Force HSTS header on every response. Default is false.
     content_type_nosniff: true # Sets X-Content-Type-Options to nosniff. Default is true.
     browser_xss_filter: false # Disables the browser's XSS filter. Default is false.
     content_security_policy: "default-src 'self'; ..." # Content Security Policy. See below for details.
@@ -222,19 +222,183 @@ web_server:
     nonce_replacement_files: ["index.html"] # Files to replace CSP nonce in. Default is ["index.html"].
 ```
 
-The default `content_security_policy` is a string that sets several security policies for the web interface. Here is a breakdown of its directives:
-- `default-src 'self'`: Restricts all resources to be loaded from the same origin.
-- `base-uri 'self'`: Specifies the possible URLs that can be used in a document's `<base>` element.
-- `object-src 'none'`: Prevents the use of plugins, such as Flash or Java.
-- `frame-ancestors 'none'`: Blocks the page from being displayed in a frame, iframe, object, embed, or applet.
-- `script-src 'self' 'nonce-{{nonce}}' 'strict-dynamic'`: Allows scripts from the same origin, scripts with a cryptographic nonce, and allows scripts to load other scripts.
-- `style-src 'self' 'unsafe-inline'`: Allows stylesheets from the same origin and inline styles.
-- `img-src 'self' data:`: Allows images from the same origin and from data URIs.
-- `font-src 'self' data:`: Allows fonts from the same origin and from data URIs.
-- `connect-src 'self' https://severalnines.piwik.pro`: Restricts connections (e.g., AJAX) to the same origin and the Piwik Pro analytics service.
-- `worker-src 'self' blob:`: Allows web workers from the same origin and from blob URLs.
-- `form-action 'self'`: Specifies valid endpoints for submissions from `<form>` tags.
-- `upgrade-insecure-requests`: Instructs browsers to upgrade HTTP connections to HTTPS.
+### Web server: headers and simple examples
+
+This section explains `web_server` settings in simple terms and shows what headers they add. These settings do not change the app logic; they only affect how requests are interpreted and what security headers are sent.
+
+#### Client IP when behind proxies/CDNs
+
+- `trusted_proxies`: list of IPs or CIDRs of your own reverse proxies/LBs (e.g., NGINX, ALB inside your VPC). This tells the server “I trust these hops to add correct forwarding headers.”
+- `trusted_platform`: name of a single header your platform uses for the end-user IP (e.g., Cloudflare uses `CF-Connecting-IP`). If set, the server reads the client IP from this header.
+
+How `trusted_proxies` works with `X-Forwarded-For` (XFF):
+
+- XFF is a comma-separated list of addresses. Leftmost is the original client; rightmost are the most recent proxies.
+- The server looks from right to left and skips any IPs that belong to your `trusted_proxies`. The first IP that is NOT trusted is treated as the real client IP.
+
+Example:
+
+```
+X-Forwarded-For: 203.0.113.10, 198.51.100.20, 10.0.1.5
+```
+
+- Suppose your NGINX runs in `10.0.0.0/8` and is therefore trusted (`10.0.1.5` ∈ 10.0.0.0/8). The server skips `10.0.1.5` and picks `198.51.100.20` as the client IP. If `198.51.100.0/24` is also trusted, it would then pick `203.0.113.10`.
+
+Recommended setups:
+
+```yaml
+# NGINX/ALB behind VPC: trust only your private subnets
+web_server:
+  trusted_proxies: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  # trusted_platform: ""   # leave empty; server uses X-Forwarded-For safely
+
+# Cloudflare: let Cloudflare tell us the real IP via a single header
+web_server:
+  trusted_platform: "CF-Connecting-IP"
+  # trusted_proxies: []     # not required in this case
+```
+
+These settings do not block traffic. They only help compute the correct end‑user IP and ignore forged XFF values from the public internet.
+
+#### HTTPS enforcement (HSTS)
+
+Header sent (by default on HTTPS):
+
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+```
+
+- `max-age=31536000`: for 1 year, the browser must only use HTTPS for this site.
+- `includeSubDomains`: apply to all subdomains too.
+- `preload`: opt‑in signal for browser vendors’ HSTS preload list.
+
+Important:
+
+- HSTS does NOT perform redirects. It tells browsers to auto‑upgrade to HTTPS and refuse HTTP after they have seen the header once over HTTPS. This app separately runs a plain HTTP server that sends a 301 redirect to HTTPS.
+- By default, this system does not force the HSTS header on every response and does not enable `preload`. Enable them only when you know you need them:
+
+```yaml
+web_server:
+  security:
+    force_sts_header: true
+    sts_preload: true
+```
+
+- HSTS Preload list: if you do want preload, you must submit your domain to the official list and meet their requirements. See [HSTS Preload submission](https://hstspreload.org).
+
+#### MIME type sniffing protection
+
+Header sent:
+
+```
+X-Content-Type-Options: nosniff
+```
+
+Why: Some browsers “guess” file types. If an uploaded file that looks like JavaScript is served as `text/plain` and included via `<script>`, the browser might execute it. `nosniff` tells the browser to obey the declared `Content-Type` and refuse executing if types don’t match.
+
+#### Legacy XSS filter
+
+- Setting: `browser_xss_filter` (default: false)
+- When enabled, header sent:
+
+```
+X-XSS-Protection: 1; mode=block
+```
+
+This is for very old browsers and is generally not needed today. Recommended to keep disabled.
+
+#### Referrer policy
+
+Header sent (default):
+
+```
+Referrer-Policy: strict-origin-when-cross-origin
+```
+
+Meaning: send the full referrer for same‑origin navigations, and only the origin (scheme+host+port) when navigating to a different origin. This avoids leaking full paths or query strings to third parties.
+
+#### Content Security Policy (CSP)
+
+What it does:
+
+- Limits where scripts, styles, images, etc. can load from.
+- Supports a per‑response nonce so inline scripts can be allowed safely.
+- Can run in report‑only mode while you test your policy.
+
+How it’s applied here:
+
+- Configure `web_server.security.content_security_policy` as a string. Use `{{nonce}}` where a nonce should appear (e.g., in `script-src`).
+- For HTML files listed in `web_server.frontend.nonce_replacement_files` (default: `index.html`), the server:
+  - Generates a fresh nonce per request
+  - Replaces `__NONCE__` in your HTML with that nonce
+  - Sends CSP header with `{{nonce}}` replaced
+  - Disables caching for those HTML responses
+- If `content_security_policy_report_only: true`, the header is sent as `Content-Security-Policy-Report-Only` and the directive `upgrade-insecure-requests` is removed automatically for compatibility.
+
+Example configuration and usage:
+
+```yaml
+web_server:
+  security:
+    content_security_policy: "default-src 'self'; script-src 'self' 'nonce-{{nonce}}' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    content_security_policy_report_only: true
+  frontend:
+    nonce_replacement_files: ["index.html"]
+```
+
+```html
+<!-- index.html -->
+<script nonce="__NONCE__">/* inline boot script */</script>
+```
+
+Resulting header (report‑only example):
+
+```
+Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'nonce-<random>' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' data:
+```
+
+Default policy breakdown (what each directive allows):
+
+- `default-src 'self'`: restrict all resources to same origin unless overridden.
+- `base-uri 'self'`: only allow `<base>` URLs that point to same origin.
+- `object-src 'none'`: disallow plugins (Flash/Java/…).
+- `frame-ancestors 'none'`: disallow embedding this app in iframes.
+- `script-src 'self' 'nonce-{{nonce}}' 'strict-dynamic'`: allow scripts from same origin and inline scripts with a nonce; `strict-dynamic` lets trusted scripts load further scripts.
+- `style-src 'self' 'unsafe-inline'`: allow styles from same origin and inline styles.
+- `img-src 'self' data:`: allow images from same origin and data URLs.
+- `font-src 'self' data:`: allow fonts from same origin and data URLs.
+- `connect-src 'self' https://severalnines.piwik.pro`: allow XHR/fetch/WebSocket to same origin and analytics endpoint.
+- `worker-src 'self' blob:`: allow web workers from same origin and blob URLs.
+- `form-action 'self'`: only allow form submissions to same origin.
+- `upgrade-insecure-requests`: tell browsers to upgrade http:// to https:// where possible (removed automatically in report‑only mode here).
+
+#### CORS (Cross‑Origin Resource Sharing)
+
+When to use: if your frontend (browser app) is served from a different origin (domain/port) than this API.
+
+Configuration example:
+
+```yaml
+web_server:
+  cors:
+    allow_origins: ["https://ui.example.com"]
+    allow_methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
+    allow_headers: ["Content-Type", "Authorization"]
+    expose_headers: ["X-Request-Id"]
+    allow_credentials: true
+    max_age_seconds: 600
+```
+
+Typical preflight (OPTIONS) response:
+
+```
+Access-Control-Allow-Origin: https://ui.example.com
+Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE
+Access-Control-Allow-Headers: Content-Type,Authorization
+Access-Control-Allow-Credentials: true
+Access-Control-Max-Age: 600
+```
+
 
 ## RPC endpoints
 
