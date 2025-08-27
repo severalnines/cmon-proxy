@@ -1,4 +1,4 @@
-package api
+package cmon
 
 // Copyright 2022 Severalnines AB
 //
@@ -10,29 +10,25 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
+import (
+	"github.com/severalnines/cmon-proxy/cmon/api"
+)
 
-type PingRequest struct {
-	*WithOperation       `json:",inline"`
-	*WithClusterIDForced `json:",inline"`
-}
+func (client *Client) GetControllers(req *api.GetControllersRequest) (*api.GetControllersResponse, error) {
+	if req.WithOperation == nil {
+		req.WithOperation = &api.WithOperation{}
+	}
+	req.Operation = "listcontrollers"
 
-type PingResponse struct {
-	*WithControllerID `json:",inline"`
-	*WithResponseData `json:",inline"`
+	// Set controller_id to 0 if not provided (optional parameter)
+	if req.ControllerID == 0 {
+		req.ControllerID = 0 // 0 means get all controllers
+	}
 
-	Name    string `json:"package_name"`
-	Version string `json:"package_version"`
-}
+	res := &api.GetControllersResponse{}
+	if err := client.Request(api.ModulePoolControllers, req, res); err != nil {
+		return nil, err
+	}
 
-type InfoPingRequest struct {
-	*WithOperation       `json:",inline"`
-}
-
-type InfoPingResponse struct {
-	*WithControllerID `json:",inline"`
-	*WithPoolId       `json:",inline"`
-	*WithResponseData `json:",inline"`
-
-	Name    string `json:"package_name"`
-	Version string `json:"package_version"`
+	return res, nil
 }

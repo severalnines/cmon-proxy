@@ -88,4 +88,23 @@ releasetoregistry:
 	docker build -f Dockerfile.local . -t severalnines/clustercontrol-manager
 	docker push severalnines/clustercontrol-manager:latest
 
+# Debug targets
+debug-build:
+	CGO_ENABLED=0 \
+	GO111MODULE=on go build \
+        -gcflags="all=-N -l" \
+        -o build/ccmgr-debug \
+        -ldflags "-s -w" \
+        .
+
+debug-run:
+	@echo "Starting cmon-proxy in debug mode..."
+	@echo "Debug port: 2345"
+	@echo "HTTP port: 19051"
+	@echo "To connect from VS Code, use 'Attach to cmon-proxy' configuration"
+	@echo ""
+	GIN_MODE=debug DEBUG_WEB_RPC=true dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./build/ccmgr-debug -- --basedir .
+
+
+
 

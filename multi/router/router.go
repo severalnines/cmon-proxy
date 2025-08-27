@@ -612,7 +612,7 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 }
 
 func (cmon *Cmon) MatchesID(id string) bool {
-	return id == cmon.Xid() || id == cmon.ControllerID()
+			return id == cmon.Xid() || id == cmon.PoolID()
 }
 
 func (cmon *Cmon) Xid() string {
@@ -623,7 +623,7 @@ func (cmon *Cmon) Xid() string {
 	return cmon.Client.Instance.Xid
 }
 
-func (cmon *Cmon) ControllerID() string {
+func (cmon *Cmon) PoolID() string {
 	if cmon == nil {
 		return ""
 	}
@@ -638,10 +638,10 @@ func (cmon *Cmon) ControllerID() string {
 				return ""
 			}
 
-			// return the controller ID from the parsed headers
-			cmon.controllerID = cmon.Client.ControllerID()
+			// return the pool ID from the parsed headers
+			cmon.controllerID = cmon.Client.PoolID()
 		} else {
-			// return the controller ID from the last ping reply
+			// return the pool ID from the last ping reply
 			cmon.controllerID = cmon.PingResponse.ControllerID
 		}
 	}

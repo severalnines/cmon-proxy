@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +36,7 @@ import (
 	"github.com/gin-contrib/secure"
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
+	"github.com/severalnines/cmon-proxy/cmon"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
@@ -52,6 +54,78 @@ var (
 	httpServerPlain *http.Server
 	proxy           *multi.Proxy
 )
+
+// aggregateListAcrossPoolControllers fans out a request to the given pool controllers,
+// aggregates list fields in listKeys, sorts using tsExtractor (if provided), paginates
+// and returns marshaled base response with merged lists and total.
+func aggregateListAcrossPoolControllers(
+	ctx *gin.Context,
+	baseClient *cmon.Client,
+	targets []*cmonapi.PoolController,
+	path string,
+	body []byte,
+	listKeys []string,
+	tsExtractor func(map[string]interface{}) time.Time,
+	ascending bool,
+	limit int,
+	offset int,
+) ([]byte, bool) {
+	var baseResp map[string]interface{}
+	aggregated := make([]map[string]interface{}, 0, 256)
+
+	for _, target := range targets {
+		instCopy := *baseClient.Instance
+		instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
+		timeout := proxy.Router(ctx).Config.Timeout
+		if timeout <= 0 { timeout = 10 }
+		tmpClient := cmon.NewClient(&instCopy, timeout)
+		if cookie := baseClient.GetSessionCookie(); cookie != nil { tmpClient.SetSessionCookie(cookie) }
+		resBytes, err := tmpClient.RequestBytes(path, body, false)
+		if err != nil { zap.L().Sugar().Warnf("poolcontroller %s:%d list request error: %v", target.Hostname, target.Port, err); continue }
+		var respMap map[string]interface{}
+		if err := json.Unmarshal(resBytes, &respMap); err != nil { zap.L().Sugar().Warnf("poolcontroller %s:%d list invalid response: %v", target.Hostname, target.Port, err); continue }
+		if baseResp == nil { baseResp = respMap }
+		for _, key := range listKeys {
+			if lst, ok := respMap[key].([]interface{}); ok {
+				for _, it := range lst {
+					if m, ok := it.(map[string]interface{}); ok { aggregated = append(aggregated, m) }
+				}
+			}
+		}
+	}
+
+	if baseResp == nil {
+		return nil, false
+	}
+
+	if tsExtractor != nil {
+		sort.SliceStable(aggregated, func(i, j int) bool {
+			ti := tsExtractor(aggregated[i])
+			tj := tsExtractor(aggregated[j])
+			if ascending { return ti.Before(tj) }
+			return ti.After(tj)
+		})
+	}
+
+	total := len(aggregated)
+	start := offset
+	if start < 0 { start = 0 }
+	if start > total { start = total }
+	end := total
+	if limit > 0 && start+limit < end { end = start + limit }
+
+	sliced := aggregated[start:end]
+	out := make([]interface{}, len(sliced))
+	for i, m := range sliced { out[i] = m }
+
+	for _, key := range listKeys {
+		baseResp[key] = out
+	}
+	baseResp["total"] = int64(total)
+
+	b, _ := json.Marshal(baseResp)
+	return b, true
+}
 
 type GinWriteInterceptor struct {
 	gin.ResponseWriter
@@ -374,6 +448,14 @@ func forwardToCmon(ctx *gin.Context) {
 		return
 	}
 
+
+	controllers := proxy.GetCachedPoolControllers(ctx, controllerId.GetID())
+	activeTargets := filterActivePoolControllers(controllers)
+
+	if trySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets) { return }
+
+	
+
 	proxy.RPCProxyRequest(ctx, controllerId.GetID(), method, jsonData)
 }
 
@@ -481,32 +563,33 @@ func applyWebServerConfig(r *gin.Engine, cfg config.WebServer) {
 }
 
 // fetchMissingControllerIDs checks all instances for missing controller_id and fetches them
-func fetchMissingControllerIDs(proxy *multi.Proxy) {
+func fetchMissingPoolIds(proxy *multi.Proxy) {
 	log := zap.L()
 
 	cfg := proxy.Router(nil).Config
 	if cfg == nil {
-		log.Warn("Config is nil, cannot fetch missing controller IDs")
+		log.Warn("Config is nil, cannot fetch missing pool IDs")
 		return
 	}
 
 	changed := false
 	for _, instance := range cfg.Instances {
-		if instance != nil && instance.ControllerId == "" {
-			log.Info("Found instance with missing controller_id, attempting to fetch",
+		if instance != nil && instance.PoolId == "" {
+			log.Info("Found instance with missing pool_id, attempting to fetch", 
 				zap.String("url", instance.Url),
 				zap.String("xid", instance.Xid))
-
-			controllerID, err := proxy.FetchControllerIDFromInfo(instance)
+			
+			poolId, err := proxy.FetchPoolIdFromInfo(instance)
 			if err != nil {
-				log.Warn("Failed to fetch controller_id from /info endpoint",
-					zap.String("url", instance.Url),
+				log.Warn("Failed to fetch pool_id from /info endpoint", 
+					zap.String("url", instance.Url), 
 					zap.Error(err))
 			} else {
-				log.Info("Successfully fetched controller_id",
+				log.Info("Successfully fetched pool_id", 
 					zap.String("url", instance.Url),
-					zap.String("controller_id", controllerID))
-				instance.ControllerId = controllerID
+					zap.String("pool_id", poolId))
+				instance.ControllerId = poolId
+				instance.PoolId = poolId
 				changed = true
 			}
 		}
@@ -515,9 +598,9 @@ func fetchMissingControllerIDs(proxy *multi.Proxy) {
 	// Save the config if any controller_ids were fetched
 	if changed {
 		if err := cfg.Save(); err != nil {
-			log.Error("Failed to save config after fetching controller_ids", zap.Error(err))
+			log.Error("Failed to save config after fetching pool_ids", zap.Error(err))
 		} else {
-			log.Info("Successfully saved config with updated controller_ids")
+			log.Info("Successfully saved config with updated pool_ids")
 		}
 	}
 }
@@ -635,7 +718,7 @@ func Start(cfg *config.Config) {
 	}
 
 	// Fetch missing controller_ids during startup
-	fetchMissingControllerIDs(proxy)
+	fetchMissingPoolIds(proxy)
 
 	multi.StartSessionCleanupScheduler(proxy)
 

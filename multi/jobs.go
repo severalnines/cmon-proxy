@@ -44,7 +44,7 @@ func (p *Proxy) RPCJobsStatus(ctx *gin.Context) {
 	p.Router(ctx).GetLastJobs(false)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || data.Clusters == nil {
+		if data == nil {
 			continue
 		}
 
@@ -52,8 +52,9 @@ func (p *Proxy) RPCJobsStatus(ctx *gin.Context) {
 			JobCounts:   make(map[string]int),
 			JobCommands: make(map[string]int),
 		}
-		// iterate by clusterIds... one by one..
-		for _, job := range data.Jobs {
+		// Prefer pool-controller sourced jobs
+		jobsSource, _, _ := p.resolveJobsSource(ctx, data)
+		for _, job := range jobsSource {
 			// tags filtration is possible here too
 			fn := func() []string { return data.ClusterTags(job.ClusterID) }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
@@ -116,11 +117,11 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || data.Jobs == nil {
+		if data == nil {
 			continue
 		}
 
-		controllerID := data.ControllerID()
+		controllerID := data.PoolID()
 		xid := data.Xid()
 
 		if !api.PassFilter(req.Filters, "xid", xid) ||
@@ -132,7 +133,8 @@ func (p *Proxy) RPCJobsList(ctx *gin.Context) {
 		resp.LastUpdated[url] = &cmonapi.NullTime{
 			T: data.LastUpdate[router.Jobs],
 		}
-		for _, job := range data.Jobs {
+		jobsSource, _, _ := p.resolveJobsSource(ctx, data)
+		for _, job := range jobsSource {
 			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(job.ClusterID, 10)) {
 				continue
 			}

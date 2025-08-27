@@ -63,6 +63,8 @@ type CmonInstance struct {
 	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
 	Keyfile       string `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
 	ControllerId  string `yaml:"controller_id,omitempty" json:"controller_id,omitempty"`
+	PoolId        string `yaml:"pool_id,omitempty" json:"pool_id,omitempty"`
+	Controllers   []*cmonapi.PoolController `yaml:"controllers,omitempty" json:"controllers,omitempty"`
 	FrontendUrl   string `yaml:"frontend_url,omitempty" json:"frontend_url,omitempty"`
 	CMONSshHost   string `yaml:"cmon_ssh_host,omitempty" json:"cmon_ssh_host,omitempty"`
 	CMONSshSecure bool   `yaml:"cmon_ssh_secure,omitempty" json:"cmon_ssh_secure,omitempty"`
@@ -216,6 +218,7 @@ func (cmon *CmonInstance) Copy() *CmonInstance {
 		Keyfile:       cmon.Keyfile,
 		Password:      cmon.Password,
 		ControllerId:  cmon.ControllerId,
+		PoolId:        cmon.PoolId,
 		FrontendUrl:   cmon.FrontendUrl,
 		CMONSshHost:   cmon.CMONSshHost,
 		CMONSshSecure: cmon.CMONSshSecure,

@@ -50,7 +50,7 @@ type Client struct {
 	ses               *http.Cookie
 	mtx               *sync.Mutex
 	user              *api.User
-	controllerID      string // the controllerID obtained from the replies
+	poolID            string // the poolID obtained from the replies
 	lastRequestStatus string // the last request status
 	serverVersion     string // the server version obtained from the headers
 }
@@ -236,10 +236,10 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 	// this part might be not efficient, lets think about this later
 	switch req.(type) {
 	case *api.AuthenticateRequest:
-		// obtain controller ID
+		// obtain pool ID
 		var ctrlID api.WithControllerID
 		if err = json.Unmarshal(respBytes, &ctrlID); err == nil {
-			client.controllerID = ctrlID.ControllerID
+			client.poolID = ctrlID.ControllerID
 		}
 	}
 
@@ -447,8 +447,8 @@ func (client *Client) User() *api.User {
 	return client.user
 }
 
-func (client *Client) ControllerID() string {
-	return client.controllerID
+func (client *Client) PoolID() string {
+	return client.poolID
 }
 
 func (client *Client) RequestStatus() string {

@@ -34,12 +34,12 @@ func TestFetchControllerIDFromInfo(t *testing.T) {
 	// Test the FetchControllerIDFromInfo function
 	// Note: This will fail in a real test environment since we can't connect to a real server
 	// but it tests the function structure
-	controllerID, err := proxy.FetchControllerIDFromInfo(instance)
+	poolId, err := proxy.FetchPoolIdFromInfo(instance)
 
 	// Since we can't actually connect to a server in this test, we expect an error
 	// but we can verify the function doesn't panic and returns appropriate error
 	assert.Error(t, err)
-	assert.Empty(t, controllerID)
+	assert.Empty(t, poolId)
 }
 
 func TestInfoOneWithMissingControllerID(t *testing.T) {

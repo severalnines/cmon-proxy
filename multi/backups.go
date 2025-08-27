@@ -58,13 +58,36 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 			}
 		}
 
-		for _, backup := range data.Backups {
+		// Resolve sources from pool controllers
+		backupsSource, schedulesSource, _, _ := p.resolveBackupsSource(ctx, data)
+		clustersSource, _, _ := p.resolveClustersSource(ctx, data)
+		// Build metadata maps from clustersSource
+		tagsByCID := make(map[uint64][]string)
+		typeByCID := make(map[uint64]string)
+		for _, cl := range clustersSource {
+			if cl == nil {
+				continue
+			}
+			tagsByCID[cl.ClusterID] = cl.Tags
+			typeByCID[cl.ClusterID] = cl.ClusterType
+		}
+
+		for _, backup := range backupsSource {
 			// tags filtration is possible here too
-			fn := func() []string { return data.ClusterTags(backup.Metadata.ClusterID) }
+			var tags []string
+			if t, ok := tagsByCID[backup.Metadata.ClusterID]; ok {
+				tags = t
+			} else {
+				tags = data.ClusterTags(backup.Metadata.ClusterID)
+			}
+			fn := func() []string { return tags }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
 				continue
 			}
-			clusterType := data.ClusterType(backup.Metadata.ClusterID)
+			clusterType := typeByCID[backup.Metadata.ClusterID]
+			if clusterType == "" {
+				clusterType = data.ClusterType(backup.Metadata.ClusterID)
+			}
 
 			if resp.ByClusterType[clusterType] == nil {
 				resp.ByClusterType[clusterType] = &api.BackupOverview{
@@ -89,26 +112,37 @@ func (p *Proxy) RPCBackupsStatus(ctx *gin.Context) {
 		}
 
 		schedsPerCluster := make(map[string]map[uint64]int)
-		for _, cid := range data.ClusterIDs() {
-			clusterType := data.ClusterType(cid)
+		// Derive cluster IDs from clustersSource to include pool-controller clusters
+		for _, cl := range clustersSource {
+			if cl == nil {
+				continue
+			}
+			clusterType := cl.ClusterType
 			if len(schedsPerCluster[clusterType]) == 0 {
 				schedsPerCluster[clusterType] = make(map[uint64]int)
 			}
-			// tags filtration is possible here too
-			fn := func() []string { return data.ClusterTags(cid) }
+			fn := func() []string { return cl.Tags }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
 				continue
 			}
-			schedsPerCluster[clusterType][cid] = 0
+			schedsPerCluster[clusterType][cl.ClusterID] = 0
 		}
-		for _, sched := range data.BackupSchedules {
-			clusterType := data.ClusterType(sched.ClusterID)
+		for _, sched := range schedulesSource {
+			clusterType := typeByCID[sched.ClusterID]
+			if clusterType == "" {
+				clusterType = data.ClusterType(sched.ClusterID)
+			}
 			// It can happen that clusterType is empty string @see data.ClusterType()
 			if clusterType == "" {
 				continue
 			}
-			// tags filtration is possible here too
-			fn := func() []string { return data.ClusterTags(sched.ClusterID) }
+			var tags []string
+			if t, ok := tagsByCID[sched.ClusterID]; ok {
+				tags = t
+			} else {
+				tags = data.ClusterTags(sched.ClusterID)
+			}
+			fn := func() []string { return tags }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
 				continue
 			}
@@ -156,11 +190,11 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 	p.Router(ctx).GetBackups(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || data.Backups == nil {
+		if data == nil {
 			continue
 		}
 
-		controllerID := data.ControllerID()
+		controllerID := data.PoolID()
 		xid := data.Xid()
 
 		if !api.PassFilter(req.Filters, "xid", xid) ||
@@ -172,7 +206,20 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 		resp.LastUpdated[url] = &cmonapi.NullTime{
 			T: data.LastUpdate[router.Backups],
 		}
-		for idx, backup := range data.Backups {
+
+		backupsSource, _, _, _ := p.resolveBackupsSource(ctx, data)
+		clustersSource, _, _ := p.resolveClustersSource(ctx, data)
+		tagsByCID := make(map[uint64][]string)
+		typeByCID := make(map[uint64]string)
+		for _, cl := range clustersSource {
+			if cl == nil {
+				continue
+			}
+			tagsByCID[cl.ClusterID] = cl.Tags
+			typeByCID[cl.ClusterID] = cl.ClusterType
+		}
+
+		for _, backup := range backupsSource {
 			if !api.PassFilter(req.Filters, "xid_cid", xid+"-"+strconv.FormatUint(backup.Metadata.ClusterID, 10)) {
 				continue
 			}
@@ -189,10 +236,20 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 				continue
 			}
 			if !api.PassFilterLazy(req.Filters, "cluster_type",
-				func() string { return data.ClusterType(backup.Metadata.ClusterID) }) {
+				func() string {
+					if v := typeByCID[backup.Metadata.ClusterID]; v != "" {
+						return v
+					}
+					return data.ClusterType(backup.Metadata.ClusterID)
+				}) {
 				continue
 			}
-			fn := func() []string { return data.ClusterTags(backup.Metadata.ClusterID) }
+			fn := func() []string {
+				if v, ok := tagsByCID[backup.Metadata.ClusterID]; ok {
+					return v
+				}
+				return data.ClusterTags(backup.Metadata.ClusterID)
+			}
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
 				continue
 			}
@@ -203,7 +260,7 @@ func (p *Proxy) RPCBackupsList(ctx *gin.Context) {
 					ControllerID:  controllerID,
 					Xid:           xid,
 				},
-				Backup: data.Backups[idx],
+				Backup: backup,
 				Key:    xid + "-" + strconv.FormatUint(backup.Metadata.ClusterID, 10),
 			}
 
@@ -297,7 +354,7 @@ func (p *Proxy) RPCBackupJobsList(ctx *gin.Context) {
 		}
 
 		xid := data.Xid()
-		controllerID := data.ControllerID()
+		controllerID := data.PoolID()
 
 		if !api.PassFilter(req.Filters, "xid", data.Xid()) ||
 			!api.PassFilter(req.Filters, "controller_id", controllerID) ||

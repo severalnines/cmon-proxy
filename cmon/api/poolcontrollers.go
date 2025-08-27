@@ -10,29 +10,28 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
-
-type PingRequest struct {
-	*WithOperation       `json:",inline"`
-	*WithClusterIDForced `json:",inline"`
+type GetControllersRequest struct {
+	*WithOperation `json:",inline"`
+	ControllerID   int `json:"controller_id,omitempty"` // Use int instead of string
 }
 
-type PingResponse struct {
-	*WithControllerID `json:",inline"`
-	*WithResponseData `json:",inline"`
-
-	Name    string `json:"package_name"`
-	Version string `json:"package_version"`
-}
-
-type InfoPingRequest struct {
-	*WithOperation       `json:",inline"`
-}
-
-type InfoPingResponse struct {
+type GetControllersResponse struct {
 	*WithControllerID `json:",inline"`
 	*WithPoolId       `json:",inline"`
 	*WithResponseData `json:",inline"`
 
-	Name    string `json:"package_name"`
-	Version string `json:"package_version"`
+	FullControllerID string            `json:"full_controller_id"`
+	Total           int               `json:"total"`
+	Controllers     []*PoolController `json:"controllers"`
+	DebugMessages   []string          `json:"debug_messages"`
+}
+
+type PoolController struct {
+	ControllerID int      `json:"controller_id"`
+	Hostname     string   `json:"hostname"`
+	Port         int      `json:"port"`
+	Properties   string   `json:"properties"`
+	ReportTs     string   `json:"report_ts"`
+	Status       string   `json:"status"`
+	Clusters     []string `json:"clusters"`
 }

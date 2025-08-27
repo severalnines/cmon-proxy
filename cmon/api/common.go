@@ -40,6 +40,8 @@ const (
 	ModuleLog         = "log"
 	ModuleStat        = "stat"
 	ModuleInfo        = "info"
+	ModulePoolControllers = "poolcontrollers"
+
 
 	RequestStatusOk              = "Ok"              // The request was successfully processed.
 	RequestStatusInvalidRequest  = "InvalidRequest"  // Something was fundamentally wrong with the request.
@@ -220,6 +222,10 @@ type WithGroup struct {
 type WithControllerID struct {
 	Xid          string `json:"xid"`
 	ControllerID string `json:"controller_id"`
+}
+
+type WithPoolId struct {
+	PoolId string `json:"pool_id"`
 }
 
 type WithMultiXIds struct {
