@@ -17,6 +17,9 @@ import (
 )
 
 func (client *Client) GetAlarms(clusterId uint64) (*api.GetAlarmsReply, error) {
+    if client == nil || client.Instance == nil {
+        return nil, api.NewError(api.RequestStatusUnknownError, "client is nil")
+    }
 	req := &api.GetAlarmsRequest{
 		WithOperation: &api.WithOperation{
 			Operation: "getAlarms",
@@ -39,6 +42,9 @@ func (client *Client) GetAlarms(clusterId uint64) (*api.GetAlarmsReply, error) {
 		return nil, errors.New("got nil GetAlarmsReply")
 	}
 
+	if res.WithResponseData == nil {
+		return nil, api.NewError(api.RequestStatusUnknownError, "empty response data")
+	}
 	if res.RequestStatus != api.RequestStatusOk {
 		return nil, api.NewErrorFromResponseData(res.WithResponseData)
 	}

@@ -33,6 +33,9 @@ func (client *Client) GetAuditEntries(clusterId uint64) (*api.GetAuditEntriesRep
 	if err := client.Request(api.ModuleAudit, req, res); err != nil {
 		return nil, err
 	}
+	if res.WithResponseData == nil {
+		return nil, api.NewError(api.RequestStatusUnknownError, "empty response data")
+	}
 	if res.RequestStatus != api.RequestStatusOk {
 		return nil, api.NewErrorFromResponseData(res.WithResponseData)
 	}

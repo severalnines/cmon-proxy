@@ -79,6 +79,9 @@ func NewClient(instance *config.CmonInstance, timeout int) *Client {
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
 func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ...bool) (resBytes []byte, err error) {
+    if client == nil || client.Instance == nil {
+        return nil, fmt.Errorf("nil cmon client")
+    }
 	// for regular requests we may want to auto reauthenticate
 	autoAuth := len(noAutoAuth) < 1 || !noAutoAuth[0]
 	client.lastRequestStatus = ""
@@ -224,6 +227,9 @@ func (client *Client) ProxyWebSocket(targetURL string, headers http.Header, conn
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
 func (client *Client) Request(module string, req, res interface{}, noAutoAuth ...bool) error {
+    if client == nil || client.Instance == nil {
+        return fmt.Errorf("nil cmon client")
+    }
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
 		return err

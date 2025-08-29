@@ -411,6 +411,9 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 			}
 			mtx.Unlock()
 			for _, cid := range c.ClusterIDs() {
+				if c.Client == nil {
+					continue
+				}
 				if alarms, _ := c.Client.GetAlarms(cid); alarms != nil {
 					mtx.Lock()
 					toCommit[address].Alarms[cid] = alarms
@@ -466,6 +469,9 @@ func (router *Router) GetLogs(forceUpdate bool) {
 			}
 			mtx.Unlock()
 			for _, cid := range c.ClusterIDs() {
+				if c.Client == nil {
+					continue
+				}
 				if logs, _ := c.Client.GetLogs(cid); logs != nil {
 					mtx.Lock()
 					toCommit[address].Logs[cid] = logs
@@ -528,6 +534,9 @@ func (router *Router) GetAuditEntries(forceUpdate bool) {
 			}
 			mtx.Unlock()
 			for _, cid := range c.ClusterIDs() {
+				if c.Client == nil {
+					continue
+				}
 				if entries, _ := c.Client.GetAuditEntries(cid); entries != nil {
 					mtx.Lock()
 					toCommit[address].AuditEntries[cid] = entries
@@ -587,12 +596,14 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 			syncChannel <- true
 
 			// get the jobs from last 12hours
-			if jobs, _ := c.Client.GetLastJobs(c.ClusterIDs(), fetchJobHours); jobs != nil {
-				mtx.Lock()
-				toCommit[address] = &Cmon{
-					Jobs: jobs,
+			if c.Client != nil {
+				if jobs, _ := c.Client.GetLastJobs(c.ClusterIDs(), fetchJobHours); jobs != nil {
+					mtx.Lock()
+					toCommit[address] = &Cmon{
+						Jobs: jobs,
+					}
+					mtx.Unlock()
 				}
-				mtx.Unlock()
 			}
 		}()
 	}

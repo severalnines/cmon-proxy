@@ -22,6 +22,9 @@ func (client *Client) Ping() (*api.PingResponse, error) {
 	if err := client.Request(api.ModuleClusters, req, res); err != nil {
 		return nil, err
 	}
+	if res.WithResponseData == nil {
+		return nil, api.NewError(api.RequestStatusUnknownError, "empty response data")
+	}
 	if res.RequestStatus != api.RequestStatusOk {
 		return nil, api.NewErrorFromResponseData(res.WithResponseData)
 	}

@@ -181,6 +181,9 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 				continue
 			}
 			for _, alarm := range clusterAlarms.Alarms {
+				if alarm == nil {
+					continue
+				}
 				if !api.PassFilter(req.Filters, "severity_name", alarm.SeverityName) {
 					continue
 				}

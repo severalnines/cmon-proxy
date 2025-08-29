@@ -82,6 +82,9 @@ func NewError(t, m string) error {
 }
 
 func NewErrorFromResponseData(d *WithResponseData) error {
+	if d == nil {
+		return &Error{RequestStatusUnknownError, "empty response data"}
+	}
 	return &Error{d.RequestStatus, d.ErrorString}
 }
 
