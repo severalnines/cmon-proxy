@@ -2,6 +2,7 @@ package rpcserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -117,6 +118,7 @@ func trySmartRouteAcrossPool(
 				var baseResp map[string]interface{}
 				baseNonCluster := make([]interface{}, 0)
 				clusterItems := make([]interface{}, 0)
+				seenClusters := make(map[string]bool) // Deduplication map for clusters
 
 				// Request each active pool controller and collect cluster items
 				for _, target := range activeTargets {
@@ -145,13 +147,23 @@ func trySmartRouteAcrossPool(
 						}
 					}
 
-					// From each response collect cluster items
+					// From each response collect cluster items with deduplication
 					if cdt, ok := respMap["cdt"].(map[string]interface{}); ok {
 						if subs, ok := cdt["sub_items"].([]interface{}); ok {
 							for _, it := range subs {
 								m, _ := it.(map[string]interface{})
 								if m == nil { continue }
-								if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") { clusterItems = append(clusterItems, it) }
+								if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
+									// Use cluster_id for deduplication
+									if id, ok := m["cluster_id"]; ok {
+										clusterKey := fmt.Sprintf("%v", id)
+										// Only add if not seen before
+										if !seenClusters[clusterKey] {
+											seenClusters[clusterKey] = true
+											clusterItems = append(clusterItems, it)
+										}
+									}
+								}
 							}
 						}
 					}
