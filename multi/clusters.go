@@ -410,12 +410,18 @@ func (p *Proxy) RPCClustersListMissingSchedules(ctx *gin.Context) {
 	clustersWithBackups := make(map[string]bool) // map to hold clusters that have backups by xid-clusterID
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || data.BackupSchedules == nil {
+		if data == nil {
 			continue
 		}
 
-		for _, job := range data.BackupSchedules {
-			key := data.Xid() + "-" + strconv.FormatUint(job.ClusterID, 10)
+		// Use resolveBackupsSource to get schedules from pool controllers when available
+		_, schedulesSource, _, xid := p.resolveBackupsSource(ctx, data)
+		if len(schedulesSource) == 0 {
+			continue
+		}
+
+		for _, job := range schedulesSource {
+			key := xid + "-" + strconv.FormatUint(job.ClusterID, 10)
 			clustersWithBackups[key] = true
 		}
 	}
