@@ -343,7 +343,10 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 		}
 	}
 
-	c, err := p.GetCmonById(req.Controller.Xid, nil)
+	// Ensure router is synced before trying to get cmon by ID
+	p.Router(ctx).Sync()
+	
+	c, err := p.GetCmonById(req.Controller.Xid, ctx)
 	if err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
