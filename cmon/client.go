@@ -418,9 +418,11 @@ func (client *Client) buildURI(module string) string {
 	if !strings.HasPrefix(urlStr, "https://") {
 		urlStr = "https://" + urlStr
 	}
-	if parsed, err := url.Parse(urlStr); err != nil {
-		zap.L().Sugar().Fatalf("URL parse '%s' failure: %s", urlStr, err.Error())
-		return ""
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		zap.L().Sugar().Errorf("URL parse '%s' failure: %s", urlStr, err.Error())
+		// Return a placeholder URL that will fail gracefully instead of crashing
+		return "https://invalid.url/v2/" + module
 	} else {
 		u := &url.URL{
 			Host:   parsed.Host,
