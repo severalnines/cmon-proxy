@@ -660,7 +660,9 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 		return
 	}
 	controller := p.cfg.ControllerById(p.cfg.SingleController)
-	targetURL, _ := url.Parse("https://" + controller.Url + "/v2" + ctx.Param("any"))
+	// Clean up the controller URL to handle trailing slashes properly
+	controllerURL := strings.TrimRight(controller.Url, "/")
+	targetURL, _ := url.Parse("https://" + controllerURL + "/v2" + ctx.Param("any"))
 
 	var body *bytes.Reader
 	if ctx.Request.Body != nil {
@@ -761,7 +763,9 @@ func (p *Proxy) PRCProxySingleControllerWebSocket(ctx *gin.Context) {
 	scheme := "ws"
 	host := controller.CMONSshHost
 	if host == "" {
-		host = controller.Url + "/v2/cmon-ssh/"
+		// Clean up the controller URL to handle trailing slashes properly
+		controllerURL := strings.TrimRight(controller.Url, "/")
+		host = controllerURL + "/v2/cmon-ssh/"
 		scheme = "wss"
 	}
 	if controller.CMONSshSecure {
@@ -850,7 +854,9 @@ func (p *Proxy) PRCProxySingleControllerHttp(ctx *gin.Context) {
 	scheme := "http"
 	host := controller.CMONSshHost
 	if host == "" {
-		host = controller.Url + "/v2/cmon-ssh"
+		// Clean up the controller URL to handle trailing slashes properly
+		controllerURL := strings.TrimRight(controller.Url, "/")
+		host = controllerURL + "/v2/cmon-ssh"
 		scheme = "https"
 	}
 	if controller.CMONSshSecure {
