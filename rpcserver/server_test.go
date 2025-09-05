@@ -48,7 +48,7 @@ func TestStart(t *testing.T) {
 
 	testConfig := &config.Config{
 		Instances: []*config.CmonInstance{
-			{
+			&config.CmonInstance{
 				Url:  "https://127.0.0.1:9501",
 				Name: "dummy",
 			},

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -119,36 +121,78 @@ func trySmartRouteAcrossPool(
 				baseNonCluster := make([]interface{}, 0)
 				clusterItems := make([]interface{}, 0)
 				seenClusters := make(map[string]bool) // Deduplication map for clusters
+				
+				// Channel and sync for parallel requests
+				type treeResponse struct {
+					response map[string]interface{}
+					target   *cmonapi.PoolController
+					err      error
+				}
+				
+				responseChan := make(chan treeResponse, len(activeTargets))
+				var wg sync.WaitGroup
 
-				// Request each active pool controller and collect cluster items
+				// Request each active pool controller in parallel
 				for _, target := range activeTargets {
-					instCopy := *c.Client.Instance
-					instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
-					timeout := proxy.Router(ctx).Config.Timeout
-					if timeout <= 0 { timeout = 10 }
-					tmpClient := cmon.NewClient(&instCopy, timeout)
-					if cookie := c.Client.GetSessionCookie(); cookie != nil { tmpClient.SetSessionCookie(cookie) }
-					resBytes, err := tmpClient.RequestBytes(ctx.Request.URL.EscapedPath(), jsonData, false)
-					if err != nil { zap.L().Sugar().Warnf("poolcontroller %s:%d tree request error: %v", target.Hostname, target.Port, err); continue }
-					var respMap map[string]interface{}
-					if err := json.Unmarshal(resBytes, &respMap); err != nil { zap.L().Sugar().Warnf("poolcontroller %s:%d tree invalid response: %v", target.Hostname, target.Port, err); continue }
+					wg.Add(1)
+					go func(target *cmonapi.PoolController) {
+						defer wg.Done()
+						
+						instCopy := *c.Client.Instance
+						instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
+						timeout := proxy.Router(ctx).Config.Timeout
+						if timeout <= 0 { timeout = 10 }
+						tmpClient := cmon.NewClient(&instCopy, timeout)
+						if cookie := c.Client.GetSessionCookie(); cookie != nil { 
+							tmpClient.SetSessionCookie(cookie) 
+						}
+						
+						resBytes, err := tmpClient.RequestBytes(ctx.Request.URL.EscapedPath(), jsonData, false)
+						if err != nil {
+							zap.L().Sugar().Warnf("poolcontroller %s:%d tree request error: %v", target.Hostname, target.Port, err)
+							responseChan <- treeResponse{nil, target, err}
+							return
+						}
+						
+						var respMap map[string]interface{}
+						if err := json.Unmarshal(resBytes, &respMap); err != nil {
+							zap.L().Sugar().Warnf("poolcontroller %s:%d tree invalid response: %v", target.Hostname, target.Port, err)
+							responseChan <- treeResponse{nil, target, err}
+							return
+						}
+						
+						responseChan <- treeResponse{respMap, target, nil}
+					}(target)
+				}
+
+				// Wait for all requests to complete
+				wg.Wait()
+				close(responseChan)
+
+				// Process responses sequentially for consistent baseResp and deduplication
+				for resp := range responseChan {
+					if resp.err != nil || resp.response == nil {
+						continue
+					}
 
 					// Initialize base response and capture non-cluster items from the first success
 					if baseResp == nil {
-						baseResp = respMap
+						baseResp = resp.response
 						if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
 							if subs, ok := cdt["sub_items"].([]interface{}); ok {
 								for _, it := range subs {
 									m, _ := it.(map[string]interface{})
 									if m == nil { continue }
-									if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") { baseNonCluster = append(baseNonCluster, it) }
+									if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") { 
+										baseNonCluster = append(baseNonCluster, it) 
+									}
 								}
 							}
 						}
 					}
 
 					// From each response collect cluster items with deduplication
-					if cdt, ok := respMap["cdt"].(map[string]interface{}); ok {
+					if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
 						if subs, ok := cdt["sub_items"].([]interface{}); ok {
 							for _, it := range subs {
 								m, _ := it.(map[string]interface{})
@@ -263,4 +307,127 @@ func trySmartRouteAcrossPool(
 	}
 
 	return false
+}
+
+// aggregateListAcrossPoolControllers fans out a request to the given pool controllers in parallel,
+// aggregates list fields in listKeys, sorts using tsExtractor (if provided), paginates
+// and returns marshaled base response with merged lists and total.
+func aggregateListAcrossPoolControllers(
+	ctx *gin.Context,
+	baseClient *cmon.Client,
+	targets []*cmonapi.PoolController,
+	path string,
+	body []byte,
+	listKeys []string,
+	tsExtractor func(map[string]interface{}) time.Time,
+	ascending bool,
+	limit int,
+	offset int,
+) ([]byte, bool) {
+	if len(targets) == 0 {
+		return nil, false
+	}
+
+	// Channel to collect responses from parallel requests
+	type poolResponse struct {
+		response map[string]interface{}
+		target   *cmonapi.PoolController
+		err      error
+	}
+
+	responseChan := make(chan poolResponse, len(targets))
+	var wg sync.WaitGroup
+
+	// Launch parallel requests to all pool controllers
+	for _, target := range targets {
+		wg.Add(1)
+		go func(target *cmonapi.PoolController) {
+			defer wg.Done()
+			
+			instCopy := *baseClient.Instance
+			instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
+			timeout := proxy.Router(ctx).Config.Timeout
+			if timeout <= 0 { timeout = 10 }
+			tmpClient := cmon.NewClient(&instCopy, timeout)
+			if cookie := baseClient.GetSessionCookie(); cookie != nil { 
+				tmpClient.SetSessionCookie(cookie) 
+			}
+			
+			resBytes, err := tmpClient.RequestBytes(path, body, false)
+			if err != nil {
+				zap.L().Sugar().Warnf("poolcontroller %s:%d list request error: %v", target.Hostname, target.Port, err)
+				responseChan <- poolResponse{nil, target, err}
+				return
+			}
+			
+			var respMap map[string]interface{}
+			if err := json.Unmarshal(resBytes, &respMap); err != nil {
+				zap.L().Sugar().Warnf("poolcontroller %s:%d list invalid response: %v", target.Hostname, target.Port, err)
+				responseChan <- poolResponse{nil, target, err}
+				return
+			}
+			
+			responseChan <- poolResponse{respMap, target, nil}
+		}(target)
+	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
+	close(responseChan)
+
+	// Collect and aggregate responses
+	var baseResp map[string]interface{}
+	aggregated := make([]map[string]interface{}, 0, 256)
+	
+	for resp := range responseChan {
+		if resp.err != nil || resp.response == nil {
+			continue
+		}
+		
+		if baseResp == nil {
+			baseResp = resp.response
+		}
+		
+		for _, key := range listKeys {
+			if lst, ok := resp.response[key].([]interface{}); ok {
+				for _, it := range lst {
+					if m, ok := it.(map[string]interface{}); ok {
+						aggregated = append(aggregated, m)
+					}
+				}
+			}
+		}
+	}
+
+	if baseResp == nil {
+		return nil, false
+	}
+
+	if tsExtractor != nil {
+		sort.SliceStable(aggregated, func(i, j int) bool {
+			ti := tsExtractor(aggregated[i])
+			tj := tsExtractor(aggregated[j])
+			if ascending { return ti.Before(tj) }
+			return ti.After(tj)
+		})
+	}
+
+	total := len(aggregated)
+	start := offset
+	if start < 0 { start = 0 }
+	if start > total { start = total }
+	end := total
+	if limit > 0 && start+limit < end { end = start + limit }
+
+	sliced := aggregated[start:end]
+	out := make([]interface{}, len(sliced))
+	for i, m := range sliced { out[i] = m }
+
+	for _, key := range listKeys {
+		baseResp[key] = out
+	}
+	baseResp["total"] = int64(total)
+
+	b, _ := json.Marshal(baseResp)
+	return b, true
 }
