@@ -920,3 +920,15 @@ func (p *Proxy) PRCProxySingleControllerHttp(ctx *gin.Context) {
 		_, _ = io.Copy(ctx.Writer, response.Body)
 	}
 }
+
+
+
+// PRCProxySingleControllerWithPoolSupport handles single controller requests with pool controller support
+// This extends the original PRCProxySingleController to support smart routing across pool controllers
+func (p *Proxy) PRCProxySingleControllerWithPoolSupport(ctx *gin.Context) {
+	// Use the helper to handle the request
+	poolSupport := NewSingleControllerPoolSupport(p)
+	poolSupport.HandleRequest(ctx)
+}
+
+

@@ -683,8 +683,8 @@ func Start(cfg *config.Config) {
 
 	single := s.Group("/single")
 	{
-		single.POST("/v2/*any", proxy.PRCProxySingleController)
-		single.GET("/v2/*any", proxy.PRCProxySingleController)
+		single.POST("/v2/*any", proxy.PRCProxySingleControllerWithPoolSupport)
+		single.GET("/v2/*any", proxy.PRCProxySingleControllerWithPoolSupport)
 		k8s := single.Group("/k8s")
 		{
 			k8sProxyHandler := func(c *gin.Context) {
