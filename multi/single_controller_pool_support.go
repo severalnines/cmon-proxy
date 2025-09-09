@@ -36,7 +36,7 @@ func NewSingleControllerPoolSupport(proxy *Proxy) *SingleControllerPoolSupport {
 // getSingleControllerCachedStatus retrieves or refreshes cached status for single controller
 func (s *SingleControllerPoolSupport) getSingleControllerCachedStatus(controller *config.CmonInstance, ctx *gin.Context) *api.ControllerStatus {
 	addr := controller.Url
-	zap.L().Sugar().Infof("[POOL-SINGLE-CACHE] Checking cache for controller: %s", addr)
+	zap.L().Sugar().Debugf("[POOL-SINGLE-CACHE] Checking cache for controller: %s", addr)
 	
 	mtx.Lock()
 	status := controllerStatusCache[addr]
@@ -48,19 +48,19 @@ func (s *SingleControllerPoolSupport) getSingleControllerCachedStatus(controller
 		time.Since(status.LastUpdated.T) > time.Duration(60)*time.Second // Use 60s interval like PingInterval
 	
 	if status == nil {
-		zap.L().Sugar().Infof("[POOL-SINGLE-CACHE] No cached status found, will refresh")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-CACHE] No cached status found, will refresh")
 	} else if status.LastUpdated.T.IsZero() {
-		zap.L().Sugar().Infof("[POOL-SINGLE-CACHE] Cache timestamp is zero, will refresh")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-CACHE] Cache timestamp is zero, will refresh")
 	} else {
 		age := time.Since(status.LastUpdated.T)
-		zap.L().Sugar().Infof("[POOL-SINGLE-CACHE] Cache age: %v, needs refresh: %v", age, needsRefresh)
+		zap.L().Sugar().Debugf("[POOL-SINGLE-CACHE] Cache age: %v, needs refresh: %v", age, needsRefresh)
 	}
 	
 	if needsRefresh {
-		zap.L().Sugar().Infof("[POOL-SINGLE-CACHE] Refreshing controller status")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-CACHE] Refreshing controller status")
 		status = s.refreshSingleControllerStatus(controller, ctx)
 	} else {
-		zap.L().Sugar().Infof("[POOL-SINGLE-CACHE] Using cached status")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-CACHE] Using cached status")
 	}
 	
 	return status
@@ -73,12 +73,12 @@ func (s *SingleControllerPoolSupport) refreshSingleControllerStatus(controller *
 		timeout = 30
 	}
 	
-	zap.L().Sugar().Infof("[POOL-SINGLE-REFRESH] Creating client for controller: %s (timeout: %d)", controller.Url, timeout)
+	zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Creating client for controller: %s (timeout: %d)", controller.Url, timeout)
 	client := cmon.NewClient(controller, timeout)
 	
 	// Extract and set cookies from the request for authentication
 	if ctx.Request.Header.Get("Cookie") != "" {
-		zap.L().Sugar().Infof("[POOL-SINGLE-REFRESH] Setting authentication cookies from request")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Setting authentication cookies from request")
 		// Parse cookies from request
 		cookies := ctx.Request.Cookies()
 		for _, cookie := range cookies {
@@ -93,7 +93,7 @@ func (s *SingleControllerPoolSupport) refreshSingleControllerStatus(controller *
 	}
 	
 	// Use PingWithControllers to get both ping and pool controllers info
-	zap.L().Sugar().Infof("[POOL-SINGLE-REFRESH] Executing PingWithControllers")
+	zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Executing PingWithControllers")
 	pingResp, controllers, err := client.PingWithControllers()
 	
 	status := &api.ControllerStatus{
@@ -135,9 +135,9 @@ func (s *SingleControllerPoolSupport) refreshSingleControllerStatus(controller *
 		status.Status = api.Failed
 		status.StatusMessage = err.Error()
 	} else {
-		zap.L().Sugar().Infof("[POOL-SINGLE-REFRESH] PingWithControllers successful, found %d pool controllers", len(controllers))
+		zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] PingWithControllers successful, found %d pool controllers", len(controllers))
 		for i, ctrl := range controllers {
-			zap.L().Sugar().Infof("[POOL-SINGLE-REFRESH] Pool controller %d: %s:%d status=%s clusters=%v", i, ctrl.Hostname, ctrl.Port, ctrl.Status, ctrl.Clusters)
+			zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Pool controller %d: %s:%d status=%s clusters=%v", i, ctrl.Hostname, ctrl.Port, ctrl.Status, ctrl.Clusters)
 		}
 		
 		status.Status = api.Ok
@@ -151,7 +151,7 @@ func (s *SingleControllerPoolSupport) refreshSingleControllerStatus(controller *
 	}
 	
 	// Persist in cache (only if it's not an auth failure)
-	zap.L().Sugar().Infof("[POOL-SINGLE-REFRESH] Caching status for: %s", controller.Url)
+	zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Caching status for: %s", controller.Url)
 	mtx.Lock()
 	controllerStatusCache[controller.Url] = status
 	mtx.Unlock()
@@ -300,7 +300,7 @@ func (s *SingleControllerPoolSupport) aggregateTreeAcrossPoolForSingle(
 	activeTargets []*cmonapi.PoolController,
 	controllerInstance *config.CmonInstance,
 ) bool {
-	zap.L().Sugar().Infof("[POOL-SINGLE-TREE] Starting tree aggregation with %d targets", len(activeTargets))
+	zap.L().Sugar().Debugf("[POOL-SINGLE-TREE] Starting tree aggregation with %d targets", len(activeTargets))
 	
 	// Prepare aggregation containers (same as multi-controller)
 	var baseResp map[string]interface{}
@@ -345,7 +345,7 @@ func (s *SingleControllerPoolSupport) aggregateTreeAcrossPoolForSingle(
 				}
 			}
 			
-			zap.L().Sugar().Infof("[POOL-SINGLE-TREE] Requesting module: %s from %s:%d", module, target.Hostname, target.Port)
+			zap.L().Sugar().Debugf("[POOL-SINGLE-TREE] Requesting module: %s from %s:%d", module, target.Hostname, target.Port)
 			resBytes, err := tmpClient.RequestBytes(module, jsonData, false)
 			if err != nil {
 				zap.L().Sugar().Warnf("[POOL-SINGLE-TREE] poolcontroller %s:%d tree request error: %v", target.Hostname, target.Port, err)
@@ -379,7 +379,7 @@ func (s *SingleControllerPoolSupport) aggregateTreeAcrossPoolForSingle(
 			baseResp = resp.response
 			if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
 				if subs, ok := cdt["sub_items"].([]interface{}); ok {
-					zap.L().Sugar().Infof("[POOL-SINGLE-TREE] Processing %d sub_items from base response", len(subs))
+					zap.L().Sugar().Debugf("[POOL-SINGLE-TREE] Processing %d sub_items from base response", len(subs))
 					for _, it := range subs {
 						m, _ := it.(map[string]interface{})
 						if m == nil { continue }
@@ -428,7 +428,7 @@ func (s *SingleControllerPoolSupport) aggregateTreeAcrossPoolForSingle(
 		merged = append(merged, baseNonCluster...)
 		merged = append(merged, clusterItems...)
 		cdt["sub_items"] = merged
-		zap.L().Sugar().Infof("[POOL-SINGLE-TREE] Tree aggregation complete: %d non-cluster + %d cluster items = %d total", len(baseNonCluster), len(clusterItems), len(merged))
+		zap.L().Sugar().Debugf("[POOL-SINGLE-TREE] Tree aggregation complete: %d non-cluster + %d cluster items = %d total", len(baseNonCluster), len(clusterItems), len(merged))
 	}
 	
 	ctx.JSON(http.StatusOK, baseResp)
@@ -451,7 +451,7 @@ func (s *SingleControllerPoolSupport) aggregateListAcrossPoolForSingle(
 		return false
 	}
 
-	zap.L().Sugar().Infof("[POOL-SINGLE-LIST] Starting list aggregation for keys: %v", listKeys)
+	zap.L().Sugar().Debugf("[POOL-SINGLE-LIST] Starting list aggregation for keys: %v", listKeys)
 
 	// Channel to collect responses from parallel requests
 	type poolResponse struct {
@@ -490,7 +490,7 @@ func (s *SingleControllerPoolSupport) aggregateListAcrossPoolForSingle(
 				}
 			}
 			
-			zap.L().Sugar().Infof("[POOL-SINGLE-LIST] Requesting module: %s from %s:%d", module, target.Hostname, target.Port)
+			zap.L().Sugar().Debugf("[POOL-SINGLE-LIST] Requesting module: %s from %s:%d", module, target.Hostname, target.Port)
 			resBytes, err := tmpClient.RequestBytes(module, jsonData, false)
 			
 			resp := poolResponse{target: target, err: err}
@@ -582,7 +582,7 @@ func (s *SingleControllerPoolSupport) aggregateListAcrossPoolForSingle(
 	}
 	baseResp["total"] = int64(total)
 	
-	zap.L().Sugar().Infof("[POOL-SINGLE-LIST] Aggregated %d items, returning %d items (offset:%d, limit:%d)", total, len(allItems), offset, limit)
+	zap.L().Sugar().Debugf("[POOL-SINGLE-LIST] Aggregated %d items, returning %d items (offset:%d, limit:%d)", total, len(allItems), offset, limit)
 	ctx.JSON(http.StatusOK, baseResp)
 	return true
 }
@@ -590,7 +590,7 @@ func (s *SingleControllerPoolSupport) aggregateListAcrossPoolForSingle(
 // HandleRequest is the main entry point for single controller requests with pool controller support
 // This extends the original PRCProxySingleController to support smart routing across pool controllers
 func (s *SingleControllerPoolSupport) HandleRequest(ctx *gin.Context) {
-	zap.L().Sugar().Infof("[POOL-SINGLE] Request received: %s %s", ctx.Request.Method, ctx.Request.URL.Path)
+	zap.L().Sugar().Debugf("[POOL-SINGLE] Request received: %s %s", ctx.Request.Method, ctx.Request.URL.Path)
 	
 	resp := &cmonapi.WithResponseData{
 		RequestProcessed: cmonapi.NullTime{T: time.Now()},
@@ -606,7 +606,7 @@ func (s *SingleControllerPoolSupport) HandleRequest(ctx *gin.Context) {
 		return
 	}
 	
-	zap.L().Sugar().Infof("[POOL-SINGLE] Using single controller: %s", s.proxy.cfg.SingleController)
+	zap.L().Sugar().Debugf("[POOL-SINGLE] Using single controller: %s", s.proxy.cfg.SingleController)
 
 	controller := s.proxy.cfg.ControllerById(s.proxy.cfg.SingleController)
 	if controller == nil {
@@ -617,7 +617,7 @@ func (s *SingleControllerPoolSupport) HandleRequest(ctx *gin.Context) {
 		return
 	}
 	
-	zap.L().Sugar().Infof("[POOL-SINGLE] Controller found: %s (URL: %s)", controller.Name, controller.Url)
+		zap.L().Sugar().Debugf("[POOL-SINGLE] Controller found: %s (URL: %s)", controller.Name, controller.Url)
 
 	// Read request body for smart routing analysis
 	var bodyBytes []byte
@@ -635,39 +635,39 @@ func (s *SingleControllerPoolSupport) HandleRequest(ctx *gin.Context) {
 	}
 
 	// Get cached status with pool controllers info
-	zap.L().Sugar().Infof("[POOL-SINGLE] Getting cached status for controller")
+	zap.L().Sugar().Debugf("[POOL-SINGLE] Getting cached status for controller")
 	status := s.getSingleControllerCachedStatus(controller, ctx)
 	
-	zap.L().Sugar().Infof("[POOL-SINGLE] Controller status: %s, Pool controllers found: %d", status.Status, len(status.Controllers))
+	zap.L().Sugar().Debugf("[POOL-SINGLE] Controller status: %s, Pool controllers found: %d", status.Status, len(status.Controllers))
 	
 	// Try smart routing across pool controllers if available
 	if len(status.Controllers) > 0 {
-		zap.L().Sugar().Infof("[POOL-SINGLE] Found %d pool controllers, filtering active ones", len(status.Controllers))
+		zap.L().Sugar().Debugf("[POOL-SINGLE] Found %d pool controllers, filtering active ones", len(status.Controllers))
 		activeTargets := s.filterActivePoolControllers(status.Controllers)
-		zap.L().Sugar().Infof("[POOL-SINGLE] Active pool controllers: %d", len(activeTargets))
+		zap.L().Sugar().Debugf("[POOL-SINGLE] Active pool controllers: %d", len(activeTargets))
 		
 		if len(activeTargets) > 0 {
 			// Log active targets details
 			for i, target := range activeTargets {
-				zap.L().Sugar().Infof("[POOL-SINGLE] Active target %d: %s:%d (clusters: %v)", i, target.Hostname, target.Port, target.Clusters)
+				zap.L().Sugar().Debugf("[POOL-SINGLE] Active target %d: %s:%d (clusters: %v)", i, target.Hostname, target.Port, target.Clusters)
 			}
 			
 			// Try smart routing - if successful, it will write response and return true
-			zap.L().Sugar().Infof("[POOL-SINGLE] Attempting smart routing with %d active targets", len(activeTargets))
+			zap.L().Sugar().Debugf("[POOL-SINGLE] Attempting smart routing with %d active targets", len(activeTargets))
 			if s.trySmartRouteAcrossPoolForSingle(ctx, bodyBytes, activeTargets, controller) {
-				zap.L().Sugar().Infof("[POOL-SINGLE] Smart routing successful, response sent")
+				zap.L().Sugar().Debugf("[POOL-SINGLE] Smart routing successful, response sent")
 				return
 			}
-			zap.L().Sugar().Infof("[POOL-SINGLE] Smart routing did not handle request, falling back")
+			zap.L().Sugar().Debugf("[POOL-SINGLE] Smart routing did not handle request, falling back")
 		} else {
-			zap.L().Sugar().Infof("[POOL-SINGLE] No active pool controllers found")
+			zap.L().Sugar().Debugf("[POOL-SINGLE] No active pool controllers found")
 		}
 	} else {
-		zap.L().Sugar().Infof("[POOL-SINGLE] No pool controllers found in status")
+		zap.L().Sugar().Debugf("[POOL-SINGLE] No pool controllers found in status")
 	}
 
 	// Fallback to original single controller behavior
-	zap.L().Sugar().Infof("[POOL-SINGLE] Falling back to original single controller behavior")
+	zap.L().Sugar().Debugf("[POOL-SINGLE] Falling back to original single controller behavior")
 	s.proxy.PRCProxySingleController(ctx)
 }
 
@@ -679,9 +679,9 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 	activeTargets []*cmonapi.PoolController,
 	controllerInstance *config.CmonInstance,
 ) bool {
-	zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Starting smart routing with %d targets", len(activeTargets))
+	zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Starting smart routing with %d targets", len(activeTargets))
 	if len(activeTargets) < 1 { 
-		zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] No active targets, returning false")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] No active targets, returning false")
 		return false 
 	}
 
@@ -695,14 +695,14 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 		if cid, ok := bodyMap["cluster_id"]; ok {
 			clusterID = fmt.Sprintf("%v", cid)
 		}
-		zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Request operation: %s, cluster_id: %s", op, clusterID)
+		zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Request operation: %s, cluster_id: %s", op, clusterID)
 	}
 
 	// Check for cluster-specific routing first
 	if clusterID != "" {
-		zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Cluster-specific request detected for cluster_id: %s", clusterID)
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Cluster-specific request detected for cluster_id: %s", clusterID)
 		if target := s.findPoolControllerForCluster(clusterID, activeTargets); target != nil {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Found target pool controller %s:%d for cluster %s", target.Hostname, target.Port, clusterID)
+				zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Found target pool controller %s:%d for cluster %s", target.Hostname, target.Port, clusterID)
 			return s.routeToSpecificPoolController(ctx, jsonData, target, controllerInstance)
 		} else {
 			zap.L().Sugar().Warnf("[POOL-SINGLE-ROUTING] No pool controller found for cluster_id: %s, will try aggregation or fallback", clusterID)
@@ -714,40 +714,40 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 	
 	// Tree aggregation endpoint
 	if strings.Contains(requestPath, "/tree") {
-		zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Request path contains /tree, checking for getTree operation")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Request path contains /tree, checking for getTree operation")
 		var withOp cmonapi.WithOperation
 		_ = json.Unmarshal(jsonData, &withOp)
 		if strings.EqualFold(withOp.Operation, "getTree") {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] getTree operation detected, performing tree aggregation")
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getTree operation detected, performing tree aggregation")
 			return s.aggregateTreeAcrossPoolForSingle(ctx, jsonData, activeTargets, controllerInstance)
 		} else {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Tree path but operation is: %s", withOp.Operation)
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Tree path but operation is: %s", withOp.Operation)
 		}
 	}
 	
 	// Clusters aggregation endpoint
 	if strings.Contains(requestPath, "/clusters") {
-		zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Request path contains /clusters, checking for getAllClusterInfo operation")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Request path contains /clusters, checking for getAllClusterInfo operation")
 		var withOp cmonapi.WithOperation
 		_ = json.Unmarshal(jsonData, &withOp)
 		if strings.EqualFold(withOp.Operation, "getAllClusterInfo") {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] getAllClusterInfo operation detected, performing clusters aggregation")
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getAllClusterInfo operation detected, performing clusters aggregation")
 			return s.aggregateListAcrossPoolForSingle(ctx, jsonData, activeTargets, controllerInstance, []string{"clusters"}, nil, false, 0, 0)
 		}
 	}
 	
 	// Jobs aggregation endpoint
 	if strings.Contains(requestPath, "/jobs") {
-		zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Request path contains /jobs, checking for job operations")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Request path contains /jobs, checking for job operations")
 		var withOp cmonapi.WithOperation
 		_ = json.Unmarshal(jsonData, &withOp)
 		if strings.EqualFold(withOp.Operation, "getJobs") {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] getJobs operation detected, performing jobs aggregation")
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getJobs operation detected, performing jobs aggregation")
 			// Parse pagination parameters
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			return s.aggregateListAcrossPoolForSingle(ctx, jsonData, activeTargets, controllerInstance, []string{"jobs"}, s.extractJobTimestamp, ascending, limit, offset)
 		} else if strings.EqualFold(withOp.Operation, "getJobInstances") {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] getJobInstances operation detected, performing job instances aggregation")
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getJobInstances operation detected, performing job instances aggregation")
 			// Parse pagination parameters and clean them from request (like in original implementation)
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
@@ -757,11 +757,11 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 	
 	// Backup aggregation endpoint
 	if strings.Contains(requestPath, "/backup") {
-		zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Request path contains /backup, checking for getBackups operation")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Request path contains /backup, checking for getBackups operation")
 		var withOp cmonapi.WithOperation
 		_ = json.Unmarshal(jsonData, &withOp)
 		if strings.EqualFold(withOp.Operation, "getBackups") {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] getBackups operation detected, performing backup aggregation")
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getBackups operation detected, performing backup aggregation")
 			// Parse pagination parameters
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			return s.aggregateListAcrossPoolForSingle(ctx, jsonData, activeTargets, controllerInstance, []string{"backup_records"}, s.extractBackupTimestamp, ascending, limit, offset)
@@ -770,11 +770,11 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 	
 	// Alarms aggregation endpoint
 	if strings.Contains(requestPath, "/alarm") {
-		zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Request path contains /alarm, checking for getAlarms operation")
+		zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Request path contains /alarm, checking for getAlarms operation")
 		var withOp cmonapi.WithOperation
 		_ = json.Unmarshal(jsonData, &withOp)
 		if strings.EqualFold(withOp.Operation, "getAlarms") {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] getAlarms operation detected, performing alarms aggregation")
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getAlarms operation detected, performing alarms aggregation")
 			// Parse pagination parameters and clean them from request
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
@@ -784,30 +784,30 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 	
 	// Reports and other aggregation endpoints
 	if strings.Contains(requestPath, "/reports") || strings.Contains(requestPath, "/audit") || strings.Contains(requestPath, "/maintenance") {
-		zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Request path contains aggregatable endpoint: %s", requestPath)
+		zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Request path contains aggregatable endpoint: %s", requestPath)
 		var withOp cmonapi.WithOperation
 		_ = json.Unmarshal(jsonData, &withOp)
 		
 		// Handle multiple operations that use similar aggregation pattern
 		if strings.EqualFold(withOp.Operation, "getReports") {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] getReports operation detected, performing reports aggregation")
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getReports operation detected, performing reports aggregation")
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
 			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"reports"}, s.extractGenericTimestamp, ascending, limit, offset)
 		} else if strings.EqualFold(withOp.Operation, "getEntries") {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] getEntries operation detected, performing audit entries aggregation")
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getEntries operation detected, performing audit entries aggregation")
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
 			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"audit_entries"}, s.extractGenericTimestamp, ascending, limit, offset)
 		} else if strings.EqualFold(withOp.Operation, "getMaintenance") {
-			zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] getMaintenance operation detected, performing maintenance aggregation")
+			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getMaintenance operation detected, performing maintenance aggregation")
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
 			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"maintenance_records"}, s.extractGenericTimestamp, ascending, limit, offset)
 		}
 	}
 
-	zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] No special routing applied, returning false")
+	zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] No special routing applied, returning false")
 	return false
 }
 
@@ -819,12 +819,12 @@ func (s *SingleControllerPoolSupport) findPoolControllerForCluster(clusterID str
 		}
 		for _, cid := range target.Clusters {
 			if cid == clusterID {
-				zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Found cluster %s on pool controller %s:%d", clusterID, target.Hostname, target.Port)
+				zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Found cluster %s on pool controller %s:%d", clusterID, target.Hostname, target.Port)
 				return target
 			}
 		}
 	}
-	zap.L().Sugar().Infof("[POOL-SINGLE-ROUTING] Cluster %s not found on any pool controller", clusterID)
+	zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] Cluster %s not found on any pool controller", clusterID)
 	return nil
 }
 
@@ -835,7 +835,7 @@ func (s *SingleControllerPoolSupport) routeToSpecificPoolController(
 	target *cmonapi.PoolController,
 	controllerInstance *config.CmonInstance,
 ) bool {
-	zap.L().Sugar().Infof("[POOL-SINGLE-SPECIFIC] Routing request to pool controller %s:%d", target.Hostname, target.Port)
+	zap.L().Sugar().Debugf("[POOL-SINGLE-SPECIFIC] Routing request to pool controller %s:%d", target.Hostname, target.Port)
 	
 	// Create a client for the specific pool controller
 	instCopy := *controllerInstance
@@ -861,7 +861,7 @@ func (s *SingleControllerPoolSupport) routeToSpecificPoolController(
 	requestPath := ctx.Request.URL.EscapedPath()
 	module := s.extractModuleFromPath(requestPath)
 	
-	zap.L().Sugar().Infof("[POOL-SINGLE-SPECIFIC] Requesting module: %s from %s:%d", module, target.Hostname, target.Port)
+	zap.L().Sugar().Debugf("[POOL-SINGLE-SPECIFIC] Requesting module: %s from %s:%d", module, target.Hostname, target.Port)
 	resBytes, err := tmpClient.RequestBytes(module, jsonData, false)
 	if err != nil {
 		zap.L().Sugar().Errorf("[POOL-SINGLE-SPECIFIC] Request to %s:%d failed: %v", target.Hostname, target.Port, err)
@@ -875,7 +875,7 @@ func (s *SingleControllerPoolSupport) routeToSpecificPoolController(
 		return false
 	}
 	
-	zap.L().Sugar().Infof("[POOL-SINGLE-SPECIFIC] Successfully routed request to %s:%d", target.Hostname, target.Port)
+	zap.L().Sugar().Debugf("[POOL-SINGLE-SPECIFIC] Successfully routed request to %s:%d", target.Hostname, target.Port)
 	ctx.JSON(http.StatusOK, respMap)
 	return true
 }
