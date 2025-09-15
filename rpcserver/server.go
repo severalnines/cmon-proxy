@@ -17,6 +17,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -177,7 +178,7 @@ func serveStaticOrIndex(c *gin.Context, path string, cfg *config.Config) {
 
 func generateETag(info os.FileInfo) string {
 	hash := md5.New()
-	hash.Write([]byte(fmt.Sprintf("%s-%d-%d", info.Name(), info.Size(), info.ModTime().Unix())))
+	_, _ = fmt.Fprintf(hash, "%s-%d-%d", info.Name(), info.Size(), info.ModTime().Unix())
 	return fmt.Sprintf(`"%x"`, hash.Sum(nil))
 }
 
@@ -432,12 +433,12 @@ func applyWebServerConfig(r *gin.Engine, cfg config.WebServer) {
 
 	// Security headers (excluding CSP which needs per-request nonce)
 	sec := secure.New(secure.Config{
-		FrameDeny:            *cfg.Security.FrameDeny,
+		FrameDeny:            unPtr(cfg.Security.FrameDeny),
 		STSSeconds:           cfg.Security.STSSeconds,
-		STSIncludeSubdomains: *cfg.Security.STSIncludeSubdomains,
-		STSPreload:           *cfg.Security.STSPreload,
-		ContentTypeNosniff:   *cfg.Security.ContentTypeNosniff,
-		BrowserXssFilter:     *cfg.Security.BrowserXssFilter,
+		STSIncludeSubdomains: unPtr(cfg.Security.STSIncludeSubdomains),
+		STSPreload:           unPtr(cfg.Security.STSPreload),
+		ContentTypeNosniff:   unPtr(cfg.Security.ContentTypeNosniff),
+		BrowserXssFilter:     unPtr(cfg.Security.BrowserXssFilter),
 		ReferrerPolicy:       cfg.Security.ReferrerPolicy,
 	})
 	r.Use(sec)
@@ -449,7 +450,7 @@ func applyWebServerConfig(r *gin.Engine, cfg config.WebServer) {
 			AllowMethods:     cfg.CORS.AllowMethods,
 			AllowHeaders:     cfg.CORS.AllowHeaders,
 			ExposeHeaders:    cfg.CORS.ExposeHeaders,
-			AllowCredentials: *cfg.CORS.AllowCredentials,
+			AllowCredentials: unPtr(cfg.CORS.AllowCredentials),
 			MaxAge:           time.Duration(cfg.CORS.MaxAgeSeconds) * time.Second,
 		}))
 	}
@@ -884,7 +885,7 @@ func Stop() {
 			context.Background(),
 			time.Second*5)
 		defer cancel()
-		if err := httpServerPlain.Shutdown(ctx); err != nil && err != context.DeadlineExceeded {
+		if err := httpServerPlain.Shutdown(ctx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 			log.Sugar().Errorf("Failed to shutdown plain http server: %s", err.Error())
 		}
 		httpServerPlain = nil
@@ -906,4 +907,12 @@ func Stop() {
 
 	httpServer.Close()
 	httpServer = nil
+}
+
+func unPtr[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
+	}
+	return *p
 }

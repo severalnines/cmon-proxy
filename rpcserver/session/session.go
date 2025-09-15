@@ -53,8 +53,7 @@ func SessionDestroy(ctx *gin.Context) {
 }
 
 func getStore(cfg *config.Config) sessions.Store {
-	var store sessions.Store
-	store = cookie.NewStore(getSessionKeys()...)
+	store := cookie.NewStore(getSessionKeys()...)
 	// sTTL := time.Duration(cfg.SessionTtl)
 	store.Options(sessions.Options{
 		Domain:   domain,

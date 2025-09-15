@@ -11,6 +11,7 @@ package cmon
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -207,8 +208,8 @@ func (client *Client) CreateJobInstanceWait(
 			return errJobRunning
 		},
 		func(err error, _ int) error {
-			if err == errJobFailed {
-				return fmt.Errorf(gjr.Job.StatusText)
+			if errors.Is(err, errJobFailed) {
+				return errors.New(gjr.Job.StatusText)
 			}
 			return nil
 		}, retryConfig); err != nil {
