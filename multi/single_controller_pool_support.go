@@ -244,8 +244,9 @@ func (s *SingleControllerPoolSupport) removePaginationParams(jsonData []byte) []
 	return cleanedData
 }
 
-// extractJobTimestamp extracts timestamp from job items for sorting
-func (s *SingleControllerPoolSupport) extractJobTimestamp(item map[string]interface{}) time.Time {
+// extractStandardTimestamp extracts timestamp from items with standard timestamp fields
+// This replaces extractJobTimestamp, extractAlarmTimestamp, and extractGenericTimestamp
+func (s *SingleControllerPoolSupport) extractStandardTimestamp(item map[string]interface{}) time.Time {
 	for _, key := range []string{"created", "created_time", "created_ts"} {
 		if s, ok := item[key].(string); ok {
 			if t, err := time.Parse(time.RFC3339, s); err == nil {
@@ -268,29 +269,6 @@ func (s *SingleControllerPoolSupport) extractBackupTimestamp(item map[string]int
 	return time.Time{}
 }
 
-// extractAlarmTimestamp extracts timestamp from alarm items for sorting
-func (s *SingleControllerPoolSupport) extractAlarmTimestamp(item map[string]interface{}) time.Time {
-	for _, key := range []string{"created", "created_time", "created_ts"} {
-		if s, ok := item[key].(string); ok {
-			if t, err := time.Parse(time.RFC3339, s); err == nil {
-				return t
-			}
-		}
-	}
-	return time.Time{}
-}
-
-// extractGenericTimestamp extracts timestamp from generic items (reports, audit, maintenance)
-func (s *SingleControllerPoolSupport) extractGenericTimestamp(item map[string]interface{}) time.Time {
-	for _, key := range []string{"created", "created_time", "created_ts"} {
-		if s, ok := item[key].(string); ok {
-			if t, err := time.Parse(time.RFC3339, s); err == nil {
-				return t
-			}
-		}
-	}
-	return time.Time{}
-}
 
 // aggregateTreeAcrossPoolForSingle performs tree aggregation for single controller mode
 // This implements the same logic as the multi-controller tree aggregation
@@ -745,13 +723,13 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getJobs operation detected, performing jobs aggregation")
 			// Parse pagination parameters
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
-			return s.aggregateListAcrossPoolForSingle(ctx, jsonData, activeTargets, controllerInstance, []string{"jobs"}, s.extractJobTimestamp, ascending, limit, offset)
+			return s.aggregateListAcrossPoolForSingle(ctx, jsonData, activeTargets, controllerInstance, []string{"jobs"}, s.extractStandardTimestamp, ascending, limit, offset)
 		} else if strings.EqualFold(withOp.Operation, "getJobInstances") {
 			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getJobInstances operation detected, performing job instances aggregation")
 			// Parse pagination parameters and clean them from request (like in original implementation)
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
-			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"data", "jobs"}, s.extractJobTimestamp, ascending, limit, offset)
+			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"data", "jobs"}, s.extractStandardTimestamp, ascending, limit, offset)
 		}
 	}
 	
@@ -778,7 +756,7 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 			// Parse pagination parameters and clean them from request
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
-			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"alarms"}, s.extractAlarmTimestamp, ascending, limit, offset)
+			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"alarms"}, s.extractStandardTimestamp, ascending, limit, offset)
 		}
 	}
 	
@@ -793,17 +771,17 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getReports operation detected, performing reports aggregation")
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
-			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"reports"}, s.extractGenericTimestamp, ascending, limit, offset)
+			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"reports"}, s.extractStandardTimestamp, ascending, limit, offset)
 		} else if strings.EqualFold(withOp.Operation, "getEntries") {
 			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getEntries operation detected, performing audit entries aggregation")
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
-			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"audit_entries"}, s.extractGenericTimestamp, ascending, limit, offset)
+			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"audit_entries"}, s.extractStandardTimestamp, ascending, limit, offset)
 		} else if strings.EqualFold(withOp.Operation, "getMaintenance") {
 			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getMaintenance operation detected, performing maintenance aggregation")
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
-			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"maintenance_records"}, s.extractGenericTimestamp, ascending, limit, offset)
+			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"maintenance_records"}, s.extractStandardTimestamp, ascending, limit, offset)
 		}
 	}
 
