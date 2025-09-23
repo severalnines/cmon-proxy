@@ -687,6 +687,16 @@ func Start(cfg *config.Config) {
 			k8s.DELETE("/*path", k8sProxyHandler)
 		}
 
+		// Public, unauthenticated K8s proxy routes (no JWT added)
+		k8sPublic := single.Group("/k8s-public")
+		{
+			k8sPublicProxyHandler := func(c *gin.Context) {
+				path := c.Param("path")
+				k8sClient.ProxyRequestNoAuth(c, path)
+			}
+			k8sPublic.GET("/*path", k8sPublicProxyHandler)
+		}
+
 		single.GET("/cmon-ssh/*any", func(c *gin.Context) {
 			// could not find better to check if it is a websocket request or not
 			if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
