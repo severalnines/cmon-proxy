@@ -140,9 +140,7 @@ type Error struct {
 }
 
 func (err Error) Error() string {
-	return fmt.Sprintf("%s: %s",
-		err.Type,
-		err.Message)
+	return fmt.Sprintf("%s: %s", err.Type, err.Message)
 }
 
 type WithOperation struct {

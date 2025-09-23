@@ -238,12 +238,15 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 	case *api.AuthenticateRequest:
 		// obtain controller ID
 		var ctrlID api.WithControllerID
-		json.Unmarshal(respBytes, &ctrlID)
-		client.controllerID = ctrlID.ControllerID
+		if err = json.Unmarshal(respBytes, &ctrlID); err == nil {
+			client.controllerID = ctrlID.ControllerID
+		}
 	}
+
 	var respData api.WithResponseData
-	json.Unmarshal(respBytes, &respData)
-	client.lastRequestStatus = respData.RequestStatus
+	if err = json.Unmarshal(respBytes, &respData); err == nil {
+		client.lastRequestStatus = respData.RequestStatus
+	}
 
 	return json.Unmarshal(respBytes, res)
 }
@@ -251,7 +254,7 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 // Authenticate does RPCv2 authentication.
 func (client *Client) Authenticate() error {
 	if len(client.Instance.Password) > 0 {
-		return client.AuthenticateWithPassword()	
+		return client.AuthenticateWithPassword()
 	}
 
 	if len(client.Instance.Keyfile) > 0 {

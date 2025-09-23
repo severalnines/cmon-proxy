@@ -22,7 +22,6 @@ import (
 )
 
 var (
-	defaultLogger *zap.Logger
 	defaultConfig *Config
 	fileWriter    *lumberjack.Logger
 )
