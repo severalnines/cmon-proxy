@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/sessions"
@@ -176,6 +177,62 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 
 	// Copy all headers from the original request
 	for name, values := range ctx.Request.Header {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to proxy request"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		c.logger.Errorf("Failed to read proxy response body: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read proxy response"})
+		return
+	}
+
+	// Copy headers from the proxy response to the client response
+	for name, values := range resp.Header {
+		for _, value := range values {
+			ctx.Header(name, value)
+		}
+	}
+	ctx.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
+}
+
+// ProxyRequestNoAuth proxies a request to the K8s proxy without adding Authorization
+// and without attempting to obtain a JWT token. This is intended for publicly
+// accessible endpoints on the kuber-proxy side (e.g. /manifests/agent).
+func (c *K8sProxyClient) ProxyRequestNoAuth(ctx *gin.Context, path string) {
+	proxyURL := c.cfg.K8sProxyURL + path
+
+	parsedURL, err := url.Parse(proxyURL)
+	if err != nil {
+		c.logger.Errorf("Failed to parse proxy URL: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create proxy request"})
+		return
+	}
+
+	// Copy the query parameters from the original request
+	parsedURL.RawQuery = ctx.Request.URL.RawQuery
+
+	req, err := http.NewRequest(ctx.Request.Method, parsedURL.String(), ctx.Request.Body)
+	if err != nil {
+		c.logger.Errorf("Failed to create proxy request: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create proxy request"})
+		return
+	}
+
+	// Copy all headers from the original request except Authorization
+	for name, values := range ctx.Request.Header {
+		if strings.EqualFold(name, "Authorization") {
+			continue
+		}
 		for _, value := range values {
 			req.Header.Add(name, value)
 		}
