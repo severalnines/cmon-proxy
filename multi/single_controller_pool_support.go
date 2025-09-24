@@ -721,15 +721,16 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 		_ = json.Unmarshal(jsonData, &withOp)
 		if strings.EqualFold(withOp.Operation, "getJobs") {
 			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getJobs operation detected, performing jobs aggregation")
-			// Parse pagination parameters
+			// Parse pagination parameters and clean them from request
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
-			return s.aggregateListAcrossPoolForSingle(ctx, jsonData, activeTargets, controllerInstance, []string{"jobs"}, s.extractStandardTimestamp, ascending, limit, offset)
+			cleanedData := s.removePaginationParams(jsonData)
+			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"jobs"}, s.extractStandardTimestamp, ascending, limit, offset)
 		} else if strings.EqualFold(withOp.Operation, "getJobInstances") {
 			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getJobInstances operation detected, performing job instances aggregation")
 			// Parse pagination parameters and clean them from request (like in original implementation)
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
 			cleanedData := s.removePaginationParams(jsonData)
-			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"data", "jobs"}, s.extractStandardTimestamp, ascending, limit, offset)
+			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"jobs"}, s.extractStandardTimestamp, ascending, limit, offset)
 		}
 	}
 	
@@ -740,9 +741,10 @@ func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 		_ = json.Unmarshal(jsonData, &withOp)
 		if strings.EqualFold(withOp.Operation, "getBackups") {
 			zap.L().Sugar().Debugf("[POOL-SINGLE-ROUTING] getBackups operation detected, performing backup aggregation")
-			// Parse pagination parameters
+			// Parse pagination parameters and clean them from request
 			ascending, limit, offset := s.parsePaginationParams(jsonData)
-			return s.aggregateListAcrossPoolForSingle(ctx, jsonData, activeTargets, controllerInstance, []string{"backup_records"}, s.extractBackupTimestamp, ascending, limit, offset)
+			cleanedData := s.removePaginationParams(jsonData)
+			return s.aggregateListAcrossPoolForSingle(ctx, cleanedData, activeTargets, controllerInstance, []string{"backup_records"}, s.extractBackupTimestamp, ascending, limit, offset)
 		}
 	}
 	
