@@ -53,6 +53,7 @@ var (
 	proxy           *multi.Proxy
 )
 
+
 type GinWriteInterceptor struct {
 	gin.ResponseWriter
 	responseBody *bytes.Buffer
@@ -374,6 +375,14 @@ func forwardToCmon(ctx *gin.Context) {
 		return
 	}
 
+
+	controllers := proxy.GetCachedPoolControllers(ctx, controllerId.GetID())
+	activeTargets := filterActivePoolControllers(controllers)
+
+	if trySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets) { return }
+
+	
+
 	proxy.RPCProxyRequest(ctx, controllerId.GetID(), method, jsonData)
 }
 
@@ -481,32 +490,33 @@ func applyWebServerConfig(r *gin.Engine, cfg config.WebServer) {
 }
 
 // fetchMissingControllerIDs checks all instances for missing controller_id and fetches them
-func fetchMissingControllerIDs(proxy *multi.Proxy) {
+func fetchMissingPoolIds(proxy *multi.Proxy) {
 	log := zap.L()
 
 	cfg := proxy.Router(nil).Config
 	if cfg == nil {
-		log.Warn("Config is nil, cannot fetch missing controller IDs")
+		log.Warn("Config is nil, cannot fetch missing pool IDs")
 		return
 	}
 
 	changed := false
 	for _, instance := range cfg.Instances {
-		if instance != nil && instance.ControllerId == "" {
-			log.Info("Found instance with missing controller_id, attempting to fetch",
+		if instance != nil && instance.PoolId == "" {
+			log.Info("Found instance with missing pool_id, attempting to fetch", 
 				zap.String("url", instance.Url),
 				zap.String("xid", instance.Xid))
-
-			controllerID, err := proxy.FetchControllerIDFromInfo(instance)
+			
+			poolId, err := proxy.FetchPoolIdFromInfo(instance)
 			if err != nil {
-				log.Warn("Failed to fetch controller_id from /info endpoint",
-					zap.String("url", instance.Url),
+				log.Warn("Failed to fetch pool_id from /info endpoint", 
+					zap.String("url", instance.Url), 
 					zap.Error(err))
 			} else {
-				log.Info("Successfully fetched controller_id",
+				log.Info("Successfully fetched pool_id", 
 					zap.String("url", instance.Url),
-					zap.String("controller_id", controllerID))
-				instance.ControllerId = controllerID
+					zap.String("pool_id", poolId))
+				instance.ControllerId = poolId
+				instance.PoolId = poolId
 				changed = true
 			}
 		}
@@ -515,9 +525,9 @@ func fetchMissingControllerIDs(proxy *multi.Proxy) {
 	// Save the config if any controller_ids were fetched
 	if changed {
 		if err := cfg.Save(); err != nil {
-			log.Error("Failed to save config after fetching controller_ids", zap.Error(err))
+			log.Error("Failed to save config after fetching pool_ids", zap.Error(err))
 		} else {
-			log.Info("Successfully saved config with updated controller_ids")
+			log.Info("Successfully saved config with updated pool_ids")
 		}
 	}
 }
@@ -635,7 +645,7 @@ func Start(cfg *config.Config) {
 	}
 
 	// Fetch missing controller_ids during startup
-	fetchMissingControllerIDs(proxy)
+	fetchMissingPoolIds(proxy)
 
 	multi.StartSessionCleanupScheduler(proxy)
 
@@ -673,8 +683,8 @@ func Start(cfg *config.Config) {
 
 	single := s.Group("/single")
 	{
-		single.POST("/v2/*any", proxy.PRCProxySingleController)
-		single.GET("/v2/*any", proxy.PRCProxySingleController)
+		single.POST("/v2/*any", proxy.PRCProxySingleControllerWithPoolSupport)
+		single.GET("/v2/*any", proxy.PRCProxySingleControllerWithPoolSupport)
 		k8s := single.Group("/k8s")
 		{
 			k8sProxyHandler := func(c *gin.Context) {

@@ -43,7 +43,7 @@ func (p *Proxy) RPCLogsList(ctx *gin.Context) {
 		if data == nil || len(data.Logs) < 1 {
 			continue
 		}
-		controllerId := data.ControllerID()
+		controllerId := data.PoolID()
 		xid := data.Xid()
 
 		if !api.PassFilter(req.Filters, "xid", xid) ||

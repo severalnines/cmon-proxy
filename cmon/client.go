@@ -50,7 +50,7 @@ type Client struct {
 	ses               *http.Cookie
 	mtx               *sync.Mutex
 	user              *api.User
-	controllerID      string // the controllerID obtained from the replies
+	poolID            string // the poolID obtained from the replies
 	lastRequestStatus string // the last request status
 	serverVersion     string // the server version obtained from the headers
 }
@@ -79,6 +79,9 @@ func NewClient(instance *config.CmonInstance, timeout int) *Client {
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
 func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ...bool) (resBytes []byte, err error) {
+    if client == nil || client.Instance == nil {
+        return nil, fmt.Errorf("nil cmon client")
+    }
 	// for regular requests we may want to auto reauthenticate
 	autoAuth := len(noAutoAuth) < 1 || !noAutoAuth[0]
 	client.lastRequestStatus = ""
@@ -224,6 +227,9 @@ func (client *Client) ProxyWebSocket(targetURL string, headers http.Header, conn
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
 func (client *Client) Request(module string, req, res interface{}, noAutoAuth ...bool) error {
+    if client == nil || client.Instance == nil {
+        return fmt.Errorf("nil cmon client")
+    }
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -236,10 +242,10 @@ func (client *Client) Request(module string, req, res interface{}, noAutoAuth ..
 	// this part might be not efficient, lets think about this later
 	switch req.(type) {
 	case *api.AuthenticateRequest:
-		// obtain controller ID
+		// obtain pool ID
 		var ctrlID api.WithControllerID
 		if err = json.Unmarshal(respBytes, &ctrlID); err == nil {
-			client.controllerID = ctrlID.ControllerID
+			client.poolID = ctrlID.ControllerID
 		}
 	}
 
@@ -412,18 +418,24 @@ func (client *Client) buildURI(module string) string {
 	if !strings.HasPrefix(urlStr, "https://") {
 		urlStr = "https://" + urlStr
 	}
-	if parsed, err := url.Parse(urlStr); err != nil {
-		zap.L().Sugar().Fatalf("URL parse '%s' failure: %s", urlStr, err.Error())
-		return ""
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		zap.L().Sugar().Errorf("URL parse '%s' failure: %s", urlStr, err.Error())
+		// Return a placeholder URL that will fail gracefully instead of crashing
+		return "https://invalid.url/v2/" + module
 	} else {
+		// Clean up the path to handle trailing slashes properly
+		// Remove all trailing slashes
+		basePath := strings.TrimRight(parsed.Path, "/")
+		
 		u := &url.URL{
 			Host:   parsed.Host,
 			Scheme: parsed.Scheme,
-			Path:   parsed.Path + "/v2/" + module,
+			Path:   basePath + "/v2/" + module,
 		}
 		// it might already have the full URL
 		if strings.HasPrefix(module, "/v2") {
-			u.Path = parsed.Path + module
+			u.Path = basePath + module
 		}
 		return u.String()
 	}
@@ -447,8 +459,8 @@ func (client *Client) User() *api.User {
 	return client.user
 }
 
-func (client *Client) ControllerID() string {
-	return client.controllerID
+func (client *Client) PoolID() string {
+	return client.poolID
 }
 
 func (client *Client) RequestStatus() string {

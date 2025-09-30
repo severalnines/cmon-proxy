@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/big"
+	"net/url"
 	"os"
 	"path"
 	"strconv"
@@ -63,6 +64,8 @@ type CmonInstance struct {
 	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
 	Keyfile       string `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
 	ControllerId  string `yaml:"controller_id,omitempty" json:"controller_id,omitempty"`
+	PoolId        string `yaml:"pool_id,omitempty" json:"pool_id,omitempty"`
+	Controllers   []*cmonapi.PoolController `yaml:"controllers,omitempty" json:"controllers,omitempty"`
 	FrontendUrl   string `yaml:"frontend_url,omitempty" json:"frontend_url,omitempty"`
 	CMONSshHost   string `yaml:"cmon_ssh_host,omitempty" json:"cmon_ssh_host,omitempty"`
 	CMONSshSecure bool   `yaml:"cmon_ssh_secure,omitempty" json:"cmon_ssh_secure,omitempty"`
@@ -204,6 +207,29 @@ func (cmon *CmonInstance) Verify() error {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
 	}
 
+	// Trim whitespace from URL to prevent parsing issues
+	cmon.Url = strings.TrimSpace(cmon.Url)
+	
+	// Check if URL is empty after trimming
+	if len(cmon.Url) < 3 {
+		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
+	}
+	
+	// Check for invalid characters in URL (like spaces in the middle)
+	if strings.Contains(cmon.Url, " ") {
+		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller URL: contains spaces")
+	}
+	
+	// Additional validation to ensure URL can be parsed
+	testUrl := cmon.Url
+	if !strings.HasPrefix(testUrl, "https://") && !strings.HasPrefix(testUrl, "http://") {
+		testUrl = "https://" + testUrl
+	}
+	
+	if _, err := url.Parse(testUrl); err != nil {
+		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller URL format: "+err.Error())
+	}
+
 	return nil
 }
 
@@ -216,6 +242,7 @@ func (cmon *CmonInstance) Copy() *CmonInstance {
 		Keyfile:       cmon.Keyfile,
 		Password:      cmon.Password,
 		ControllerId:  cmon.ControllerId,
+		PoolId:        cmon.PoolId,
 		FrontendUrl:   cmon.FrontendUrl,
 		CMONSshHost:   cmon.CMONSshHost,
 		CMONSshSecure: cmon.CMONSshSecure,
@@ -543,6 +570,9 @@ func (cfg *Config) ControllerById(idString string) *CmonInstance {
 
 // AddController adds a controller to the configuration and perists the config
 func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
+	// Trim whitespace from URL before validation
+	cmon.Url = strings.TrimSpace(cmon.Url)
+	
 	if err := cmon.Verify(); err != nil {
 		return err
 	}

@@ -411,6 +411,9 @@ func (router *Router) GetAlarms(forceUpdate bool) {
 			}
 			mtx.Unlock()
 			for _, cid := range c.ClusterIDs() {
+				if c.Client == nil {
+					continue
+				}
 				if alarms, _ := c.Client.GetAlarms(cid); alarms != nil {
 					mtx.Lock()
 					toCommit[address].Alarms[cid] = alarms
@@ -466,6 +469,9 @@ func (router *Router) GetLogs(forceUpdate bool) {
 			}
 			mtx.Unlock()
 			for _, cid := range c.ClusterIDs() {
+				if c.Client == nil {
+					continue
+				}
 				if logs, _ := c.Client.GetLogs(cid); logs != nil {
 					mtx.Lock()
 					toCommit[address].Logs[cid] = logs
@@ -528,6 +534,9 @@ func (router *Router) GetAuditEntries(forceUpdate bool) {
 			}
 			mtx.Unlock()
 			for _, cid := range c.ClusterIDs() {
+				if c.Client == nil {
+					continue
+				}
 				if entries, _ := c.Client.GetAuditEntries(cid); entries != nil {
 					mtx.Lock()
 					toCommit[address].AuditEntries[cid] = entries
@@ -587,12 +596,14 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 			syncChannel <- true
 
 			// get the jobs from last 12hours
-			if jobs, _ := c.Client.GetLastJobs(c.ClusterIDs(), fetchJobHours); jobs != nil {
-				mtx.Lock()
-				toCommit[address] = &Cmon{
-					Jobs: jobs,
+			if c.Client != nil {
+				if jobs, _ := c.Client.GetLastJobs(c.ClusterIDs(), fetchJobHours); jobs != nil {
+					mtx.Lock()
+					toCommit[address] = &Cmon{
+						Jobs: jobs,
+					}
+					mtx.Unlock()
 				}
-				mtx.Unlock()
 			}
 		}()
 	}
@@ -612,7 +623,7 @@ func (router *Router) GetLastJobs(forceUpdate bool) {
 }
 
 func (cmon *Cmon) MatchesID(id string) bool {
-	return id == cmon.Xid() || id == cmon.ControllerID()
+			return id == cmon.Xid() || id == cmon.PoolID()
 }
 
 func (cmon *Cmon) Xid() string {
@@ -623,7 +634,7 @@ func (cmon *Cmon) Xid() string {
 	return cmon.Client.Instance.Xid
 }
 
-func (cmon *Cmon) ControllerID() string {
+func (cmon *Cmon) PoolID() string {
 	if cmon == nil {
 		return ""
 	}
@@ -638,10 +649,10 @@ func (cmon *Cmon) ControllerID() string {
 				return ""
 			}
 
-			// return the controller ID from the parsed headers
-			cmon.controllerID = cmon.Client.ControllerID()
+			// return the pool ID from the parsed headers
+			cmon.controllerID = cmon.Client.PoolID()
 		} else {
-			// return the controller ID from the last ping reply
+			// return the pool ID from the last ping reply
 			cmon.controllerID = cmon.PingResponse.ControllerID
 		}
 	}

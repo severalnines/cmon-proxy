@@ -25,6 +25,9 @@ func (client *Client) GetStatByName(req *api.GetStatByNameRequest) (*api.GetStat
 	if err := client.Request(api.ModuleStat, req, res); err != nil {
 		return nil, err
 	}
+	if res.WithResponseData == nil {
+		return nil, api.NewError(api.RequestStatusUnknownError, "empty response data")
+	}
 	if res.RequestStatus != api.RequestStatusOk {
 		return nil, api.NewErrorFromResponseData(res.WithResponseData)
 	}

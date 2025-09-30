@@ -45,10 +45,10 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 	p.Router(ctx).GetAlarms(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || data.Clusters == nil {
+		if data == nil {
 			continue
 		}
-		xid := data.Xid()
+		alarmsMap, _, xid := p.resolveAlarmsSource(ctx, data)
 
 		countsByCtrl := &api.AlarmsOverview{
 			AlarmCounts: make(map[string]int),
@@ -56,7 +56,7 @@ func (p *Proxy) RPCAlarmsOverview(ctx *gin.Context) {
 			ByCluster:   make(map[string]*api.AlarmsOverview),
 		}
 		// iterate by clusterIds... one by one..
-		for cid, clusterAlarms := range data.Alarms {
+		for cid, clusterAlarms := range alarmsMap {
 			// tags filtration is possible here too
 			fn := func() []string { return data.ClusterTags(cid) }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
@@ -149,11 +149,10 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 	p.Router(ctx).GetAlarms(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || len(data.Alarms) < 1 {
+		if data == nil {
 			continue
 		}
-		xid := data.Xid()
-		controllerID := data.ControllerID()
+		alarmsMap, controllerID, xid := p.resolveAlarmsSource(ctx, data)
 
 		if !api.PassFilter(req.Filters, "xid", xid) ||
 			!api.PassFilter(req.Filters, "controller_id", controllerID) ||
@@ -161,13 +160,15 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 			continue
 		}
 
-		alarms := data.Alarms
-
-		if alarms[0] != nil && alarms[0].WithResponseData != nil {
-			resp.LastUpdated[url] = &alarms[0].RequestProcessed
+		// last updated best-effort: take any entry's RequestProcessed
+		for _, v := range alarmsMap {
+			if v != nil && v.WithResponseData != nil {
+				resp.LastUpdated[url] = &v.RequestProcessed
+				break
+			}
 		}
 
-		for cid, clusterAlarms := range alarms {
+		for cid, clusterAlarms := range alarmsMap {
 			if !api.PassFilter(req.Filters, "cluster_id", fmt.Sprintf("%d", cid)) {
 				continue
 			}
@@ -180,6 +181,9 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 				continue
 			}
 			for _, alarm := range clusterAlarms.Alarms {
+				if alarm == nil {
+					continue
+				}
 				if !api.PassFilter(req.Filters, "severity_name", alarm.SeverityName) {
 					continue
 				}
@@ -257,5 +261,5 @@ func (p *Proxy) RPCAlarmsList(ctx *gin.Context) {
 		resp.Alarms = resp.Alarms[from:to]
 	}
 
-	ctx.JSON(http.StatusOK, resp)
+	ctx.JSON(http.StatusOK, &resp)
 }

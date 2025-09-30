@@ -37,6 +37,9 @@ func (client *Client) GetBackupJobs(clusterIds []uint64) ([]*api.Job, error) {
 	if err := client.Request(api.ModuleJobs, req, res); err != nil {
 		return nil, err
 	}
+	if res.WithResponseData == nil {
+		return nil, api.NewError(api.RequestStatusUnknownError, "empty response data")
+	}
 	if res.RequestStatus != api.RequestStatusOk {
 		return nil, api.NewErrorFromResponseData(res.WithResponseData)
 	}
@@ -60,6 +63,9 @@ func (client *Client) GetJobInstances(req *api.GetJobInstancesRequest) (*api.Get
 	res := &api.GetJobInstancesResponse{}
 	if err := client.Request(api.ModuleJobs, req, res); err != nil {
 		return nil, err
+	}
+	if res.WithResponseData == nil {
+		return nil, api.NewError(api.RequestStatusUnknownError, "empty response data")
 	}
 	if res.RequestStatus != api.RequestStatusOk {
 		return nil, api.NewErrorFromResponseData(res.WithResponseData)

@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/multi/api"
 	"github.com/severalnines/cmon-proxy/multi/router"
@@ -109,4 +110,37 @@ func (p *Proxy) UpdateConfig(cfg *config.Config) {
 
 	// then refresh all
 	p.Refresh()
+}
+
+// GetCachedPoolControllers returns any cached pool-controller list associated with
+// the controller identified by matchId (xid or controller_id). Falls back to
+// instance-level configured controllers if available.
+func (p *Proxy) GetCachedPoolControllers(ctx *gin.Context, matchId string) []*cmonapi.PoolController {
+    if p == nil {
+        return nil
+    }
+    r := p.Router(ctx)
+    if r == nil {
+        return nil
+    }
+    for _, addr := range r.Urls() {
+        c := r.Cmon(addr)
+        if c == nil {
+            continue
+        }
+        if !c.MatchesID(matchId) {
+            continue
+        }
+        mtx.Lock()
+        status := controllerStatusCache[addr]
+        mtx.Unlock()
+        if status != nil && len(status.Controllers) > 0 {
+            return status.Controllers
+        }
+        if c.Client != nil && c.Client.Instance != nil && len(c.Client.Instance.Controllers) > 0 {
+            return c.Client.Instance.Controllers
+        }
+        break
+    }
+    return nil
 }

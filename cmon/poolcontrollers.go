@@ -14,30 +14,21 @@ import (
 	"github.com/severalnines/cmon-proxy/cmon/api"
 )
 
-func (client *Client) GetAuditEntries(clusterId uint64) (*api.GetAuditEntriesReply, error) {
-	req := &api.GetAuditEntriesRequest{
-		WithOperation: &api.WithOperation{
-			Operation: "getEntries",
-		},
-		WithClusterID: &api.WithClusterID{
-			ClusterID: clusterId,
-		},
-		WithLimit: &api.WithLimit{Limit: 100},
+func (client *Client) GetControllers(req *api.GetControllersRequest) (*api.GetControllersResponse, error) {
+	if req.WithOperation == nil {
+		req.WithOperation = &api.WithOperation{}
 	}
-	if clusterId > 0 {
-		if err := api.CheckClusterID(req); err != nil {
-			return nil, err
-		}
+	req.Operation = "listcontrollers"
+
+	// Set controller_id to 0 if not provided (optional parameter)
+	if req.ControllerID == 0 {
+		req.ControllerID = 0 // 0 means get all controllers
 	}
-	res := &api.GetAuditEntriesReply{}
-	if err := client.Request(api.ModuleAudit, req, res); err != nil {
+
+	res := &api.GetControllersResponse{}
+	if err := client.Request(api.ModulePoolControllers, req, res); err != nil {
 		return nil, err
 	}
-	if res.WithResponseData == nil {
-		return nil, api.NewError(api.RequestStatusUnknownError, "empty response data")
-	}
-	if res.RequestStatus != api.RequestStatusOk {
-		return nil, api.NewErrorFromResponseData(res.WithResponseData)
-	}
+
 	return res, nil
 }

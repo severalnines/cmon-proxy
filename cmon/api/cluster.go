@@ -67,7 +67,7 @@ type GetAllClusterInfoResponse struct {
 	*CmonLicense      `json:"license"`
 	*CmonLicenseCheck `json:"license_check"`
 
-	Clusters []*Cluster
+	Clusters []*Cluster `json:"clusters"`
 }
 
 type Cluster struct {

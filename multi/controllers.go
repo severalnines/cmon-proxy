@@ -84,11 +84,20 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		}
 
 		status.Name = truncateControllerName(c.Client.Instance.Name)
-		status.ControllerID = c.ControllerID()
+		status.ControllerID = c.PoolID()
 		status.Xid = c.Xid()
 		status.Status = api.Ok
 		status.FrontendUrl = c.Client.Instance.FrontendUrl
 		status.LastUpdated.T = time.Now()
+
+		// Get pool controllers information
+		if c.Client != nil {
+			_, controllers, err := c.Client.PingWithControllers()
+			if err == nil {
+				status.Controllers = controllers
+			}
+		}
+		
 
 		// NOTE: license data is only available after getAllClusterInfo has been requested
 		if c.Clusters != nil && c.Clusters.CmonLicense != nil {
@@ -131,7 +140,7 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, retval)
 }
 
-func (p *Proxy) FetchControllerIDFromInfo(instance *config.CmonInstance) (string, error) {
+func (p *Proxy) FetchPoolIdFromInfo(instance *config.CmonInstance) (string, error) {
 	client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
 	
 	// Call the /info endpoint with ping operation
@@ -145,34 +154,49 @@ func (p *Proxy) FetchControllerIDFromInfo(instance *config.CmonInstance) (string
 		return "", fmt.Errorf("received nil response from info endpoint")
 	}
 	
-	// Check if the embedded WithControllerID pointer is nil
-	if resp.WithControllerID == nil {
-		return "", fmt.Errorf("controller_id not found in info response")
+	// Check if the embedded WithPoolId pointer is nil
+	if resp.WithPoolId == nil {
+		return "", fmt.Errorf("pool_id not found in info response")
+	
 	}
 	
-	// Now safely access ControllerID from the embedded struct
-	if resp.WithControllerID.ControllerID != "" {
-		return resp.WithControllerID.ControllerID, nil
+	// Now safely access PoolId from the embedded struct
+	if resp.WithPoolId.PoolId != "" {
+		return resp.WithPoolId.PoolId, nil
+	
 	}
 	
-	return "", fmt.Errorf("controller_id not found in info response")
+	return "", fmt.Errorf("pool_id not found in info response")
 }
 
 func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 	client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
 	var resp *cmonapi.PingResponse
+	var controllers []*cmonapi.PoolController
+
+	// Authenticate first
 	err := client.Authenticate()
 	if err != nil {
-		resp, err = client.Ping()
+		resp, controllers, err = client.PingWithControllers()	
 	}
+
+	// Get ping response and controllers information
+
+	poolIdFromInstance := instance.PoolId
+	
 
 	retval := &api.ControllerStatus{
 		Xid:          instance.Xid,
-		ControllerID: client.ControllerID(),
+		ControllerID: client.PoolID(),
+		PoolId:       poolIdFromInstance,
 		Version:      client.ServerVersion(),
 		Url:          instance.Url,
 		Name:         truncateControllerName(instance.Name),
 		Status:       api.Ok,
+
+	}
+	if controllers != nil {
+		retval.Controllers = controllers
 	}
 	if resp != nil && len(resp.Version) > 0 {
 		retval.Version = resp.Version
@@ -197,7 +221,7 @@ func (p *Proxy) infoOne(instance *config.CmonInstance) *api.ControllerStatus {
 
 	retval := &api.ControllerStatus{
 		Xid:          instance.Xid,
-		ControllerID: client.ControllerID(),
+		ControllerID: client.PoolID(),
 		Version:      "",
 		Url:          instance.Url,
 		Name:         truncateControllerName(instance.Name),
@@ -256,7 +280,7 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 
 	// Check if controller_id is missing and fetch it from /info endpoint
 	if req.Controller.ControllerId == "" {
-		controllerID, err := p.FetchControllerIDFromInfo(req.Controller)
+		poolId, err := p.FetchPoolIdFromInfo(req.Controller)
 		if err != nil {
 			// If we can't fetch the controller_id, still proceed with pingOne to get status
 			// but log the error
@@ -264,7 +288,8 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 				zap.String("url", req.Controller.Url), 
 				zap.Error(err))
 		} else {
-			req.Controller.ControllerId = controllerID
+			req.Controller.PoolId = poolId
+			req.Controller.ControllerId = poolId
 		}
 	}
 
@@ -305,7 +330,7 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 
 	// Check if controller_id is missing and fetch it from /info endpoint
 	if req.Controller.ControllerId == "" {
-		controllerID, err := p.FetchControllerIDFromInfo(req.Controller)
+		poolId, err := p.FetchPoolIdFromInfo(req.Controller)
 		if err != nil {
 			// If we can't fetch the controller_id, still proceed with the update
 			// but log the error
@@ -313,11 +338,15 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 				zap.String("url", req.Controller.Url), 
 				zap.Error(err))
 		} else {
-			req.Controller.ControllerId = controllerID
+			req.Controller.PoolId = poolId
+			req.Controller.ControllerId = poolId
 		}
 	}
 
-	c, err := p.GetCmonById(req.Controller.Xid, nil)
+	// Ensure router is synced before trying to get cmon by ID
+	p.Router(ctx).Sync()
+	
+	c, err := p.GetCmonById(req.Controller.Xid, ctx)
 	if err != nil {
 		cmonapi.CtxWriteError(ctx, err)
 		return
@@ -631,7 +660,9 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 		return
 	}
 	controller := p.cfg.ControllerById(p.cfg.SingleController)
-	targetURL, _ := url.Parse("https://" + controller.Url + "/v2" + ctx.Param("any"))
+	// Clean up the controller URL to handle trailing slashes properly
+	controllerURL := strings.TrimRight(controller.Url, "/")
+	targetURL, _ := url.Parse("https://" + controllerURL + "/v2" + ctx.Param("any"))
 
 	var body *bytes.Reader
 	if ctx.Request.Body != nil {
@@ -732,7 +763,9 @@ func (p *Proxy) PRCProxySingleControllerWebSocket(ctx *gin.Context) {
 	scheme := "ws"
 	host := controller.CMONSshHost
 	if host == "" {
-		host = controller.Url + "/v2/cmon-ssh/"
+		// Clean up the controller URL to handle trailing slashes properly
+		controllerURL := strings.TrimRight(controller.Url, "/")
+		host = controllerURL + "/v2/cmon-ssh/"
 		scheme = "wss"
 	}
 	if controller.CMONSshSecure {
@@ -821,7 +854,9 @@ func (p *Proxy) PRCProxySingleControllerHttp(ctx *gin.Context) {
 	scheme := "http"
 	host := controller.CMONSshHost
 	if host == "" {
-		host = controller.Url + "/v2/cmon-ssh"
+		// Clean up the controller URL to handle trailing slashes properly
+		controllerURL := strings.TrimRight(controller.Url, "/")
+		host = controllerURL + "/v2/cmon-ssh"
 		scheme = "https"
 	}
 	if controller.CMONSshSecure {
@@ -885,3 +920,15 @@ func (p *Proxy) PRCProxySingleControllerHttp(ctx *gin.Context) {
 		_, _ = io.Copy(ctx.Writer, response.Body)
 	}
 }
+
+
+
+// PRCProxySingleControllerWithPoolSupport handles single controller requests with pool controller support
+// This extends the original PRCProxySingleController to support smart routing across pool controllers
+func (p *Proxy) PRCProxySingleControllerWithPoolSupport(ctx *gin.Context) {
+	// Use the helper to handle the request
+	poolSupport := NewSingleControllerPoolSupport(p)
+	poolSupport.HandleRequest(ctx)
+}
+
+

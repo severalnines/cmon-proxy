@@ -28,6 +28,9 @@ func (client *Client) ListBackups(req *api.ListBackupsRequest) (*api.ListBackups
 	if err := client.Request(api.ModuleBackup, req, res); err != nil {
 		return nil, err
 	}
+	if res.WithResponseData == nil {
+		return nil, api.NewError(api.RequestStatusUnknownError, "empty response data")
+	}
 	if res.RequestStatus != api.RequestStatusOk {
 		return nil, api.NewErrorFromResponseData(res.WithResponseData)
 	}

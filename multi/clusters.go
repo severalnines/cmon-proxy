@@ -46,11 +46,16 @@ func (p *Proxy) RPCClustersStatus(ctx *gin.Context) {
 	p.Router(ctx).GetAllClusterInfo(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || data.Clusters == nil {
+		if data == nil {
 			continue
 		}
-		xid := data.Xid()
-		for _, cluster := range data.Clusters.Clusters {
+
+		clustersSource, _, xid := p.resolveClustersSource(ctx, data)
+		if len(clustersSource) == 0 {
+			continue
+		}
+
+		for _, cluster := range clustersSource {
 			// tags filtration is possible here too
 			fn := func() []string { return cluster.Tags }
 			if !api.PassTagsFilterLazy(req.Filters, fn) {
@@ -126,21 +131,26 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 	p.Router(ctx).GetAllClusterInfo(req.ForceUpdate)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || data.Clusters == nil {
+		if data == nil {
 			continue
 		}
 
-		controllerID := data.ControllerID()
-		xid := data.Xid()
-
+		clustersSource, controllerID, xid := p.resolveClustersSource(ctx, data)
 		if !api.PassFilter(req.Filters, "xid", xid) ||
 			!api.PassFilter(req.Filters, "controller_id", controllerID) ||
 			!api.PassFilter(req.Filters, "controller_url", url) {
 			continue
 		}
 
-		resp.LastUpdated[url] = &data.Clusters.RequestProcessed
-		for _, cluster := range data.Clusters.Clusters {
+		if data.Clusters != nil {
+			resp.LastUpdated[url] = &data.Clusters.RequestProcessed
+		}
+
+		if len(clustersSource) == 0 {
+			continue
+		}
+
+		for _, cluster := range clustersSource {
 			if !api.PassFilter(req.Filters, "cluster_id", strconv.FormatUint(cluster.ClusterID, 10)) {
 				continue
 			}
@@ -197,7 +207,6 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 			}
 			return resp.Clusters[i].ClusterType < resp.Clusters[j].ClusterType
 		})
-		
 	default:
 		sort.Slice(resp.Clusters[:], func(i, j int) bool {
 			if desc {
@@ -205,7 +214,6 @@ func (p *Proxy) RPCClustersList(ctx *gin.Context) {
 			}
 			return resp.Clusters[i].Key < resp.Clusters[j].Key
 		})
-
 	}
 	if req.ListRequest.PerPage > 0 {
 		// then handle the pagination
@@ -238,7 +246,7 @@ func (p *Proxy) RPCClustersHostList(ctx *gin.Context) {
 			continue
 		}
 
-		controllerID := data.ControllerID()
+		controllerID := data.PoolID()
 		xid := data.Xid()
 
 		if !api.PassFilter(req.Filters, "xid", xid) ||
@@ -374,17 +382,22 @@ func (p *Proxy) RPCClustersListMissingSchedules(ctx *gin.Context) {
 	allClusters := make(map[string]*api.ClusterExt) // map to hold all clusters by xid-clusterID
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || data.Clusters == nil {
+		if data == nil {
 			continue
 		}
 
-		for _, cluster := range data.Clusters.Clusters {
-			key := data.Xid() + "-" + strconv.FormatUint(cluster.ClusterID, 10)
+		clustersSource, controllerID, xid := p.resolveClustersSource(ctx, data)
+		if len(clustersSource) == 0 {
+			continue
+		}
+
+		for _, cluster := range clustersSource {
+			key := xid + "-" + strconv.FormatUint(cluster.ClusterID, 10)
 			allClusters[key] = &api.ClusterExt{
 				WithControllerID: &api.WithControllerID{
-					Xid:           data.Xid(),
+					Xid:           xid,
 					ControllerURL: "",
-					ControllerID:  data.ControllerID(),
+					ControllerID:  controllerID,
 				},
 				Cluster: cluster,
 				Key: key,
@@ -397,12 +410,18 @@ func (p *Proxy) RPCClustersListMissingSchedules(ctx *gin.Context) {
 	clustersWithBackups := make(map[string]bool) // map to hold clusters that have backups by xid-clusterID
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || data.BackupSchedules == nil {
+		if data == nil {
 			continue
 		}
 
-		for _, job := range data.BackupSchedules {
-			key := data.Xid() + "-" + strconv.FormatUint(job.ClusterID, 10)
+		// Use resolveBackupsSource to get schedules from pool controllers when available
+		_, schedulesSource, _, xid := p.resolveBackupsSource(ctx, data)
+		if len(schedulesSource) == 0 {
+			continue
+		}
+
+		for _, job := range schedulesSource {
+			key := xid + "-" + strconv.FormatUint(job.ClusterID, 10)
 			clustersWithBackups[key] = true
 		}
 	}

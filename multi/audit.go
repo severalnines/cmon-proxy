@@ -40,11 +40,10 @@ func (p *Proxy) RPCAuditEntryList(ctx *gin.Context) {
 	p.Router(ctx).GetAuditEntries(false)
 	for _, url := range p.Router(ctx).Urls() {
 		data := p.Router(ctx).Cmon(url)
-		if data == nil || len(data.AuditEntries) < 1 {
+		if data == nil {
 			continue
 		}
-		controllerId := data.ControllerID()
-		xid := data.Xid()
+		entriesMap, controllerId, xid := p.resolveAuditEntriesSource(ctx, data)
 
 		if !api.PassFilter(req.Filters, "xid", xid) ||
 			!api.PassFilter(req.Filters, "controller_id", controllerId) ||
@@ -52,13 +51,15 @@ func (p *Proxy) RPCAuditEntryList(ctx *gin.Context) {
 			continue
 		}
 
-		auditEntries := data.AuditEntries
-
-		if auditEntries[0] != nil && auditEntries[0].WithResponseData != nil {
-			resp.LastUpdated[url] = &auditEntries[0].RequestProcessed
+		// lastUpdated best-effort: take any entry's RequestProcessed
+		for _, v := range entriesMap {
+			if v != nil && v.WithResponseData != nil {
+				resp.LastUpdated[url] = &v.RequestProcessed
+				break
+			}
 		}
 
-		for cid, clusterAuditEntries := range auditEntries {
+		for cid, clusterAuditEntries := range entriesMap {
 			if !api.PassFilter(req.Filters, "cluster_id", fmt.Sprintf("%d", cid)) {
 				continue
 			}
@@ -71,19 +72,6 @@ func (p *Proxy) RPCAuditEntryList(ctx *gin.Context) {
 				continue
 			}
 			for _, entry := range clusterAuditEntries.AuditEntries {
-				// if !api.PassFilter(req.Filters, "severity_name", alarm.SeverityName) {
-				// 	continue
-				// }
-				// if !api.PassFilter(req.Filters, "type_name", alarm.TypeName) {
-				// 	continue
-				// }
-				// if !api.PassFilter(req.Filters, "hostname", alarm.Hostname) {
-				// 	continue
-				// }
-				// if !api.PassFilter(req.Filters, "component_name", alarm.ComponentName) {
-				// 	continue
-				// }
-
 				resp.Add(entry, url, controllerId, xid)
 			}
 		}

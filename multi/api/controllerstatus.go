@@ -41,6 +41,7 @@ type ControllerStatusRequest struct {
 type ControllerStatus struct {
 	Xid           string                    `json:"xid"`
 	ControllerID  string                    `json:"controller_id"`
+	PoolId        string                    `json:"pool_id"`
 	Name          string                    `json:"controller_name"`
 	Url           string                    `json:"url"`
 	FrontendUrl   string                    `json:"frontend_url,omitempty"`
@@ -51,6 +52,7 @@ type ControllerStatus struct {
 	LastSeen      cmonapi.NullTime          `json:"last_seen"`
 	License       *cmonapi.CmonLicense      `json:"license"`
 	LicenseCheck  *cmonapi.CmonLicenseCheck `json:"license_check"`
+	Controllers   []*cmonapi.PoolController   `json:"controllers"`
 }
 
 type ControllerStatusList struct {
