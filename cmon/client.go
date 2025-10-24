@@ -55,6 +55,13 @@ type Client struct {
 	serverVersion     string // the server version obtained from the headers
 }
 
+// RawResponse captures the raw HTTP response details returned by CMON.
+type RawResponse struct {
+	Body       []byte
+	Header     http.Header
+	StatusCode int
+}
+
 // NewClient returns a new RPCv2 client.
 func NewClient(instance *config.CmonInstance, timeout int) *Client {
 	httpClient := &http.Client{
@@ -77,11 +84,12 @@ func NewClient(instance *config.CmonInstance, timeout int) *Client {
 	return c
 }
 
-// Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
-func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ...bool) (resBytes []byte, err error) {
-    if client == nil || client.Instance == nil {
-        return nil, fmt.Errorf("nil cmon client")
-    }
+// RequestRaw performs a request to CMON and returns the raw HTTP response details.
+func (client *Client) RequestRaw(module string, reqBytes []byte, noAutoAuth ...bool) (*RawResponse, error) {
+	if client == nil || client.Instance == nil {
+		return nil, fmt.Errorf("nil cmon client")
+	}
+
 	// for regular requests we may want to auto reauthenticate
 	autoAuth := len(noAutoAuth) < 1 || !noAutoAuth[0]
 	client.lastRequestStatus = ""
@@ -91,18 +99,15 @@ func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ..
 			return nil, err
 		}
 	}
+
 	uri := client.buildURI(module)
-	request, err := http.NewRequest(
-		http.MethodPost,
-		uri,
-		bytes.NewBuffer(reqBytes))
+	request, err := http.NewRequest(http.MethodPost, uri, bytes.NewBuffer(reqBytes))
 	if err != nil {
 		return nil, err
 	}
 
 	if opts.Opts.DebugCmonRpc {
-		zap.L().Sugar().Debugf("Request to cmon %s:\n%s",
-			uri, string(reqBytes))
+		zap.L().Sugar().Debugf("Request to cmon %s:\n%s", uri, string(reqBytes))
 	}
 
 	if client.ses != nil {
@@ -114,23 +119,20 @@ func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ..
 	if err != nil {
 		return nil, err
 	}
-
 	defer response.Body.Close()
-	resBytes, err = ioutil.ReadAll(response.Body)
+
+	resBytes, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	if opts.Opts.DebugCmonRpc {
-		zap.L().Sugar().Debugf("Reply from cmon %s:\n%s",
-			uri, string(resBytes))
+		zap.L().Sugar().Debugf("Reply from cmon %s:\n%s", uri, string(resBytes))
 	}
 
 	// whenever we do an authentication lets save/update the cmon's version as well
 	if request.URL != nil && strings.Contains(request.URL.Path, "auth") {
-		// obtain the server version number
 		if server := strings.Split(response.Header.Get("Server"), "/"); len(server) > 1 {
-			// Server: cmon/1.8.2 -> 1.8.2
 			client.serverVersion = strings.Trim(server[1], "\r\n\t '\"")
 		}
 	}
@@ -141,11 +143,24 @@ func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ..
 		if err := client.Authenticate(); err != nil {
 			return nil, err
 		}
-		// after auth, we must go with no auto auth
-		return client.RequestBytes(module, reqBytes, true)
+		return client.RequestRaw(module, reqBytes, true)
 	}
 
-	return resBytes, nil
+	// expose response details so callers (e.g. proxy layer) can forward headers and status verbatim
+	return &RawResponse{
+		Body:       resBytes,
+		Header:     response.Header.Clone(),
+		StatusCode: response.StatusCode,
+	}, nil
+}
+
+// Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
+func (client *Client) RequestBytes(module string, reqBytes []byte, noAutoAuth ...bool) ([]byte, error) {
+	resp, err := client.RequestRaw(module, reqBytes, noAutoAuth...)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
 }
 
 func (client *Client) GetReverseProxy(target string) (*httputil.ReverseProxy, error) {
@@ -227,9 +242,9 @@ func (client *Client) ProxyWebSocket(targetURL string, headers http.Header, conn
 
 // Request does an RPCv2 request to cmon. It authenticates and re-authenticates automatically.
 func (client *Client) Request(module string, req, res interface{}, noAutoAuth ...bool) error {
-    if client == nil || client.Instance == nil {
-        return fmt.Errorf("nil cmon client")
-    }
+	if client == nil || client.Instance == nil {
+		return fmt.Errorf("nil cmon client")
+	}
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -427,7 +442,7 @@ func (client *Client) buildURI(module string) string {
 		// Clean up the path to handle trailing slashes properly
 		// Remove all trailing slashes
 		basePath := strings.TrimRight(parsed.Path, "/")
-		
+
 		u := &url.URL{
 			Host:   parsed.Host,
 			Scheme: parsed.Scheme,

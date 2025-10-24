@@ -43,6 +43,27 @@ func truncateControllerName(name string) string {
 	return name
 }
 
+// writeRawResponse mirrors the upstream CMON response, preserving headers (minus Set-Cookie)
+// and status code so the browser receives attachment metadata like filename and mimetype.
+func writeRawResponse(ctx *gin.Context, raw *cmon.RawResponse) {
+	if raw == nil {
+		ctx.Status(http.StatusBadGateway)
+		return
+	}
+	for key, values := range raw.Header {
+		if strings.EqualFold(key, "Set-Cookie") {
+			continue
+		}
+		for _, value := range values {
+			ctx.Header(key, value)
+		}
+	}
+	ctx.Status(raw.StatusCode)
+	if len(raw.Body) > 0 {
+		_, _ = ctx.Writer.Write(raw.Body)
+	}
+}
+
 func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 	var req api.ControllerStatusRequest
 
@@ -97,7 +118,6 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 				status.Controllers = controllers
 			}
 		}
-		
 
 		// NOTE: license data is only available after getAllClusterInfo has been requested
 		if c.Clusters != nil && c.Clusters.CmonLicense != nil {
@@ -142,30 +162,30 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 
 func (p *Proxy) FetchPoolIdFromInfo(instance *config.CmonInstance) (string, error) {
 	client := cmon.NewClient(instance, p.Router(nil).Config.Timeout)
-	
+
 	// Call the /info endpoint with ping operation
 	resp, err := client.InfoPing()
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Check if resp is nil before accessing its fields
 	if resp == nil {
 		return "", fmt.Errorf("received nil response from info endpoint")
 	}
-	
+
 	// Check if the embedded WithPoolId pointer is nil
 	if resp.WithPoolId == nil {
 		return "", fmt.Errorf("pool_id not found in info response")
-	
+
 	}
-	
+
 	// Now safely access PoolId from the embedded struct
 	if resp.WithPoolId.PoolId != "" {
 		return resp.WithPoolId.PoolId, nil
-	
+
 	}
-	
+
 	return "", fmt.Errorf("pool_id not found in info response")
 }
 
@@ -177,13 +197,12 @@ func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 	// Authenticate first
 	err := client.Authenticate()
 	if err != nil {
-		resp, controllers, err = client.PingWithControllers()	
+		resp, controllers, err = client.PingWithControllers()
 	}
 
 	// Get ping response and controllers information
 
 	poolIdFromInstance := instance.PoolId
-	
 
 	retval := &api.ControllerStatus{
 		Xid:          instance.Xid,
@@ -193,7 +212,6 @@ func (p *Proxy) pingOne(instance *config.CmonInstance) *api.ControllerStatus {
 		Url:          instance.Url,
 		Name:         truncateControllerName(instance.Name),
 		Status:       api.Ok,
-
 	}
 	if controllers != nil {
 		retval.Controllers = controllers
@@ -240,10 +258,9 @@ func (p *Proxy) infoOne(instance *config.CmonInstance) *api.ControllerStatus {
 		retval.StatusMessage = err.Error()
 		retval.Status = api.Failed
 	}
-	
+
 	return retval
 }
-
 
 func (p *Proxy) RPCControllerTest(ctx *gin.Context) {
 	var req api.AddControllerRequest
@@ -284,8 +301,8 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 		if err != nil {
 			// If we can't fetch the controller_id, still proceed with pingOne to get status
 			// but log the error
-			zap.L().Warn("Failed to fetch controller_id from /info endpoint", 
-				zap.String("url", req.Controller.Url), 
+			zap.L().Warn("Failed to fetch controller_id from /info endpoint",
+				zap.String("url", req.Controller.Url),
 				zap.Error(err))
 		} else {
 			req.Controller.PoolId = poolId
@@ -334,8 +351,8 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 		if err != nil {
 			// If we can't fetch the controller_id, still proceed with the update
 			// but log the error
-			zap.L().Warn("Failed to fetch controller_id from /info endpoint", 
-				zap.String("url", req.Controller.Url), 
+			zap.L().Warn("Failed to fetch controller_id from /info endpoint",
+				zap.String("url", req.Controller.Url),
 				zap.Error(err))
 		} else {
 			req.Controller.PoolId = poolId
@@ -345,7 +362,7 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 
 	// Ensure router is synced before trying to get cmon by ID
 	p.Router(ctx).Sync()
-	
+
 	c, err := p.GetCmonById(req.Controller.Xid, ctx)
 	if err != nil {
 		cmonapi.CtxWriteError(ctx, err)
@@ -365,7 +382,6 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 
 	c.InvalidateCache()
 	c.Client.ResetSession()
-
 
 	// it is going to refresh everything
 	p.Refresh()
@@ -517,42 +533,45 @@ func (p *Proxy) RPCProxyRequest(ctx *gin.Context, controllerId, method string, r
 
 		// this accepts both xid or controller_id
 		if c.MatchesID(controllerId) {
-			var resBytes []byte
 			parsed := make(map[string]interface{})
-			resBytes, err = c.Client.RequestBytes(ctx.Request.URL.EscapedPath(), reqBytes, false)
-			if err != nil {
-				break
+			rawResp, reqErr := c.Client.RequestRaw(ctx.Request.URL.EscapedPath(), reqBytes, false)
+			if reqErr != nil {
+				ctx.JSON(http.StatusBadGateway, gin.H{"error": reqErr.Error()})
+				return
 			}
-			if err = json.Unmarshal(resBytes, &parsed); err != nil || len(parsed) < 1 {
-				// return the data as it is
-				ctx.Data(http.StatusOK, "application/json", resBytes)
+			// If the CMON reply is not valid JSON, fall back to streaming the original payload.
+			if err := json.Unmarshal(rawResp.Body, &parsed); err != nil || len(parsed) < 1 {
+				writeRawResponse(ctx, rawResp)
+				return
 			}
 
 			// NOTE: controller_id must be already there set & sent by cmon
 			parsed["xid"] = c.Xid()
-			resBytes, err = json.Marshal(parsed)
-			if err != nil {
-				break
+			payload, marshalErr := json.Marshal(parsed)
+			if marshalErr != nil {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": marshalErr.Error()})
+				return
 			}
-			ctx.Data(http.StatusOK, "application/json", resBytes)
+			ctx.Data(http.StatusOK, "application/json", payload)
 			return
 		}
 	}
 
 	// in case we didn't found
-	var resp cmonapi.WithResponseData
 	if err == nil {
-		resp.RequestStatus = cmonapi.RequestStatusObjectNotFound
-		resp.ErrorString = "couldn't find controller with the specified id"
-	} else {
-		resp.RequestStatus = cmonapi.RequestStatusUnknownError
-		resp.ErrorString = "error while communicating to cmon:" + err.Error()
+		ctx.JSON(http.StatusNotFound, cmonapi.WithResponseData{
+			RequestStatus: cmonapi.RequestStatusObjectNotFound,
+			ErrorString:   "couldn't find controller with the specified id",
+		})
+		return
 	}
-	ctx.JSON(http.StatusNotFound, resp)
+	ctx.JSON(http.StatusBadGateway, cmonapi.WithResponseData{
+		RequestStatus: cmonapi.RequestStatusUnknownError,
+		ErrorString:   "error while communicating to cmon: " + err.Error(),
+	})
 }
 
 func (p *Proxy) RPCProxyMany(ctx *gin.Context, xIds []string, method string, reqBytes []byte) {
-	var err error
 	// map if xid <-> cmon replies
 	var repliesMtx sync.Mutex
 	replies := make(map[string]json.RawMessage)
@@ -592,28 +611,26 @@ func (p *Proxy) RPCProxyMany(ctx *gin.Context, xIds []string, method string, req
 			}()
 			syncChannel <- true
 
-			var resBytes []byte
 			parsed := make(map[string]interface{})
-			resBytes, err = c.Client.RequestBytes(requestUrlFixed, reqBytes, false)
-			if err != nil {
+			rawResp, reqErr := c.Client.RequestRaw(requestUrlFixed, reqBytes, false)
+			if reqErr != nil {
+				// propagate error response for this controller
 				var resp cmonapi.WithResponseData
-				if err != nil {
-					resp.RequestStatus = cmonapi.RequestStatusUnknownError
-					resp.ErrorString = "error while communicating to cmon:" + err.Error()
-				}
+				resp.RequestStatus = cmonapi.RequestStatusUnknownError
+				resp.ErrorString = "error while communicating to cmon:" + reqErr.Error()
 				repliesMtx.Lock()
-				replies[c.Xid()], err = json.Marshal(resp)
+				replies[c.Xid()], _ = json.Marshal(resp)
 				repliesMtx.Unlock()
-
 				return
-
-			} else if err = json.Unmarshal(resBytes, &parsed); err != nil || len(parsed) < 1 {
+			}
+			// Raw downloads propagate headers unchanged; only aggregate JSON replies need unpacking.
+			if err := json.Unmarshal(rawResp.Body, &parsed); err != nil || len(parsed) < 1 {
 				replyData := make(map[string]interface{})
 				replyData["xid"] = c.Xid()
-				replyData["data"] = resBytes // this isn't JSon just some RAW reply
+				replyData["data"] = rawResp.Body // this isn't JSON just some RAW reply
 
 				repliesMtx.Lock()
-				replies[c.Xid()], err = json.Marshal(replyData)
+				replies[c.Xid()], _ = json.Marshal(replyData)
 				repliesMtx.Unlock()
 
 				return
@@ -622,7 +639,7 @@ func (p *Proxy) RPCProxyMany(ctx *gin.Context, xIds []string, method string, req
 			// NOTE: controller_id must be already there set & sent by cmon
 			parsed["xid"] = c.Xid()
 			repliesMtx.Lock()
-			replies[c.Xid()], err = json.Marshal(parsed)
+			replies[c.Xid()], _ = json.Marshal(parsed)
 			repliesMtx.Unlock()
 		}()
 	}
@@ -921,8 +938,6 @@ func (p *Proxy) PRCProxySingleControllerHttp(ctx *gin.Context) {
 	}
 }
 
-
-
 // PRCProxySingleControllerWithPoolSupport handles single controller requests with pool controller support
 // This extends the original PRCProxySingleController to support smart routing across pool controllers
 func (p *Proxy) PRCProxySingleControllerWithPoolSupport(ctx *gin.Context) {
@@ -930,5 +945,3 @@ func (p *Proxy) PRCProxySingleControllerWithPoolSupport(ctx *gin.Context) {
 	poolSupport := NewSingleControllerPoolSupport(p)
 	poolSupport.HandleRequest(ctx)
 }
-
-

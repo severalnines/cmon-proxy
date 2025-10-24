@@ -36,13 +36,35 @@ func trySmartRouteAcrossPool(
 	jsonData []byte,
 	activeTargets []*cmonapi.PoolController,
 ) bool {
-	if len(activeTargets) < 1 { return false }
+	if len(activeTargets) < 1 {
+		return false
+	}
+
+	// Mirror upstream response headers/status while stripping Set-Cookie to avoid leaking CMON cookies.
+	writeRawResponse := func(raw *cmon.RawResponse) {
+		if raw == nil {
+			ctx.Status(http.StatusBadGateway)
+			return
+		}
+		for key, values := range raw.Header {
+			if strings.EqualFold(key, "Set-Cookie") {
+				continue
+			}
+			for _, value := range values {
+				ctx.Writer.Header().Add(key, value)
+			}
+		}
+		ctx.Status(raw.StatusCode)
+		if len(raw.Body) > 0 {
+			_, _ = ctx.Writer.Write(raw.Body)
+		}
+	}
 
 	var bodyMap map[string]interface{}
 	_ = json.Unmarshal(jsonData, &bodyMap)
 	var (
-		op string
-		clusterId = -1
+		op           string
+		clusterId    = -1
 		clusterIdStr string
 	)
 	if bodyMap != nil {
@@ -54,29 +76,48 @@ func trySmartRouteAcrossPool(
 				clusterIdStr = strconv.FormatInt(int64(t), 10)
 			case string:
 				clusterIdStr = t
-				if n, err := strconv.Atoi(t); err == nil { clusterId = n }
+				if n, err := strconv.Atoi(t); err == nil {
+					clusterId = n
+				}
 			}
 		}
 	}
 
 	// Helper to forward request to a specific pool-controller
 	forwardTo := func(chosen *cmonapi.PoolController, warnPrefix string) bool {
-		if chosen == nil { return false }
+		if chosen == nil {
+			return false
+		}
 		for _, addr := range proxy.Router(ctx).Urls() {
 			c := proxy.Router(ctx).Cmon(addr)
-			if c == nil || c.Client == nil || !c.MatchesID(controllerId) { continue }
+			if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+				continue
+			}
 			instCopy := *c.Client.Instance
 			instCopy.Url = chosen.Hostname + ":" + strconv.Itoa(chosen.Port+1)
 			timeout := proxy.Router(ctx).Config.Timeout
-			if timeout <= 0 { timeout = 10 }
+			if timeout <= 0 {
+				timeout = 10
+			}
 			tmpClient := cmon.NewClient(&instCopy, timeout)
-			if cookie := c.Client.GetSessionCookie(); cookie != nil { tmpClient.SetSessionCookie(cookie) }
-			resBytes, err := tmpClient.RequestBytes(ctx.Request.URL.EscapedPath(), jsonData, false)
+			if cookie := c.Client.GetSessionCookie(); cookie != nil {
+				tmpClient.SetSessionCookie(cookie)
+			}
+			rawResp, err := tmpClient.RequestRaw(ctx.Request.URL.EscapedPath(), jsonData, false)
 			if err != nil {
 				zap.L().Sugar().Warnf("%s %s:%d request error: %v", warnPrefix, chosen.Hostname, chosen.Port, err)
 				break
 			}
-			ctx.Data(http.StatusOK, "application/json", resBytes)
+			// Attempt to parse JSON responses to append xid when applicable
+			parsed := make(map[string]interface{})
+			if err := json.Unmarshal(rawResp.Body, &parsed); err == nil && len(parsed) > 0 {
+				parsed["xid"] = c.Xid()
+				if payload, marshalErr := json.Marshal(parsed); marshalErr == nil {
+					ctx.Data(http.StatusOK, "application/json", payload)
+					return true
+				}
+			}
+			writeRawResponse(rawResp)
 			return true
 		}
 		return false
@@ -90,9 +131,14 @@ func trySmartRouteAcrossPool(
 			minClusters := 0
 			for i, pc := range activeTargets {
 				l := len(pc.Clusters)
-				if i == 0 || l < minClusters { minClusters = l; chosen = pc }
+				if i == 0 || l < minClusters {
+					minClusters = l
+					chosen = pc
+				}
 			}
-			if forwardTo(chosen, "poolcontroller createJobInstance cluster_id=0") { return true }
+			if forwardTo(chosen, "poolcontroller createJobInstance cluster_id=0") {
+				return true
+			}
 		}
 
 		// If request targets a specific cluster, route directly to the controller handling it
@@ -100,11 +146,18 @@ func trySmartRouteAcrossPool(
 			var chosen *cmonapi.PoolController
 			for _, pc := range activeTargets {
 				for _, cid := range pc.Clusters {
-					if cid == clusterIdStr { chosen = pc; break }
+					if cid == clusterIdStr {
+						chosen = pc
+						break
+					}
 				}
-				if chosen != nil { break }
+				if chosen != nil {
+					break
+				}
 			}
-			if forwardTo(chosen, "poolcontroller cluster-directed") { return true }
+			if forwardTo(chosen, "poolcontroller cluster-directed") {
+				return true
+			}
 		}
 	}
 
@@ -115,21 +168,23 @@ func trySmartRouteAcrossPool(
 		if strings.EqualFold(withOp.Operation, "getTree") {
 			for _, addr := range proxy.Router(ctx).Urls() {
 				c := proxy.Router(ctx).Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) { continue }
+				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+					continue
+				}
 
 				// Prepare aggregation containers
 				var baseResp map[string]interface{}
 				baseNonCluster := make([]interface{}, 0)
 				clusterItems := make([]interface{}, 0)
 				seenClusters := make(map[string]bool) // Deduplication map for clusters
-				
+
 				// Channel and sync for parallel requests
 				type treeResponse struct {
 					response map[string]interface{}
 					target   *cmonapi.PoolController
 					err      error
 				}
-				
+
 				responseChan := make(chan treeResponse, len(activeTargets))
 				var wg sync.WaitGroup
 
@@ -138,30 +193,30 @@ func trySmartRouteAcrossPool(
 					wg.Add(1)
 					go func(target *cmonapi.PoolController) {
 						defer wg.Done()
-						
+
 						instCopy := *c.Client.Instance
 						instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
 						timeout := proxy.Router(ctx).Config.Timeout
-						if timeout <= 0 { timeout = 10 }
-						tmpClient := cmon.NewClient(&instCopy, timeout)
-						if cookie := c.Client.GetSessionCookie(); cookie != nil { 
-							tmpClient.SetSessionCookie(cookie) 
+						if timeout <= 0 {
+							timeout = 10
 						}
-						
-						resBytes, err := tmpClient.RequestBytes(ctx.Request.URL.EscapedPath(), jsonData, false)
+						tmpClient := cmon.NewClient(&instCopy, timeout)
+						if cookie := c.Client.GetSessionCookie(); cookie != nil {
+							tmpClient.SetSessionCookie(cookie)
+						}
+
+						rawResp, err := tmpClient.RequestRaw(ctx.Request.URL.EscapedPath(), jsonData, false)
 						if err != nil {
 							zap.L().Sugar().Warnf("poolcontroller %s:%d tree request error: %v", target.Hostname, target.Port, err)
 							responseChan <- treeResponse{nil, target, err}
 							return
 						}
-						
 						var respMap map[string]interface{}
-						if err := json.Unmarshal(resBytes, &respMap); err != nil {
+						if err := json.Unmarshal(rawResp.Body, &respMap); err != nil {
 							zap.L().Sugar().Warnf("poolcontroller %s:%d tree invalid response: %v", target.Hostname, target.Port, err)
 							responseChan <- treeResponse{nil, target, err}
 							return
 						}
-						
 						responseChan <- treeResponse{respMap, target, nil}
 					}(target)
 				}
@@ -183,9 +238,11 @@ func trySmartRouteAcrossPool(
 							if subs, ok := cdt["sub_items"].([]interface{}); ok {
 								for _, it := range subs {
 									m, _ := it.(map[string]interface{})
-									if m == nil { continue }
-									if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") { 
-										baseNonCluster = append(baseNonCluster, it) 
+									if m == nil {
+										continue
+									}
+									if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") {
+										baseNonCluster = append(baseNonCluster, it)
 									}
 								}
 							}
@@ -197,7 +254,9 @@ func trySmartRouteAcrossPool(
 						if subs, ok := cdt["sub_items"].([]interface{}); ok {
 							for _, it := range subs {
 								m, _ := it.(map[string]interface{})
-								if m == nil { continue }
+								if m == nil {
+									continue
+								}
 								if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
 									// Use cluster_id for deduplication
 									if id, ok := m["cluster_id"]; ok {
@@ -240,9 +299,14 @@ func trySmartRouteAcrossPool(
 		if strings.EqualFold(withOp.Operation, "getAllClusterInfo") {
 			for _, addr := range proxy.Router(ctx).Urls() {
 				c := proxy.Router(ctx).Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) { continue }
+				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+					continue
+				}
 				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, ctx.Request.URL.EscapedPath(), jsonData, []string{"clusters"}, nil, false, 0, 0)
-				if ok { ctx.Data(http.StatusOK, "application/json", data); return true }
+				if ok {
+					ctx.Data(http.StatusOK, "application/json", data)
+					return true
+				}
 			}
 		}
 	}
@@ -254,24 +318,42 @@ func trySmartRouteAcrossPool(
 		op, _ := body["operation"].(string)
 		var (
 			limit, offset int
-			ascending bool
+			ascending     bool
 		)
-		if v, ok := body["limit"].(float64); ok { limit = int(v) }
-		if v, ok := body["offset"].(float64); ok { offset = int(v) }
-		if v, ok := body["ascending"].(bool); ok { ascending = v }
+		if v, ok := body["limit"].(float64); ok {
+			limit = int(v)
+		}
+		if v, ok := body["offset"].(float64); ok {
+			offset = int(v)
+		}
+		if v, ok := body["ascending"].(bool); ok {
+			ascending = v
+		}
 		if strings.EqualFold(op, "getBackups") {
-			delete(body, "limit"); delete(body, "offset"); delete(body, "ascending"); delete(body, "order")
+			delete(body, "limit")
+			delete(body, "offset")
+			delete(body, "ascending")
+			delete(body, "order")
 			jsonData, _ = json.Marshal(body)
 			for _, addr := range proxy.Router(ctx).Urls() {
 				c := proxy.Router(ctx).Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) { continue }
+				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+					continue
+				}
 				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, ctx.Request.URL.EscapedPath(), jsonData, []string{"backup_records"}, func(m map[string]interface{}) time.Time {
 					if md, ok := m["metadata"].(map[string]interface{}); ok {
-						if s, ok := md["created"].(string); ok { if t, err := time.Parse(time.RFC3339, s); err == nil { return t } }
+						if s, ok := md["created"].(string); ok {
+							if t, err := time.Parse(time.RFC3339, s); err == nil {
+								return t
+							}
+						}
 					}
 					return time.Time{}
 				}, ascending, limit, offset)
-				if ok { ctx.Data(http.StatusOK, "application/json", data); return true }
+				if ok {
+					ctx.Data(http.StatusOK, "application/json", data)
+					return true
+				}
 				break
 			}
 		}
@@ -284,24 +366,42 @@ func trySmartRouteAcrossPool(
 		op, _ := body["operation"].(string)
 		var (
 			limit, offset int
-			ascending bool
+			ascending     bool
 		)
-		if v, ok := body["limit"].(float64); ok { limit = int(v) }
-		if v, ok := body["offset"].(float64); ok { offset = int(v) }
-		if v, ok := body["ascending"].(bool); ok { ascending = v }
+		if v, ok := body["limit"].(float64); ok {
+			limit = int(v)
+		}
+		if v, ok := body["offset"].(float64); ok {
+			offset = int(v)
+		}
+		if v, ok := body["ascending"].(bool); ok {
+			ascending = v
+		}
 		if strings.EqualFold(op, "getReports") || strings.EqualFold(op, "listSchedules") || strings.EqualFold(op, "getAlarms") || strings.EqualFold(op, "getEntries") || strings.EqualFold(op, "getMaintenance") || strings.EqualFold(op, "getJobInstances") {
-			delete(body, "limit"); delete(body, "offset"); delete(body, "ascending"); delete(body, "order")
+			delete(body, "limit")
+			delete(body, "offset")
+			delete(body, "ascending")
+			delete(body, "order")
 			jsonData, _ = json.Marshal(body)
 			for _, addr := range proxy.Router(ctx).Urls() {
 				c := proxy.Router(ctx).Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) { continue }
-				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, ctx.Request.URL.EscapedPath(), jsonData, []string{"reports","data", "jobs", "alarms", "audit_entries", "maintenance_records"}, func(m map[string]interface{}) time.Time {
+				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+					continue
+				}
+				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, ctx.Request.URL.EscapedPath(), jsonData, []string{"reports", "data", "jobs", "alarms", "audit_entries", "maintenance_records"}, func(m map[string]interface{}) time.Time {
 					for _, k := range []string{"created", "created_time", "created_ts"} {
-						if s, ok := m[k].(string); ok { if t, err := time.Parse(time.RFC3339, s); err == nil { return t } }
+						if s, ok := m[k].(string); ok {
+							if t, err := time.Parse(time.RFC3339, s); err == nil {
+								return t
+							}
+						}
 					}
 					return time.Time{}
 				}, ascending, limit, offset)
-				if ok { ctx.Data(http.StatusOK, "application/json", data); return true }
+				if ok {
+					ctx.Data(http.StatusOK, "application/json", data)
+					return true
+				}
 				break
 			}
 		}
@@ -344,30 +444,32 @@ func aggregateListAcrossPoolControllers(
 		wg.Add(1)
 		go func(target *cmonapi.PoolController) {
 			defer wg.Done()
-			
+
 			instCopy := *baseClient.Instance
 			instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
 			timeout := proxy.Router(ctx).Config.Timeout
-			if timeout <= 0 { timeout = 10 }
-			tmpClient := cmon.NewClient(&instCopy, timeout)
-			if cookie := baseClient.GetSessionCookie(); cookie != nil { 
-				tmpClient.SetSessionCookie(cookie) 
+			if timeout <= 0 {
+				timeout = 10
 			}
-			
+			tmpClient := cmon.NewClient(&instCopy, timeout)
+			if cookie := baseClient.GetSessionCookie(); cookie != nil {
+				tmpClient.SetSessionCookie(cookie)
+			}
+
 			resBytes, err := tmpClient.RequestBytes(path, body, false)
 			if err != nil {
 				zap.L().Sugar().Warnf("poolcontroller %s:%d list request error: %v", target.Hostname, target.Port, err)
 				responseChan <- poolResponse{nil, target, err}
 				return
 			}
-			
+
 			var respMap map[string]interface{}
 			if err := json.Unmarshal(resBytes, &respMap); err != nil {
 				zap.L().Sugar().Warnf("poolcontroller %s:%d list invalid response: %v", target.Hostname, target.Port, err)
 				responseChan <- poolResponse{nil, target, err}
 				return
 			}
-			
+
 			responseChan <- poolResponse{respMap, target, nil}
 		}(target)
 	}
@@ -379,16 +481,16 @@ func aggregateListAcrossPoolControllers(
 	// Collect and aggregate responses
 	var baseResp map[string]interface{}
 	aggregated := make([]map[string]interface{}, 0, 256)
-	
+
 	for resp := range responseChan {
 		if resp.err != nil || resp.response == nil {
 			continue
 		}
-		
+
 		if baseResp == nil {
 			baseResp = resp.response
 		}
-		
+
 		for _, key := range listKeys {
 			if lst, ok := resp.response[key].([]interface{}); ok {
 				for _, it := range lst {
@@ -408,21 +510,31 @@ func aggregateListAcrossPoolControllers(
 		sort.SliceStable(aggregated, func(i, j int) bool {
 			ti := tsExtractor(aggregated[i])
 			tj := tsExtractor(aggregated[j])
-			if ascending { return ti.Before(tj) }
+			if ascending {
+				return ti.Before(tj)
+			}
 			return ti.After(tj)
 		})
 	}
 
 	total := len(aggregated)
 	start := offset
-	if start < 0 { start = 0 }
-	if start > total { start = total }
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
 	end := total
-	if limit > 0 && start+limit < end { end = start + limit }
+	if limit > 0 && start+limit < end {
+		end = start + limit
+	}
 
 	sliced := aggregated[start:end]
 	out := make([]interface{}, len(sliced))
-	for i, m := range sliced { out[i] = m }
+	for i, m := range sliced {
+		out[i] = m
+	}
 
 	for _, key := range listKeys {
 		baseResp[key] = out
@@ -441,13 +553,15 @@ func trySmartRouteAcrossPoolForSingle(
 	activeTargets []*cmonapi.PoolController,
 	controllerInstance *config.CmonInstance,
 ) bool {
-	if len(activeTargets) < 1 { return false }
+	if len(activeTargets) < 1 {
+		return false
+	}
 
 	var bodyMap map[string]interface{}
 	_ = json.Unmarshal(jsonData, &bodyMap)
 	var (
-		op string
-		clusterId = -1
+		op           string
+		clusterId    = -1
 		clusterIdStr string
 	)
 	if bodyMap != nil {
@@ -459,22 +573,26 @@ func trySmartRouteAcrossPoolForSingle(
 				clusterIdStr = strconv.FormatInt(int64(t), 10)
 			case string:
 				clusterIdStr = t
-				if n, err := strconv.Atoi(t); err == nil { clusterId = n }
+				if n, err := strconv.Atoi(t); err == nil {
+					clusterId = n
+				}
 			}
 		}
 	}
 
 	// Helper to forward request to a specific pool-controller (adapted for single mode)
 	forwardTo := func(chosen *cmonapi.PoolController, warnPrefix string) bool {
-		if chosen == nil { return false }
-		
+		if chosen == nil {
+			return false
+		}
+
 		// Create temporary client for the pool controller (using single controller config as base)
 		instCopy := *controllerInstance
 		instCopy.Url = chosen.Hostname + ":" + strconv.Itoa(chosen.Port+1)
-		
+
 		timeout := 30 // Default timeout for single controller mode
 		tmpClient := cmon.NewClient(&instCopy, timeout)
-		
+
 		// Try to get session cookie from the main controller if available
 		// Note: This would need access to the main controller's client for auth
 		resBytes, err := tmpClient.RequestBytes(ctx.Request.URL.EscapedPath(), jsonData, false)
@@ -494,9 +612,14 @@ func trySmartRouteAcrossPoolForSingle(
 			minClusters := 0
 			for i, pc := range activeTargets {
 				l := len(pc.Clusters)
-				if i == 0 || l < minClusters { minClusters = l; chosen = pc }
+				if i == 0 || l < minClusters {
+					minClusters = l
+					chosen = pc
+				}
 			}
-			if forwardTo(chosen, "poolcontroller createJobInstance cluster_id=0") { return true }
+			if forwardTo(chosen, "poolcontroller createJobInstance cluster_id=0") {
+				return true
+			}
 		}
 
 		// If request targets a specific cluster, route directly to the controller handling it
@@ -504,17 +627,24 @@ func trySmartRouteAcrossPoolForSingle(
 			var chosen *cmonapi.PoolController
 			for _, pc := range activeTargets {
 				for _, cid := range pc.Clusters {
-					if cid == clusterIdStr { chosen = pc; break }
+					if cid == clusterIdStr {
+						chosen = pc
+						break
+					}
 				}
-				if chosen != nil { break }
+				if chosen != nil {
+					break
+				}
 			}
-			if forwardTo(chosen, "poolcontroller cluster-directed") { return true }
+			if forwardTo(chosen, "poolcontroller cluster-directed") {
+				return true
+			}
 		}
 	}
 
 	// Aggregation endpoints - these need special handling for single controller mode
 	// For now, we'll implement basic aggregation, more sophisticated aggregation can be added later
-	
+
 	// Tree aggregation endpoint
 	if strings.Contains(ctx.Request.URL.Path, "/tree") {
 		var withOp cmonapi.WithOperation
@@ -526,7 +656,7 @@ func trySmartRouteAcrossPoolForSingle(
 
 	// Other aggregation endpoints could be added here
 	// - Clusters aggregation
-	// - Jobs aggregation  
+	// - Jobs aggregation
 	// - Alarms aggregation
 	// - Backup aggregation
 	// - etc.
@@ -546,32 +676,32 @@ func aggregateTreeAcrossPoolForSingle(
 	baseNonCluster := make([]interface{}, 0)
 	clusterItems := make([]interface{}, 0)
 	seenClusters := make(map[string]bool) // Deduplication map for clusters
-	
+
 	// Channel and sync for parallel requests
 	type treeResponse struct {
 		response map[string]interface{}
 		target   *cmonapi.PoolController
 		err      error
 	}
-	
+
 	responses := make(chan treeResponse, len(activeTargets))
 	var wg sync.WaitGroup
-	
+
 	// Make parallel requests to all active pool controllers
 	for _, target := range activeTargets {
 		wg.Add(1)
 		go func(pc *cmonapi.PoolController) {
 			defer wg.Done()
-			
+
 			// Create client for this pool controller
 			instCopy := *controllerInstance
 			instCopy.Url = pc.Hostname + ":" + strconv.Itoa(pc.Port+1)
-			
+
 			timeout := 30
 			tmpClient := cmon.NewClient(&instCopy, timeout)
-			
+
 			resBytes, err := tmpClient.RequestBytes(ctx.Request.URL.EscapedPath(), jsonData, false)
-			
+
 			resp := treeResponse{target: pc, err: err}
 			if err == nil {
 				_ = json.Unmarshal(resBytes, &resp.response)
@@ -579,24 +709,24 @@ func aggregateTreeAcrossPoolForSingle(
 			responses <- resp
 		}(target)
 	}
-	
+
 	// Wait for all requests to complete
 	go func() {
 		wg.Wait()
 		close(responses)
 	}()
-	
+
 	// Process responses
 	for resp := range responses {
 		if resp.err != nil {
 			zap.L().Sugar().Warnf("Tree aggregation error from %s:%d: %v", resp.target.Hostname, resp.target.Port, resp.err)
 			continue
 		}
-		
+
 		if resp.response == nil {
 			continue
 		}
-		
+
 		// Use first successful response as base structure
 		if baseResp == nil {
 			baseResp = resp.response
@@ -611,7 +741,7 @@ func aggregateTreeAcrossPoolForSingle(
 				}
 			}
 		}
-		
+
 		// Extract cluster items and deduplicate
 		if tree, ok := resp.response["tree"].([]interface{}); ok {
 			for _, item := range tree {
@@ -629,16 +759,16 @@ func aggregateTreeAcrossPoolForSingle(
 			}
 		}
 	}
-	
+
 	// If no successful responses, return false to fall back
 	if baseResp == nil {
 		return false
 	}
-	
+
 	// Combine non-cluster items with deduplicated cluster items
 	combinedTree := append(baseNonCluster, clusterItems...)
 	baseResp["tree"] = combinedTree
-	
+
 	// Send aggregated response
 	ctx.JSON(http.StatusOK, baseResp)
 	return true
