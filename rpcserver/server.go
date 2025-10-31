@@ -53,7 +53,6 @@ var (
 	proxy           *multi.Proxy
 )
 
-
 type GinWriteInterceptor struct {
 	gin.ResponseWriter
 	responseBody *bytes.Buffer
@@ -375,13 +374,12 @@ func forwardToCmon(ctx *gin.Context) {
 		return
 	}
 
-
 	controllers := proxy.GetCachedPoolControllers(ctx, controllerId.GetID())
 	activeTargets := filterActivePoolControllers(controllers)
 
-	if trySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets) { return }
-
-	
+	if trySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets) {
+		return
+	}
 
 	proxy.RPCProxyRequest(ctx, controllerId.GetID(), method, jsonData)
 }
@@ -502,17 +500,17 @@ func fetchMissingPoolIds(proxy *multi.Proxy) {
 	changed := false
 	for _, instance := range cfg.Instances {
 		if instance != nil && instance.PoolId == "" {
-			log.Info("Found instance with missing pool_id, attempting to fetch", 
+			log.Info("Found instance with missing pool_id, attempting to fetch",
 				zap.String("url", instance.Url),
 				zap.String("xid", instance.Xid))
-			
+
 			poolId, err := proxy.FetchPoolIdFromInfo(instance)
 			if err != nil {
-				log.Warn("Failed to fetch pool_id from /info endpoint", 
-					zap.String("url", instance.Url), 
+				log.Warn("Failed to fetch pool_id from /info endpoint",
+					zap.String("url", instance.Url),
 					zap.Error(err))
 			} else {
-				log.Info("Successfully fetched pool_id", 
+				log.Info("Successfully fetched pool_id",
 					zap.String("url", instance.Url),
 					zap.String("pool_id", poolId))
 				instance.ControllerId = poolId
@@ -711,7 +709,15 @@ func Start(cfg *config.Config) {
 	// Proxy any /v2 requests to the specified (by controller_id) cmon
 	v2 := s.Group("/v2")
 	{
-		if cfg.SingleController == "" {
+		requireAuth := true
+		if cfg.SingleController != "" {
+			if singleInst := cfg.ControllerById(cfg.SingleController); singleInst != nil {
+				if singleInst.Username == "" && singleInst.Password == "" && singleInst.Keyfile == "" {
+					requireAuth = false
+				}
+			}
+		}
+		if requireAuth {
 			v2.Use(proxy.RPCAuthMiddleware)
 		}
 		v2.POST("/*any", forwardToCmon)
