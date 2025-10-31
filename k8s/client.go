@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -138,7 +137,6 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 		var err error
 		token, err = c.getJWTToken(ctx)
 		if err != nil {
-			c.logger.Errorf("Failed to get JWT token: %v", err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get JWT token"})
 			return
 		}
@@ -184,12 +182,13 @@ func (c *K8sProxyClient) ProxyRequest(ctx *gin.Context, path string) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logger.Debugf("Failed to proxy request: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to proxy request"})
 		return
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.logger.Errorf("Failed to read proxy response body: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read proxy response"})
@@ -240,12 +239,13 @@ func (c *K8sProxyClient) ProxyRequestNoAuth(ctx *gin.Context, path string) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logger.Debugf("Failed to proxy request: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to proxy request"})
 		return
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.logger.Errorf("Failed to read proxy response body: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read proxy response"})
@@ -302,7 +302,7 @@ func (c *K8sProxyClient) handleSSERequest(ctx *gin.Context, path string) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := ioutil.ReadAll(resp.Body)
+		bodyBytes, _ := io.ReadAll(resp.Body)
 		c.logger.Errorf("SSE proxy request failed with status: %d, Body: %s", resp.StatusCode, string(bodyBytes))
 		ctx.JSON(resp.StatusCode, gin.H{"error": "Proxy request failed", "details": string(bodyBytes)})
 		return

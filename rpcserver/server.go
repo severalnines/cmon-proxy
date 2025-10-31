@@ -688,10 +688,10 @@ func Start(cfg *config.Config) {
 		}
 
 		// Public, unauthenticated K8s proxy routes (no JWT added)
-		k8sPublic := single.Group("/k8s-public")
+		k8sPublic := single.Group("/k8s-public/manifests/agent")
 		{
 			k8sPublicProxyHandler := func(c *gin.Context) {
-				path := c.Param("path")
+				path := "manifests/agent/" + c.Param("path")
 				k8sClient.ProxyRequestNoAuth(c, path)
 			}
 			k8sPublic.GET("/*path", k8sPublicProxyHandler)
