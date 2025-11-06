@@ -344,6 +344,8 @@ func publicClientIP(c *gin.Context) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	// Normalize IPv4-mapped IPv6 addresses (e.g. ::ffff:192.0.2.1) so private RFC1918
+	// ranges are detected correctly.
 	addr = addr.Unmap()
 	if !addr.IsGlobalUnicast() || addr.IsPrivate() {
 		return "", false
