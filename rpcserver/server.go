@@ -23,6 +23,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -52,7 +53,6 @@ var (
 	httpServerPlain *http.Server
 	proxy           *multi.Proxy
 )
-
 
 type GinWriteInterceptor struct {
 	gin.ResponseWriter
@@ -289,10 +289,11 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					return
 				}
 
-				// Forward the original client's IP address
-				clientIP := c.ClientIP()
-				req.Header.Set("X-Forwarded-For", clientIP)
-				req.Header.Set("X-Real-IP", clientIP)
+				// Forward the original client's IP address if it is a public address
+				if clientIP, ok := publicClientIP(c); ok {
+					req.Header.Set("X-Forwarded-For", clientIP)
+					req.Header.Set("X-Real-IP", clientIP)
+				}
 
 				// Forward other relevant headers that might be needed for geo-location
 				if userAgent := c.GetHeader("User-Agent"); userAgent != "" {
@@ -332,6 +333,22 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 	})
 
 	return nil
+}
+
+func publicClientIP(c *gin.Context) (string, bool) {
+	ip := c.ClientIP()
+	if ip == "" {
+		return "", false
+	}
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return "", false
+	}
+	addr = addr.Unmap()
+	if !addr.IsGlobalUnicast() || addr.IsPrivate() {
+		return "", false
+	}
+	return addr.String(), true
 }
 
 func forwardToCmon(ctx *gin.Context) {
@@ -375,13 +392,12 @@ func forwardToCmon(ctx *gin.Context) {
 		return
 	}
 
-
 	controllers := proxy.GetCachedPoolControllers(ctx, controllerId.GetID())
 	activeTargets := filterActivePoolControllers(controllers)
 
-	if trySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets) { return }
-
-	
+	if trySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets) {
+		return
+	}
 
 	proxy.RPCProxyRequest(ctx, controllerId.GetID(), method, jsonData)
 }
@@ -502,17 +518,17 @@ func fetchMissingPoolIds(proxy *multi.Proxy) {
 	changed := false
 	for _, instance := range cfg.Instances {
 		if instance != nil && instance.PoolId == "" {
-			log.Info("Found instance with missing pool_id, attempting to fetch", 
+			log.Info("Found instance with missing pool_id, attempting to fetch",
 				zap.String("url", instance.Url),
 				zap.String("xid", instance.Xid))
-			
+
 			poolId, err := proxy.FetchPoolIdFromInfo(instance)
 			if err != nil {
-				log.Warn("Failed to fetch pool_id from /info endpoint", 
-					zap.String("url", instance.Url), 
+				log.Warn("Failed to fetch pool_id from /info endpoint",
+					zap.String("url", instance.Url),
 					zap.Error(err))
 			} else {
-				log.Info("Successfully fetched pool_id", 
+				log.Info("Successfully fetched pool_id",
 					zap.String("url", instance.Url),
 					zap.String("pool_id", poolId))
 				instance.ControllerId = poolId
