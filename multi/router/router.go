@@ -13,6 +13,7 @@ package router
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,9 +73,10 @@ type Router struct {
 	Config         *config.Config
 	AuthController AuthController
 	// AuthCMON       AuthCMON
-	CMONSid *http.Cookie
-	cmons   map[string]*Cmon
-	mtx     *sync.RWMutex
+	CMONSid            *http.Cookie
+	cmons              map[string]*Cmon
+	poolControllerClients map[string]*cmon.Client // map[hostname:port+1]*cmon.Client
+	mtx                *sync.RWMutex
 }
 
 func (c *Cmon) InvalidateCache() {
@@ -117,9 +119,10 @@ func New(config *config.Config) (*Router, error) {
 	}
 
 	return &Router{
-		Config: config,
-		cmons:  make(map[string]*Cmon),
-		mtx:    &sync.RWMutex{},
+		Config:              config,
+		cmons:               make(map[string]*Cmon),
+		poolControllerClients: make(map[string]*cmon.Client),
+		mtx:                 &sync.RWMutex{},
 	}, nil
 }
 
@@ -256,6 +259,126 @@ func (router *Router) GetControllerUser() *api.User {
 		}
 	}
 	return nil
+}
+
+// AuthenticateWithPoolControllers authenticates with all pool controllers found in the main controllers
+// This should be called after successful authentication with main controllers
+// This function runs asynchronously to avoid blocking the login process
+func (router *Router) AuthenticateWithPoolControllers() {
+	go router.authenticateWithPoolControllersSync()
+}
+
+// authenticateWithPoolControllersSync does the actual authentication work synchronously
+func (router *Router) authenticateWithPoolControllersSync() {
+	logger := zap.L().Sugar()
+	
+	router.mtx.Lock()
+	// Clear existing pool controller clients
+	router.poolControllerClients = make(map[string]*cmon.Client)
+	router.mtx.Unlock()
+	
+	// Get pool controllers from all authenticated main controllers
+	for _, addr := range router.Urls() {
+		c := router.Cmon(addr)
+		if c == nil || c.Client == nil {
+			continue
+		}
+		
+		// Get pool controllers information
+		_, controllers, err := c.Client.PingWithControllers()
+		if err != nil {
+			logger.Warnf("Failed to get pool controllers from %s: %s", addr, err.Error())
+			continue
+		}
+		
+		if len(controllers) == 0 {
+			continue
+		}
+		
+		// Authenticate with each pool controller in parallel
+		var wg sync.WaitGroup
+		syncChannel := make(chan bool, ParallelLevel)
+		
+		for _, pc := range controllers {
+			if pc == nil || len(pc.Hostname) == 0 || pc.Port == 0 {
+				continue
+			}
+			
+			// Only authenticate with active pool controllers
+			if len(pc.Status) > 0 && !strings.EqualFold(pc.Status, "active") {
+				continue
+			}
+			
+			wg.Add(1)
+			go func(poolController *api.PoolController) {
+				defer func() {
+					wg.Done()
+					<-syncChannel
+				}()
+				syncChannel <- true
+				
+				// Create client for pool controller
+				poolUrl := fmt.Sprintf("%s:%d", poolController.Hostname, poolController.Port+1)
+				inst := c.Client.Instance.Copy()
+				inst.Url = poolUrl
+				
+				// Use the same credentials as the main controller
+				router.mtx.RLock()
+				useAuth := router.AuthController.Use
+				username := router.AuthController.Username
+				password := router.AuthController.Password
+				router.mtx.RUnlock()
+				
+				if useAuth {
+					inst.Username = username
+					inst.Password = password
+				}
+				
+				pcClient := cmon.NewClient(inst, router.Config.Timeout)
+				
+				// Authenticate with pool controller
+				if err := pcClient.Authenticate(); err != nil {
+					logger.Warnf("Failed to authenticate with pool controller %s: %s", poolUrl, err.Error())
+					return
+				}
+				
+				// Log cmon-sid when authenticating with pool controller
+				if sessionCookie := pcClient.GetSessionCookie(); sessionCookie != nil {
+					logger.Infof("[POOL-AUTH] Authenticated with pool controller %s - cmon-sid: %s", poolUrl, sessionCookie.Value)
+				}
+				
+				// Store authenticated client
+				router.mtx.Lock()
+				router.poolControllerClients[poolUrl] = pcClient
+				router.mtx.Unlock()
+				logger.Infof("Successfully authenticated with pool controller %s (user: %s)", poolUrl, pcClient.User().UserName)
+			}(pc)
+		}
+		
+		wg.Wait()
+	}
+}
+
+// GetPoolControllerClient returns an authenticated client for a pool controller
+// Returns nil if no authenticated client exists for the given pool controller
+func (router *Router) GetPoolControllerClient(poolController *api.PoolController) *cmon.Client {
+	if poolController == nil || len(poolController.Hostname) == 0 || poolController.Port == 0 {
+		return nil
+	}
+	
+	poolUrl := fmt.Sprintf("%s:%d", poolController.Hostname, poolController.Port+1)
+	
+	router.mtx.RLock()
+	defer router.mtx.RUnlock()
+	
+	return router.poolControllerClients[poolUrl]
+}
+
+// ClearPoolControllerClients clears all pool controller clients
+func (router *Router) ClearPoolControllerClients() {
+	router.mtx.Lock()
+	defer router.mtx.Unlock()
+	router.poolControllerClients = make(map[string]*cmon.Client)
 }
 
 // Ping pings the controllers to see their statuses

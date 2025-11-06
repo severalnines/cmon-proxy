@@ -23,6 +23,7 @@ import (
 
 var (
 	mtx                   *sync.Mutex
+	routerMtx             *sync.RWMutex // Mutex for protecting p.r map
 	controllerStatusCache map[string]*api.ControllerStatus
 )
 
@@ -33,6 +34,7 @@ type Proxy struct {
 
 func init() {
 	mtx = &sync.Mutex{}
+	routerMtx = &sync.RWMutex{}
 	controllerStatusCache = make(map[string]*api.ControllerStatus)
 }
 
@@ -79,16 +81,53 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 	log := zap.L()
 
 	if isLDAP, ldapUsername := isLDAPSession(ctx); isLDAP {
-		if r, found := p.r[ldapUsername]; found {
+		routerMtx.RLock()
+		r, found := p.r[ldapUsername]
+		routerMtx.RUnlock()
+		if found {
+			log.Sugar().Debugf("[ROUTER] Found LDAP router for user: %s", ldapUsername)
 			return r
 		}
 	}
 	if isCMON, cmonUsername := isCMONSession(ctx); isCMON {
-		if r, found := p.r[cmonUsername]; found {
+		routerMtx.RLock()
+		r, found := p.r[cmonUsername]
+		routerMtx.RUnlock()
+		if found {
+			log.Sugar().Debugf("[ROUTER] Found CMON router for user: %s", cmonUsername)
 			return r
 		}
 	}
-	if defaultRouter, found := p.r[router.DefaultRouter]; found {
+	
+	// For single controller mode, check if user has a router
+	if user := getUserForSession(ctx); user != nil {
+		log.Sugar().Debugf("[ROUTER] Checking for router for user: %s", user.Username)
+		routerMtx.RLock()
+		r, found := p.r[user.Username]
+		routerMtx.RUnlock()
+		if found {
+			log.Sugar().Debugf("[ROUTER] Found router for user: %s", user.Username)
+			return r
+		} else {
+			log.Sugar().Warnf("[ROUTER] No router found for user: %s (available routers: %v)", user.Username, func() []string {
+				routerMtx.RLock()
+				defer routerMtx.RUnlock()
+				keys := make([]string, 0, len(p.r))
+				for k := range p.r {
+					keys = append(keys, k)
+				}
+				return keys
+			}())
+		}
+	} else {
+		log.Sugar().Debugf("[ROUTER] No user found in session")
+	}
+	
+	routerMtx.RLock()
+	defaultRouter, found := p.r[router.DefaultRouter]
+	routerMtx.RUnlock()
+	if found {
+		log.Sugar().Debugf("[ROUTER] Using default router")
 		return defaultRouter
 	}
 

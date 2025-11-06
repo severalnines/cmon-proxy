@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
@@ -67,29 +68,41 @@ func (s *SingleControllerPoolSupport) getSingleControllerCachedStatus(controller
 }
 
 // refreshSingleControllerStatus performs ping with controllers for single controller and caches result
+// Now uses router's authenticated client instead of creating temporary client
 func (s *SingleControllerPoolSupport) refreshSingleControllerStatus(controller *config.CmonInstance, ctx *gin.Context) *api.ControllerStatus {
-	timeout := s.proxy.cfg.Timeout
-	if timeout <= 0 {
-		timeout = 30
+	zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Refreshing status for controller: %s", controller.Url)
+	
+	// Try to use router's authenticated client
+	r := s.proxy.Router(ctx)
+	var client *cmon.Client
+	
+	if r != nil {
+		c := r.Cmon(controller.Url)
+		if c != nil && c.Client != nil {
+			client = c.Client
+			zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Using authenticated client from router")
+		}
 	}
 	
-	zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Creating client for controller: %s (timeout: %d)", controller.Url, timeout)
-	client := cmon.NewClient(controller, timeout)
-	
-	// Extract and set cookies from the request for authentication
-	if ctx.Request.Header.Get("Cookie") != "" {
-		zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Setting authentication cookies from request")
-		// Parse cookies from request
-		cookies := ctx.Request.Cookies()
-		for _, cookie := range cookies {
-			zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Setting cookie: %s", cookie.Name)
-			if cookie.Name == "cmon-sid" { // Only set the session cookie
-				client.SetSessionCookie(cookie)
-				break
+	// Fallback: create temporary client if no router available
+	if client == nil {
+		zap.L().Sugar().Warnf("[POOL-SINGLE-REFRESH] No router available, creating temporary client (may fail without auth)")
+		timeout := s.proxy.cfg.Timeout
+		if timeout <= 0 {
+			timeout = 30
+		}
+		client = cmon.NewClient(controller, timeout)
+		
+		// Try to get session from router if available
+		if r != nil {
+			c := r.Cmon(controller.Url)
+			if c != nil && c.Client != nil {
+				if sess := c.Client.GetSessionCookie(); sess != nil {
+					client.SetSessionCookie(sess)
+					zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Using session cookie from router")
+				}
 			}
 		}
-	} else {
-		zap.L().Sugar().Warnf("[POOL-SINGLE-REFRESH] No cookies found in request - authentication may fail")
 	}
 	
 	// Use PingWithControllers to get both ping and pool controllers info
@@ -306,25 +319,40 @@ func (s *SingleControllerPoolSupport) aggregateTreeAcrossPoolForSingle(
 		go func(target *cmonapi.PoolController) {
 			defer wg.Done()
 			
-			instCopy := *controllerInstance
-			instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
-			timeout := s.proxy.cfg.Timeout
-			if timeout <= 0 { timeout = 30 }
-			tmpClient := cmon.NewClient(&instCopy, timeout)
+			// Try to get authenticated client from router
+			r := s.proxy.Router(ctx)
+			var pcClient *cmon.Client
+			if r != nil {
+				pcClient = r.GetPoolControllerClient(target)
+			}
 			
-			// Set authentication cookies
-			if ctx.Request.Header.Get("Cookie") != "" {
-				cookies := ctx.Request.Cookies()
-				for _, cookie := range cookies {
-					if cookie.Name == "cmon-sid" {
-						tmpClient.SetSessionCookie(cookie)
-						break
+			// Fallback: create temporary client if no authenticated client available
+			if pcClient == nil {
+				zap.L().Sugar().Debugf("[POOL-SINGLE-TREE] No authenticated client for %s:%d, creating temporary", target.Hostname, target.Port)
+				instCopy := *controllerInstance
+				instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
+				timeout := s.proxy.cfg.Timeout
+				if timeout <= 0 { timeout = 30 }
+				pcClient = cmon.NewClient(&instCopy, timeout)
+				
+				// Try to get session from main controller's router
+				if r != nil {
+					controller := s.proxy.cfg.ControllerById(s.proxy.cfg.SingleController)
+					if controller != nil {
+						c := r.Cmon(controller.Url)
+						if c != nil && c.Client != nil {
+							if sess := c.Client.GetSessionCookie(); sess != nil {
+								pcClient.SetSessionCookie(sess)
+							}
+						}
 					}
 				}
+			} else {
+				zap.L().Sugar().Debugf("[POOL-SINGLE-TREE] Using authenticated client for %s:%d", target.Hostname, target.Port)
 			}
 			
 			zap.L().Sugar().Debugf("[POOL-SINGLE-TREE] Requesting module: %s from %s:%d", module, target.Hostname, target.Port)
-			resBytes, err := tmpClient.RequestBytes(module, jsonData, false)
+			resBytes, err := pcClient.RequestBytes(module, jsonData, false)
 			if err != nil {
 				zap.L().Sugar().Warnf("[POOL-SINGLE-TREE] poolcontroller %s:%d tree request error: %v", target.Hostname, target.Port, err)
 				responseChan <- treeResponse{nil, target, err}
@@ -451,25 +479,40 @@ func (s *SingleControllerPoolSupport) aggregateListAcrossPoolForSingle(
 		go func(target *cmonapi.PoolController) {
 			defer wg.Done()
 			
-			instCopy := *controllerInstance
-			instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
-			timeout := s.proxy.cfg.Timeout
-			if timeout <= 0 { timeout = 30 }
-			tmpClient := cmon.NewClient(&instCopy, timeout)
+			// Try to get authenticated client from router
+			r := s.proxy.Router(ctx)
+			var pcClient *cmon.Client
+			if r != nil {
+				pcClient = r.GetPoolControllerClient(target)
+			}
 			
-			// Set authentication cookies
-			if ctx.Request.Header.Get("Cookie") != "" {
-				cookies := ctx.Request.Cookies()
-				for _, cookie := range cookies {
-					if cookie.Name == "cmon-sid" {
-						tmpClient.SetSessionCookie(cookie)
-						break
+			// Fallback: create temporary client if no authenticated client available
+			if pcClient == nil {
+				zap.L().Sugar().Debugf("[POOL-SINGLE-LIST] No authenticated client for %s:%d, creating temporary", target.Hostname, target.Port)
+				instCopy := *controllerInstance
+				instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
+				timeout := s.proxy.cfg.Timeout
+				if timeout <= 0 { timeout = 30 }
+				pcClient = cmon.NewClient(&instCopy, timeout)
+				
+				// Try to get session from main controller's router
+				if r != nil {
+					controller := s.proxy.cfg.ControllerById(s.proxy.cfg.SingleController)
+					if controller != nil {
+						c := r.Cmon(controller.Url)
+						if c != nil && c.Client != nil {
+							if sess := c.Client.GetSessionCookie(); sess != nil {
+								pcClient.SetSessionCookie(sess)
+							}
+						}
 					}
 				}
+			} else {
+				zap.L().Sugar().Debugf("[POOL-SINGLE-LIST] Using authenticated client for %s:%d", target.Hostname, target.Port)
 			}
 			
 			zap.L().Sugar().Debugf("[POOL-SINGLE-LIST] Requesting module: %s from %s:%d", module, target.Hostname, target.Port)
-			resBytes, err := tmpClient.RequestBytes(module, jsonData, false)
+			resBytes, err := pcClient.RequestBytes(module, jsonData, false)
 			
 			resp := poolResponse{target: target, err: err}
 			if err == nil {
@@ -610,6 +653,63 @@ func (s *SingleControllerPoolSupport) HandleRequest(ctx *gin.Context) {
 		}
 		// Restore body for potential fallback
 		ctx.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	}
+
+	// Check if this is an authentication request
+	if strings.Contains(ctx.Request.URL.Path, "/auth") {
+		var authReq map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &authReq); err == nil {
+			if operation, ok := authReq["operation"].(string); ok && operation == "authenticateWithPassword" {
+				// Extract username and password
+				username, _ := authReq["user_name"].(string)
+				password, _ := authReq["password"].(string)
+				
+				if username != "" && password != "" {
+					zap.L().Sugar().Infof("[SINGLE-AUTH] Intercepting authentication request for user: %s", username)
+					
+					// Authenticate using single controller login
+					_, err := s.proxy.singleControllerLogin(ctx, username, password)
+					if err != nil {
+						zap.L().Sugar().Warnf("[SINGLE-AUTH] Authentication failed: %v", err)
+						// Fall through to proxy the request (let cmon handle the error)
+					} else {
+						zap.L().Sugar().Infof("[SINGLE-AUTH] Authentication successful for user: %s", username)
+						
+						// Ensure session is saved before returning response
+						session := sessions.Default(ctx)
+						if err := session.Save(); err != nil {
+							zap.L().Sugar().Errorf("[SINGLE-AUTH] Failed to save session: %v", err)
+						}
+						
+						// Now proxy the request to cmon, but use the router's client instead
+						// This ensures we use the authenticated session
+						r := s.proxy.Router(ctx)
+						if r != nil {
+							controller := s.proxy.cfg.ControllerById(s.proxy.cfg.SingleController)
+							if controller != nil {
+								c := r.Cmon(controller.Url)
+								if c != nil && c.Client != nil {
+									// Extract the actual path (remove /single prefix if present)
+									requestPath := ctx.Request.URL.EscapedPath()
+									if strings.HasPrefix(requestPath, "/single") {
+										requestPath = strings.TrimPrefix(requestPath, "/single")
+									}
+									
+									// Use the router's authenticated client to make the request
+									resBytes, err := c.Client.RequestBytes(requestPath, bodyBytes, false)
+									if err == nil {
+										ctx.Data(http.StatusOK, "application/json", resBytes)
+										return
+									}
+									zap.L().Sugar().Warnf("[SINGLE-AUTH] Request failed, falling back to proxy: %v", err)
+								}
+							}
+						}
+						// Fall through to proxy if router request fails
+					}
+				}
+			}
+		}
 	}
 
 	// Get cached status with pool controllers info
@@ -809,6 +909,7 @@ func (s *SingleControllerPoolSupport) findPoolControllerForCluster(clusterID str
 }
 
 // routeToSpecificPoolController routes a request to a specific pool controller
+// Now uses router's authenticated clients instead of creating temporary clients
 func (s *SingleControllerPoolSupport) routeToSpecificPoolController(
 	ctx *gin.Context,
 	jsonData []byte,
@@ -817,7 +918,37 @@ func (s *SingleControllerPoolSupport) routeToSpecificPoolController(
 ) bool {
 	zap.L().Sugar().Debugf("[POOL-SINGLE-SPECIFIC] Routing request to pool controller %s:%d", target.Hostname, target.Port)
 	
-	// Create a client for the specific pool controller
+	// Try to get authenticated client from router
+	r := s.proxy.Router(ctx)
+	if r != nil {
+		pcClient := r.GetPoolControllerClient(target)
+		if pcClient != nil {
+			// Use authenticated client from router
+			requestPath := ctx.Request.URL.EscapedPath()
+			module := s.extractModuleFromPath(requestPath)
+			
+			zap.L().Sugar().Debugf("[POOL-SINGLE-SPECIFIC] Using authenticated client for %s:%d, module: %s", target.Hostname, target.Port, module)
+			resBytes, err := pcClient.RequestBytes(module, jsonData, false)
+			if err != nil {
+				zap.L().Sugar().Errorf("[POOL-SINGLE-SPECIFIC] Request to %s:%d failed: %v", target.Hostname, target.Port, err)
+				return false
+			}
+			
+			// Parse response to ensure it's valid JSON
+			var respMap map[string]interface{}
+			if err := json.Unmarshal(resBytes, &respMap); err != nil {
+				zap.L().Sugar().Errorf("[POOL-SINGLE-SPECIFIC] Invalid JSON response from %s:%d: %v", target.Hostname, target.Port, err)
+				return false
+			}
+			
+			zap.L().Sugar().Debugf("[POOL-SINGLE-SPECIFIC] Successfully routed request to %s:%d", target.Hostname, target.Port)
+			ctx.JSON(http.StatusOK, respMap)
+			return true
+		}
+	}
+	
+	// Fallback: create temporary client (shouldn't happen if auth is working)
+	zap.L().Sugar().Warnf("[POOL-SINGLE-SPECIFIC] No authenticated client found, creating temporary client for %s:%d", target.Hostname, target.Port)
 	instCopy := *controllerInstance
 	instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
 	timeout := s.proxy.cfg.Timeout
@@ -826,13 +957,15 @@ func (s *SingleControllerPoolSupport) routeToSpecificPoolController(
 	}
 	tmpClient := cmon.NewClient(&instCopy, timeout)
 	
-	// Set authentication cookies
-	if ctx.Request.Header.Get("Cookie") != "" {
-		cookies := ctx.Request.Cookies()
-		for _, cookie := range cookies {
-			if cookie.Name == "cmon-sid" {
-				tmpClient.SetSessionCookie(cookie)
-				break
+	// Try to get session from main controller's router
+	if r != nil {
+		controller := s.proxy.cfg.ControllerById(s.proxy.cfg.SingleController)
+		if controller != nil {
+			c := r.Cmon(controller.Url)
+			if c != nil && c.Client != nil {
+				if sess := c.Client.GetSessionCookie(); sess != nil {
+					tmpClient.SetSessionCookie(sess)
+				}
 			}
 		}
 	}

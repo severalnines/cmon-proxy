@@ -12,13 +12,11 @@ package multi
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -661,7 +659,7 @@ func (p *Proxy) RPCProxyMany(ctx *gin.Context, xIds []string, method string, req
 
 /**
  * This is a special case where we are proxying the request to a single controller
- * No authentication is required, requests are proxied directly to the controller
+ * Now uses router instead of direct proxy to avoid cookie proxying
  */
 func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 	resp := &cmonapi.WithResponseData{
@@ -676,73 +674,89 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
-	controller := p.cfg.ControllerById(p.cfg.SingleController)
-	// Clean up the controller URL to handle trailing slashes properly
-	controllerURL := strings.TrimRight(controller.Url, "/")
-	targetURL, _ := url.Parse("https://" + controllerURL + "/v2" + ctx.Param("any"))
 
-	var body *bytes.Reader
+	controller := p.cfg.ControllerById(p.cfg.SingleController)
+	if controller == nil {
+		resp.RequestStatus = cmonapi.RequestStatusUnknownError
+		resp.ErrorString = "Single controller not found"
+		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
+		return
+	}
+
+	// Read request body
+	var bodyBytes []byte
 	if ctx.Request.Body != nil {
-		bodyBytes, err := io.ReadAll(ctx.Request.Body)
+		var err error
+		bodyBytes, err = io.ReadAll(ctx.Request.Body)
 		if err != nil {
 			resp.RequestStatus = cmonapi.RequestStatusUnknownError
 			resp.ErrorString = "Failed to read request body"
 			ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 			return
 		}
-		body = bytes.NewReader(bodyBytes)
 	}
 
-	req, err := http.NewRequest(ctx.Request.Method, targetURL.String(), body)
-	if err != nil {
-		resp.RequestStatus = cmonapi.RequestStatusUnknownError
-		resp.ErrorString = "Failed to create request"
+	// Try to use router if user is authenticated
+	r := p.Router(ctx)
+	if r == nil {
+		zap.L().Sugar().Warnf("[SINGLE-PROXY] No router available for request to %s", ctx.Request.URL.Path)
+		resp.RequestStatus = cmonapi.RequestStatusAuthRequired
+		resp.ErrorString = "Authentication required"
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
-	for key, values := range ctx.Request.Header {
-		for _, value := range values {
-			req.Header.Add(key, value)
-		}
-	}
-
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: tr}
-
-	response, err := client.Do(req)
-	if err != nil {
-		resp.RequestStatus = cmonapi.RequestStatusUnknownError
-		resp.ErrorString = "Failed to forward request" + targetURL.String() + err.Error()
+	
+	c := r.Cmon(controller.Url)
+	if c == nil || c.Client == nil {
+		zap.L().Sugar().Warnf("[SINGLE-PROXY] No client available for controller %s", controller.Url)
+		resp.RequestStatus = cmonapi.RequestStatusAuthRequired
+		resp.ErrorString = "Authentication required"
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
-
-	defer func(b io.ReadCloser) {
-		if b == nil {
-			return
-		}
-		_ = b.Close()
-	}(response.Body)
-	cookies := response.Cookies()
-	for _, cookie := range cookies {
-		cookie.Path = "/"
-		http.SetCookie(ctx.Writer, cookie)
+	
+	// Extract the actual path (remove /single prefix if present)
+	requestPath := ctx.Request.URL.EscapedPath()
+	if strings.HasPrefix(requestPath, "/single") {
+		requestPath = strings.TrimPrefix(requestPath, "/single")
 	}
-	for key, values := range response.Header {
+	
+	zap.L().Sugar().Debugf("[SINGLE-PROXY] Using router client for path: %s", requestPath)
+	
+	// Use router's authenticated client
+	rawResp, reqErr := c.Client.RequestRaw(requestPath, bodyBytes, false)
+	if reqErr != nil {
+		zap.L().Sugar().Errorf("[SINGLE-PROXY] Request failed: %v", reqErr)
+		ctx.JSON(http.StatusBadGateway, gin.H{"error": reqErr.Error()})
+		return
+	}
+
+	// Forward response headers (except Set-Cookie)
+	for key, values := range rawResp.Header {
 		if strings.EqualFold(key, "Set-Cookie") {
-			continue
+			continue // Don't proxy cookies
 		}
 		for _, value := range values {
 			ctx.Writer.Header().Add(key, value)
 		}
 	}
 
-	ctx.Status(response.StatusCode)
-	if response.Body != nil {
-		_, _ = io.Copy(ctx.Writer, response.Body)
+	// Check if response is JSON
+	parsed := make(map[string]interface{})
+	if err := json.Unmarshal(rawResp.Body, &parsed); err == nil && len(parsed) > 0 {
+		// Valid JSON response
+		parsed["xid"] = c.Xid()
+		payload, marshalErr := json.Marshal(parsed)
+		if marshalErr != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": marshalErr.Error()})
+			return
+		}
+		ctx.Data(rawResp.StatusCode, "application/json", payload)
+		return
 	}
+
+	// Non-JSON response, forward as-is
+	ctx.Data(rawResp.StatusCode, rawResp.Header.Get("Content-Type"), rawResp.Body)
 }
 
 /**

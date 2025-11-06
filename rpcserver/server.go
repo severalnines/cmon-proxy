@@ -701,8 +701,23 @@ func Start(cfg *config.Config) {
 
 	single := s.Group("/single")
 	{
-		single.POST("/v2/*any", proxy.PRCProxySingleControllerWithPoolSupport)
-		single.GET("/v2/*any", proxy.PRCProxySingleControllerWithPoolSupport)
+		// Define /v2 group - use a single handler for all routes to avoid route conflicts
+		singleV2 := single.Group("/v2")
+		singleV2.POST("/*any", func(c *gin.Context) {
+			// Check if this is the /auth endpoint
+			if c.Param("any") == "/auth" || strings.HasSuffix(c.Request.URL.Path, "/v2/auth") {
+				// Auth endpoint doesn't need middleware (it handles its own auth)
+				proxy.PRCProxySingleControllerWithPoolSupport(c)
+				return
+			}
+			// Apply auth middleware for other routes
+			proxy.RPCAuthMiddleware(c)
+			if c.IsAborted() {
+				return
+			}
+			proxy.PRCProxySingleControllerWithPoolSupport(c)
+		})
+		
 		k8s := single.Group("/k8s")
 		{
 			k8sProxyHandler := func(c *gin.Context) {
