@@ -343,9 +343,10 @@ func (router *Router) authenticateWithPoolControllersSync() {
 				}
 				
 				// Log cmon-sid when authenticating with pool controller
-				if sessionCookie := pcClient.GetSessionCookie(); sessionCookie != nil {
-					logger.Infof("[POOL-AUTH] Authenticated with pool controller %s - cmon-sid: %s", poolUrl, sessionCookie.Value)
-				}
+				// UNCOMMENT FOR DEBUGGING PURPOSES
+				// if sessionCookie := pcClient.GetSessionCookie(); sessionCookie != nil {
+				// 	logger.Infof("[POOL-AUTH] Authenticated with pool controller %s - cmon-sid: %s", poolUrl, sessionCookie.Value)
+				// }
 				
 				// Store authenticated client
 				router.mtx.Lock()

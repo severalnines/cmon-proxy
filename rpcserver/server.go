@@ -43,7 +43,9 @@ import (
 	"github.com/severalnines/cmon-proxy/config"
 	k8s "github.com/severalnines/cmon-proxy/k8s"
 	"github.com/severalnines/cmon-proxy/multi"
+	"github.com/severalnines/cmon-proxy/multi/router"
 	"github.com/severalnines/cmon-proxy/opts"
+	"github.com/severalnines/cmon-proxy/poolhelpers"
 	"github.com/severalnines/cmon-proxy/rpcserver/session"
 	"go.uber.org/zap"
 )
@@ -395,9 +397,9 @@ func forwardToCmon(ctx *gin.Context) {
 	}
 
 	controllers := proxy.GetCachedPoolControllers(ctx, controllerId.GetID())
-	activeTargets := filterActivePoolControllers(controllers)
+	activeTargets := poolhelpers.FilterActivePoolControllers(controllers)
 
-	if trySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets) {
+	if poolhelpers.TrySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets, nil, nil, func(ctx *gin.Context) *router.Router { return proxy.Router(ctx) }) {
 		return
 	}
 

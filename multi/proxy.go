@@ -94,7 +94,6 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 		r, found := p.r[cmonUsername]
 		routerMtx.RUnlock()
 		if found {
-			log.Sugar().Debugf("[ROUTER] Found CMON router for user: %s", cmonUsername)
 			return r
 		}
 	}

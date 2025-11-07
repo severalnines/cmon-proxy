@@ -1,4 +1,4 @@
-package rpcserver
+package poolhelpers
 
 import (
 	"encoding/json"
@@ -34,6 +34,7 @@ func filterActivePoolControllers(controllers []*cmonapi.PoolController) []*cmona
 }
 
 // TrySmartRouteAcrossPool is the exported wrapper for trySmartRouteAcrossPool
+// If r is nil and routerGetter is provided, uses routerGetter(ctx). If pathTransformer is nil, uses ctx.Request.URL.EscapedPath().
 func TrySmartRouteAcrossPool(
 	ctx *gin.Context,
 	controllerId string,
@@ -41,8 +42,13 @@ func TrySmartRouteAcrossPool(
 	activeTargets []*cmonapi.PoolController,
 	r *router.Router,
 	pathTransformer func() string,
+	routerGetter ...func(*gin.Context) *router.Router,
 ) bool {
-	return trySmartRouteAcrossPool(ctx, controllerId, jsonData, activeTargets, r, pathTransformer, nil)
+	var getter func(*gin.Context) *router.Router
+	if len(routerGetter) > 0 {
+		getter = routerGetter[0]
+	}
+	return trySmartRouteAcrossPool(ctx, controllerId, jsonData, activeTargets, r, pathTransformer, getter)
 }
 
 // trySmartRouteAcrossPool attempts to route or aggregate when there are >=1 active pool controllers.
