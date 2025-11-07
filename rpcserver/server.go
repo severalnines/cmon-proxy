@@ -729,7 +729,15 @@ func Start(cfg *config.Config) {
 	// Proxy any /v2 requests to the specified (by controller_id) cmon
 	v2 := s.Group("/v2")
 	{
-		if cfg.SingleController == "" {
+		requireAuth := true
+		if cfg.SingleController != "" {
+			if singleInst := cfg.ControllerById(cfg.SingleController); singleInst != nil {
+				if singleInst.Username == "" && singleInst.Password == "" && singleInst.Keyfile == "" {
+					requireAuth = false
+				}
+			}
+		}
+		if requireAuth {
 			v2.Use(proxy.RPCAuthMiddleware)
 		}
 		v2.POST("/*any", forwardToCmon)
