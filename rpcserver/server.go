@@ -696,7 +696,7 @@ func Start(cfg *config.Config) {
 
 	}
 
-	k8sClient, err := k8s.NewK8sProxyClient(cfg)
+	k8sClient, err := k8s.NewK8sProxyClient(cfg, func(ctx *gin.Context) *router.Router { return proxy.Router(ctx) })
 	if err != nil {
 		log.Sugar().Fatalf("initialization problem: %s", err.Error())
 	}
