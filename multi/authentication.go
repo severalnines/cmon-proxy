@@ -255,18 +255,10 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 		}
 	}
 	
-	// Fallback: try to read cmon-sid from browser cookie
+	// No existing router session available
 	if CMONCookie == nil {
-		CMONSid, err := ctx.Cookie("cmon-sid")
-		if err != nil {
-			zap.L().Info("[AUDIT] Cookies are not enabled or cmon-sid cookie is missing, and no existing router session found")
-			return false
-		}
-		CMONCookie = &http.Cookie{
-			Name:  "cmon-sid",
-			Value: CMONSid,
-		}
-		zap.L().Info(fmt.Sprintf("[AUDIT] Using cmon-sid from browser cookie for user %s", req.Username))
+		zap.L().Info("[AUDIT] No existing router session found")
+		return false
 	}
 
 	// create a router for this login attempt (if there is not already one)
@@ -290,8 +282,6 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 				req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent(), err.Error()))
 		return false
 	}
-
-	r.CMONSid = CMONCookie
 
 	r.Sync()
 	controller := r.Cmon(authController.Url)

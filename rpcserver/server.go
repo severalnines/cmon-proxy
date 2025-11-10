@@ -723,6 +723,7 @@ func Start(cfg *config.Config) {
 		k8s := single.Group("/k8s")
 		{
 			k8sProxyHandler := func(c *gin.Context) {
+			  	proxy.RPCAuthMiddleware(c)
 				path := c.Param("path")
 				k8sClient.ProxyRequest(c, path)
 			}

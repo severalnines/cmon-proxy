@@ -12,7 +12,6 @@ package router
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -72,8 +71,6 @@ type AuthController struct {
 type Router struct {
 	Config         *config.Config
 	AuthController AuthController
-	// AuthCMON       AuthCMON
-	CMONSid            *http.Cookie
 	cmons              map[string]*Cmon
 	poolControllerClients map[string]*cmon.Client // map[hostname:port+1]*cmon.Client
 	mtx                *sync.RWMutex
@@ -145,10 +142,6 @@ func (router *Router) Sync() {
 		delete(router.cmons, addr)
 	}
 
-	CMONSid := router.CMONSid
-	// do it only once to void using expired sessions
-	router.CMONSid = nil
-
 	// and create the new ones
 	for _, addr := range router.Config.ControllerUrls() {
 		if instance := router.Config.ControllerByUrl(addr); instance != nil {
@@ -160,9 +153,6 @@ func (router *Router) Sync() {
 			}
 			if c, found := router.cmons[addr]; !found || c == nil {
 				client := cmon.NewClient(actualConfig, router.Config.Timeout)
-				if CMONSid != nil {
-					client.SetSessionCookie(CMONSid)
-				}
 				router.cmons[addr] = &Cmon{
 					Client:     client,
 					mtx:        &sync.Mutex{},
@@ -171,9 +161,6 @@ func (router *Router) Sync() {
 				}
 			} else if c != nil && c.Client != nil {
 				// make sure clients always have the latest configuration
-				if CMONSid != nil {
-					c.Client.SetSessionCookie(CMONSid)
-				}
 				c.Client.Instance = actualConfig
 			}
 		}
