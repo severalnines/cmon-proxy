@@ -11,25 +11,25 @@ import (
 )
 
 // Test file for pool_controller_helpers.go
-// 
+//
 // This file contains comprehensive unit tests for the pool controller helper functions:
-// 
-// 1. filterActivePoolControllers - filters a list of pool controllers to return only 
+//
+// 1. filterActivePoolControllers - filters a list of pool controllers to return only
 //    active ones with valid hostname and port
 // 2. trySmartRouteAcrossPool - attempts smart routing across multiple pool controllers
 //    based on operation type and cluster information
 //
 // Comprehensive Coverage includes:
-// 
+//
 // ## filterActivePoolControllers Tests:
 // - Normal operation scenarios (all active, mixed status)
 // - Edge cases (empty/nil inputs, missing hostname, invalid ports)
 // - Case insensitive status handling
-// 
+//
 // ## trySmartRouteAcrossPool Tests:
 // - Endpoint Detection: Tests for /tree, /clusters, /backup, /reports, /jobs, /alarms, /audit, /maintenance
 // - Operation Detection: createJobInstance, getTree, getAllClusterInfo, getBackups, getReports, etc.
-// - Smart Routing Logic: cluster-specific routing, least-loaded controller selection  
+// - Smart Routing Logic: cluster-specific routing, least-loaded controller selection
 // - Cluster ID Formats: integer, float, string (numeric and non-numeric), zero, empty
 // - Pagination Parsing: limit, offset, ascending parameters for various endpoints
 // - Error Handling: invalid JSON, missing fields, non-matching clusters

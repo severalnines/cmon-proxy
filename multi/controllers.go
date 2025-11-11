@@ -92,9 +92,9 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		}
 
 		// get it from cache
-		mtx.Lock()
+		cacheMtx.Lock()
 		status := controllerStatusCache[addr]
-		mtx.Unlock()
+		cacheMtx.Unlock()
 
 		if status == nil {
 			status = &api.ControllerStatus{
@@ -148,9 +148,9 @@ func (p *Proxy) RPCControllerStatus(ctx *gin.Context) {
 		}
 
 		// persist in cache for later use
-		mtx.Lock()
+		cacheMtx.Lock()
 		controllerStatusCache[addr] = status
-		mtx.Unlock()
+		cacheMtx.Unlock()
 
 		retval.Controllers = append(retval.Controllers, status)
 	}

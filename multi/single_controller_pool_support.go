@@ -37,9 +37,9 @@ func (s *SingleControllerPoolSupport) getSingleControllerCachedStatus(controller
 	addr := controller.Url
 	zap.L().Sugar().Debugf("[POOL-SINGLE-CACHE] Checking cache for controller: %s", addr)
 	
-	mtx.Lock()
+	cacheMtx.Lock()
 	status := controllerStatusCache[addr]
-	mtx.Unlock()
+	cacheMtx.Unlock()
 	
 	// Check if cache is valid (similar to router cache logic)
 	needsRefresh := status == nil || 
@@ -163,9 +163,9 @@ func (s *SingleControllerPoolSupport) refreshSingleControllerStatus(controller *
 	
 	// Persist in cache (only if it's not an auth failure)
 	zap.L().Sugar().Debugf("[POOL-SINGLE-REFRESH] Caching status for: %s", controller.Url)
-	mtx.Lock()
+	cacheMtx.Lock()
 	controllerStatusCache[controller.Url] = status
-	mtx.Unlock()
+	cacheMtx.Unlock()
 	
 	return status
 }
@@ -328,7 +328,7 @@ func (s *SingleControllerPoolSupport) HandleRequest(ctx *gin.Context) {
 }
 
 // trySmartRouteAcrossPoolForSingle performs smart routing for single controller mode
-// Uses the same aggregation and smart routing logic as multicontroler
+// Uses the same aggregation and smart routing logic as multicontroller
 // Requires authenticated user session - returns false if user is not authenticated
 func (s *SingleControllerPoolSupport) trySmartRouteAcrossPoolForSingle(
 	ctx *gin.Context,

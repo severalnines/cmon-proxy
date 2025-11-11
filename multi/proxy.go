@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	mtx                   *sync.Mutex
+	cacheMtx              *sync.Mutex   // Mutex for protecting controllerStatusCache
 	routerMtx             *sync.RWMutex // Mutex for protecting p.r map
 	controllerStatusCache map[string]*api.ControllerStatus
 )
@@ -33,7 +33,7 @@ type Proxy struct {
 }
 
 func init() {
-	mtx = &sync.Mutex{}
+	cacheMtx = &sync.Mutex{}
 	routerMtx = &sync.RWMutex{}
 	controllerStatusCache = make(map[string]*api.ControllerStatus)
 }
@@ -137,14 +137,14 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 
 // In case of configuration re-load, lets apply it to all of the routers
 func (p *Proxy) UpdateConfig(cfg *config.Config) {
-	mtx.Lock()
+	routerMtx.Lock()
 	p.cfg = cfg
 	for _, r := range p.r {
 		if r != nil {
 			r.Config = cfg
 		}
 	}
-	mtx.Unlock()
+	routerMtx.Unlock()
 
 	// then refresh all
 	p.Refresh()
@@ -169,9 +169,9 @@ func (p *Proxy) GetCachedPoolControllers(ctx *gin.Context, matchId string) []*cm
         if !c.MatchesID(matchId) {
             continue
         }
-        mtx.Lock()
+        cacheMtx.Lock()
         status := controllerStatusCache[addr]
-        mtx.Unlock()
+        cacheMtx.Unlock()
         if status != nil && len(status.Controllers) > 0 {
             return status.Controllers
         }

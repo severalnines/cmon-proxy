@@ -88,14 +88,14 @@ func cleanupOldSessions(p *Proxy) {
 		}
 		// delete routers for no longer logged in (LDAP?) users...
 		if !hasSessionForUser && username != router.DefaultRouter {
-			mtx.Lock()
+			routerMtx.Lock()
 			r := p.r[username]
 			if r != nil {
 				// Clear pool controller clients before deleting router
 				r.ClearPoolControllerClients()
 			}
 			delete(p.r, username)
-			mtx.Unlock()
+			routerMtx.Unlock()
 		}
 	}
 }
@@ -332,9 +332,9 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 	if user := getUserForSession(ctx); loginSucceed && user != nil {
 		// Authenticate with pool controllers after successful cookie-based login
 		r.AuthenticateWithPoolControllers()
-		mtx.Lock()
+		routerMtx.Lock()
 		p.r[user.Username] = r
-		mtx.Unlock()
+		routerMtx.Unlock()
 
 		resp.RequestStatus = cmonapi.RequestStatusOk
 		resp.User = user
@@ -431,9 +431,9 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 	}
 	// okay, keep this router as login succeed to some of the cmon's
 	if user := getUserForSession(ctx); authSucceed && user != nil {
-		mtx.Lock()
+		routerMtx.Lock()
 		p.r[user.Username] = r
-		mtx.Unlock()
+		routerMtx.Unlock()
 
 		// Controller auth succeed, wohoo, return the syntetic proxy user
 		resp.RequestStatus = cmonapi.RequestStatusOk
@@ -526,9 +526,9 @@ func (p *Proxy) singleControllerLogin(ctx *gin.Context, username, password strin
 	})
 
 	// Store router for this user
-	mtx.Lock()
+	routerMtx.Lock()
 	p.r[username] = r
-	mtx.Unlock()
+	routerMtx.Unlock()
 
 	return user, nil
 }
@@ -668,9 +668,9 @@ func (p *Proxy) RPCAuthLogoutHandler(ctx *gin.Context) {
 		if c == nil {
 			continue
 		}
-		mtx.Lock()
+		cacheMtx.Lock()
 		instance := controllerStatusCache[addr]
-		mtx.Unlock()
+		cacheMtx.Unlock()
 		value := c.Xid()
 		if instance.Status == api.Ok && value != "" {
 			xids = append(xids, value)
