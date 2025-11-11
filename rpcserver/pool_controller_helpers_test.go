@@ -135,7 +135,7 @@ func TestTrySmartRouteAcrossPool_EmptyTargets(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = req
 	
-	result := trySmartRouteAcrossPool(ctx, "controller1", []byte(`{}`), []*cmonapi.PoolController{})
+	result := trySmartRouteAcrossPool(ctx, "controller1", []byte(`{}`), []*cmonapi.PoolController{}, nil, nil, nil)
 	
 	assert.False(t, result, "Should return false when no active targets")
 }
@@ -153,7 +153,7 @@ func TestTrySmartRouteAcrossPool_InvalidJSON(t *testing.T) {
 	invalidJSON := []byte(`{invalid json}`)
 	
 	// Should not panic with invalid JSON
-	result := trySmartRouteAcrossPool(ctx, "controller1", invalidJSON, activeTargets)
+	result := trySmartRouteAcrossPool(ctx, "controller1", invalidJSON, activeTargets, nil, nil, nil)
 	assert.False(t, result, "Should return false for invalid JSON without panicking")
 }
 
@@ -171,7 +171,7 @@ func TestTrySmartRouteAcrossPool_ValidJSONNoProxyRouting(t *testing.T) {
 	validJSON := []byte(`{"operation": "someOperation", "cluster_id": "5"}`)
 	
 	// Should return false when cluster_id doesn't match any controller and proxy is nil
-	result := trySmartRouteAcrossPool(ctx, "controller1", validJSON, activeTargets)
+	result := trySmartRouteAcrossPool(ctx, "controller1", validJSON, activeTargets, nil, nil, nil)
 	assert.False(t, result, "Should return false when no matching cluster and proxy is nil")
 }
 
@@ -240,11 +240,11 @@ func TestTrySmartRouteAcrossPool_EndpointDetection(t *testing.T) {
 				// These endpoints will try to access proxy.Router() which panics
 				// We test that the endpoint detection logic is reached
 				assert.Panics(t, func() {
-					trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets)
+					trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
 				}, tt.description)
 			} else {
 				// Should handle non-proxy endpoints without panicking
-				result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets)
+				result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
 				assert.False(t, result, tt.description)
 			}
 		})
@@ -348,10 +348,10 @@ func TestTrySmartRouteAcrossPool_OperationDetection(t *testing.T) {
 			
 			if tt.shouldPanic {
 				assert.Panics(t, func() {
-					trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets)
+					trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
 				}, tt.description)
 			} else {
-				result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets)
+				result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
 				assert.Equal(t, tt.expected, result, tt.description)
 			}
 		})
@@ -426,11 +426,11 @@ func TestTrySmartRouteAcrossPool_ClusterIdFormats(t *testing.T) {
 			if tt.shouldMatch {
 				// Matching cluster IDs will trigger proxy access and panic
 				assert.Panics(t, func() {
-					trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets)
+					trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
 				}, tt.description)
 			} else {
 				// Non-matching cluster IDs should not trigger proxy access
-				result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets)
+				result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
 				assert.False(t, result, tt.description)
 			}
 		})
@@ -514,7 +514,7 @@ func TestTrySmartRouteAcrossPool_PaginationParsing(t *testing.T) {
 			
 			// These paths will trigger proxy access and panic
 			assert.Panics(t, func() {
-				trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets)
+				trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
 			}, tt.description)
 		})
 	}
