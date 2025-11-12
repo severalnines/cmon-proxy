@@ -1,5 +1,8 @@
 package poolhelpers
 
+// Package poolhelpers provides utility functions for routing and aggregating requests
+// across pool controllers, including smart routing, fan-out aggregation, and pagination.
+
 import (
 	"encoding/json"
 	"fmt"

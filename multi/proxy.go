@@ -83,19 +83,21 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 	if isLDAP, ldapUsername := isLDAPSession(ctx); isLDAP {
 		routerMtx.RLock()
 		r, found := p.r[ldapUsername]
-		routerMtx.RUnlock()
 		if found {
+			routerMtx.RUnlock()
 			log.Sugar().Debugf("[ROUTER] Found LDAP router for user: %s", ldapUsername)
 			return r
 		}
+		routerMtx.RUnlock()
 	}
 	if isCMON, cmonUsername := isCMONSession(ctx); isCMON {
 		routerMtx.RLock()
 		r, found := p.r[cmonUsername]
-		routerMtx.RUnlock()
 		if found {
+			routerMtx.RUnlock()
 			return r
 		}
+		routerMtx.RUnlock()
 	}
 	
 	// For single controller mode, check if user has a router
@@ -103,32 +105,33 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 		log.Sugar().Debugf("[ROUTER] Checking for router for user: %s", user.Username)
 		routerMtx.RLock()
 		r, found := p.r[user.Username]
-		routerMtx.RUnlock()
 		if found {
+			routerMtx.RUnlock()
 			log.Sugar().Debugf("[ROUTER] Found router for user: %s", user.Username)
 			return r
-		} else {
-			log.Sugar().Warnf("[ROUTER] No router found for user: %s (available routers: %v)", user.Username, func() []string {
-				routerMtx.RLock()
-				defer routerMtx.RUnlock()
-				keys := make([]string, 0, len(p.r))
-				for k := range p.r {
-					keys = append(keys, k)
-				}
-				return keys
-			}())
 		}
+		routerMtx.RUnlock()
+		log.Sugar().Warnf("[ROUTER] No router found for user: %s (available routers: %v)", user.Username, func() []string {
+			routerMtx.RLock()
+			defer routerMtx.RUnlock()
+			keys := make([]string, 0, len(p.r))
+			for k := range p.r {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
 	} else {
 		log.Sugar().Debugf("[ROUTER] No user found in session")
 	}
 	
 	routerMtx.RLock()
 	defaultRouter, found := p.r[router.DefaultRouter]
-	routerMtx.RUnlock()
 	if found {
+		routerMtx.RUnlock()
 		log.Sugar().Debugf("[ROUTER] Using default router")
 		return defaultRouter
 	}
+	routerMtx.RUnlock()
 
 	// this can't really happen.. unless we are shutting down ?
 	log.Sugar().Fatalln("No router available to handle RPC sessions")
