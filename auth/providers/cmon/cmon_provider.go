@@ -6,21 +6,29 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/severalnines/cmon-proxy/auth/user"
+	"github.com/severalnines/cmon-proxy/multi/router"
 	"go.uber.org/zap"
 )
 
 type Provider struct {
-	whoamiURL string
-	client    *http.Client
-	logger    *zap.SugaredLogger
+	whoamiURL    string
+	client       *http.Client
+	logger       *zap.SugaredLogger
+	routerGetter func(*gin.Context) *router.Router // Optional function to get router from gin context
 }
 
-func NewProvider(whoamiURL string, client *http.Client) *Provider {
+func NewProvider(whoamiURL string, client *http.Client, routerGetter ...func(*gin.Context) *router.Router) *Provider {
+	var getter func(*gin.Context) *router.Router
+	if len(routerGetter) > 0 {
+		getter = routerGetter[0]
+	}
 	return &Provider{
-		whoamiURL: whoamiURL,
-		client:    client,
-		logger:    zap.L().Sugar(),
+		whoamiURL:    whoamiURL,
+		client:       client,
+		logger:       zap.L().Sugar(),
+		routerGetter: getter,
 	}
 }
 
@@ -29,9 +37,49 @@ func (p *Provider) GetUserInfo(authCtx *user.AuthContext) (*user.User, error) {
 		return nil, fmt.Errorf("HTTP request is required for CMON provider")
 	}
 
-	cmonSIDCookie, err := authCtx.Request.Cookie("cmon-sid")
-	if err != nil {
-		return nil, fmt.Errorf("cmon-sid cookie not found in request: %v", err)
+	var cmonSIDCookie *http.Cookie
+
+	// Get cmon-sid from router session (if gin.Context is available and routerGetter is provided)
+	if authCtx.Context != nil && p.routerGetter != nil {
+		r := p.routerGetter(authCtx.Context)
+		if r != nil {
+			// Try to get session cookie from router's client
+			// Get the first available controller URL from router
+			urls := r.Urls()
+			p.logger.Debugf("Router has %d controller URLs", len(urls))
+			for _, addr := range urls {
+				c := r.Cmon(addr)
+				if c != nil && c.Client != nil {
+					if sessionCookie := c.Client.GetSessionCookie(); sessionCookie != nil {
+						cmonSIDCookie = sessionCookie
+						p.logger.Debugf("Using cmon-sid from router client session for controller %s", addr)
+						break
+					} else {
+						p.logger.Debugf("No session cookie for controller %s", addr)
+					}
+				} else {
+					if c == nil {
+						p.logger.Debugf("No cmon client for controller %s", addr)
+					} else {
+						p.logger.Debugf("Client is nil for controller %s", addr)
+					}
+				}
+			}
+		} else {
+			p.logger.Warnf("Router getter returned nil")
+		}
+	} else {
+		if authCtx.Context == nil {
+			p.logger.Warnf("Gin context is nil")
+		}
+		if p.routerGetter == nil {
+			p.logger.Warnf("Router getter is nil")
+		}
+	}
+
+	// No router session available
+	if cmonSIDCookie == nil {
+		return nil, fmt.Errorf("no router session available")
 	}
 
 	payload := map[string]string{"operation": "whoAmI"}

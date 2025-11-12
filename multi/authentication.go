@@ -88,9 +88,14 @@ func cleanupOldSessions(p *Proxy) {
 		}
 		// delete routers for no longer logged in (LDAP?) users...
 		if !hasSessionForUser && username != router.DefaultRouter {
-			mtx.Lock()
+			routerMtx.Lock()
+			r := p.r[username]
+			if r != nil {
+				// Clear pool controller clients before deleting router
+				r.ClearPoolControllerClients()
+			}
 			delete(p.r, username)
-			mtx.Unlock()
+			routerMtx.Unlock()
 		}
 	}
 }
@@ -236,8 +241,32 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 		return false
 	}
 
+	// Try to get cmon-sid from existing router first (if user already has a router in single mode)
+	var CMONCookie *http.Cookie
+	routerMtx.RLock()
+	existingRouter, found := p.r[req.Username]
+	routerMtx.RUnlock()
+	if found && existingRouter != nil {
+		// Check if user has a router with an authenticated session
+		c := existingRouter.Cmon(authController.Url)
+		if c != nil && c.Client != nil {
+			if sessionCookie := c.Client.GetSessionCookie(); sessionCookie != nil {
+				CMONCookie = sessionCookie
+				zap.L().Info(fmt.Sprintf("[AUDIT] Using existing session from router for user %s", req.Username))
+			}
+		}
+	}
+	
+	// No existing router session available
+	if CMONCookie == nil {
+		zap.L().Info("[AUDIT] No existing router session found")
+		return false
+	}
+
 	// create a router for this login attempt (if there is not already one)
+	routerMtx.RLock()
 	r, found := p.r[req.Username]
+	routerMtx.RUnlock()
 	if !found || r == nil {
 		var err error
 		r, err = router.New(p.cfg)
@@ -245,16 +274,6 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 			zap.L().Error("Can't create router for authentication", zap.Error(err))
 			return false
 		}
-	}
-
-	CMONSid, err := ctx.Cookie("cmon-sid")
-	if err != nil {
-		zap.L().Info("[AUDIT] Cookies are not enabled or cmon-sid cookie is missing")
-		return false
-	}
-	CMONCookie := &http.Cookie{
-		Name:  "cmon-sid",
-		Value: CMONSid,
 	}
 
 	// test authentication before writing anything in state
@@ -267,8 +286,6 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 				req.Username, authController.Url, ctx.ClientIP(), ctx.Request.UserAgent(), err.Error()))
 		return false
 	}
-
-	r.CMONSid = CMONCookie
 
 	r.Sync()
 	controller := r.Cmon(authController.Url)
@@ -317,7 +334,11 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 
 	// okay, keep this router as login succeed to some of the cmon's
 	if user := getUserForSession(ctx); loginSucceed && user != nil {
+		// Authenticate with pool controllers after successful cookie-based login
+		r.AuthenticateWithPoolControllers()
+		routerMtx.Lock()
 		p.r[user.Username] = r
+		routerMtx.Unlock()
 
 		resp.RequestStatus = cmonapi.RequestStatusOk
 		resp.User = user
@@ -371,7 +392,9 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 	user := r.GetControllerUser()
 
 	if user != nil {
+		routerMtx.RLock()
 		existsRouter, found := p.r[req.Username]
+		routerMtx.RUnlock()
 		if found && existsRouter != nil {
 			existsRouter.AuthController = router.AuthController{ // Create a new object without preserving reference
 				Use:      r.AuthController.Use,
@@ -379,6 +402,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 				Password: r.AuthController.Password,
 			}
 			existsRouter.Authenticate()
+			existsRouter.AuthenticateWithPoolControllers() // Authenticate with pool controllers after re-authentication
 			user = existsRouter.GetControllerUser()
 			r = existsRouter
 		}
@@ -407,9 +431,15 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 	}
 
 	r.Ping(true);
+	// Authenticate with pool controllers after successful login
+	if authSucceed {
+		r.AuthenticateWithPoolControllers()
+	}
 	// okay, keep this router as login succeed to some of the cmon's
 	if user := getUserForSession(ctx); authSucceed && user != nil {
-		p.r[req.Username] = r
+		routerMtx.Lock()
+		p.r[user.Username] = r
+		routerMtx.Unlock()
 
 		// Controller auth succeed, wohoo, return the syntetic proxy user
 		resp.RequestStatus = cmonapi.RequestStatusOk
@@ -423,6 +453,92 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 			req.Username, ctx.ClientIP(), ctx.Request.UserAgent()))
 
 	return false
+}
+
+// singleControllerLogin handles login for single controller mode
+// It authenticates with the single controller and creates a router for the user
+func (p *Proxy) singleControllerLogin(ctx *gin.Context, username, password string) (*cmonapi.User, error) {
+	if p == nil || p.cfg == nil || len(p.cfg.SingleController) == 0 {
+		return nil, fmt.Errorf("single controller not configured")
+	}
+
+	controller := p.cfg.ControllerById(p.cfg.SingleController)
+	if controller == nil {
+		return nil, fmt.Errorf("single controller not found: %s", p.cfg.SingleController)
+	}
+
+	// Create router for this user
+	r, err := router.New(p.cfg)
+	if err != nil {
+		zap.L().Error("Can't create router for single controller login", zap.Error(err))
+		return nil, err
+	}
+
+	// Configure router to use the provided credentials
+	r.AuthController.Use = true
+	r.AuthController.Username = username
+	r.AuthController.Password = password
+
+	zap.L().Info(
+		fmt.Sprintf("[AUDIT] Single controller authentication attempt '%s' (source %s / %s)",
+			username, ctx.ClientIP(), ctx.Request.UserAgent()))
+
+	// Authenticate with the single controller
+	r.Authenticate()
+	user := r.GetControllerUser()
+
+	if user == nil {
+		return nil, fmt.Errorf("authentication failed")
+	}
+
+	// Check if router already exists for this user
+	routerMtx.RLock()
+	existsRouter, found := p.r[username]
+	routerMtx.RUnlock()
+	if found && existsRouter != nil {
+		// Update existing router with new credentials
+		existsRouter.AuthController = router.AuthController{
+			Use:      r.AuthController.Use,
+			Username: r.AuthController.Username,
+			Password: r.AuthController.Password,
+		}
+		existsRouter.Authenticate()
+		existsRouter.AuthenticateWithPoolControllers()
+		user = existsRouter.GetControllerUser()
+		r = existsRouter
+	} else {
+		// New router, authenticate with pool controllers
+		r.Ping(true)
+		r.AuthenticateWithPoolControllers()
+	}
+
+	// Extract group names from user.Groups
+	groupNames := make([]string, 0, len(user.Groups))
+	for _, group := range user.Groups {
+		if group != nil {
+			groupNames = append(groupNames, group.GroupName)
+		}
+	}
+
+	// Create session in cmon-proxy
+	setUserForSession(ctx, &config.ProxyUser{
+		Username:     user.UserName,
+		LdapUser:     user.Origin == "LDAP",
+		CMONUser:     user.Origin == "CmonDb",
+		ControllerId: controller.Xid,
+		FirstName:    user.FirstName,
+		LastName:     user.LastName,
+		EmailAddress: user.EmailAddress,
+		Admin:        false,
+		Groups:       groupNames,
+	})
+
+	// Store router for this user
+	routerMtx.Lock()
+	p.r[username] = r
+	routerMtx.Unlock()
+
+	return user, nil
 }
 
 func (p *Proxy) RPCAuthCookieHandler(ctx *gin.Context) {
@@ -475,7 +591,11 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 		}
 	}
 
-	user, err := p.r[router.DefaultRouter].Config.GetUser(req.Username)
+	routerMtx.RLock()
+	defaultRouter := p.r[router.DefaultRouter]
+	routerMtx.RUnlock()
+	
+	user, err := defaultRouter.Config.GetUser(req.Username)
 	if err != nil {
 		externalLoginSucceed := p.controllerLogin(ctx, &req, &resp)
 		if !externalLoginSucceed {
@@ -560,9 +680,9 @@ func (p *Proxy) RPCAuthLogoutHandler(ctx *gin.Context) {
 		if c == nil {
 			continue
 		}
-		mtx.Lock()
+		cacheMtx.Lock()
 		instance := controllerStatusCache[addr]
-		mtx.Unlock()
+		cacheMtx.Unlock()
 		value := c.Xid()
 		if instance.Status == api.Ok && value != "" {
 			xids = append(xids, value)
@@ -684,12 +804,15 @@ func (p *Proxy) RPCAuthUpdateUserHandler(ctx *gin.Context) {
 		} else {
 			// we do not allow updating password from this request
 			req.User.PasswordHash = ""
-			if err := p.r[router.DefaultRouter].Config.UpdateUser(req.User); err != nil {
+			routerMtx.RLock()
+			defaultRouter := p.r[router.DefaultRouter]
+			routerMtx.RUnlock()
+			if err := defaultRouter.Config.UpdateUser(req.User); err != nil {
 				resp.RequestStatus = cmonapi.RequestStatusUnknownError
 				resp.ErrorString = "failed to update user: " + err.Error()
 			} else {
 				// also update the user in session
-				updatedUser, _ := p.r[router.DefaultRouter].Config.GetUser(req.User.Username)
+				updatedUser, _ := defaultRouter.Config.GetUser(req.User.Username)
 				setUserForSession(ctx, updatedUser)
 				// return the updated user instance
 				resp.User = updatedUser.Copy(false)
@@ -735,7 +858,10 @@ func (p *Proxy) RPCAuthSetPasswordHandler(ctx *gin.Context) {
 			resp.ErrorString = ""
 
 			u.SetPassword(req.NewPassword)
-			if err := p.r[router.DefaultRouter].Config.UpdateUser(u); err != nil {
+			routerMtx.RLock()
+			defaultRouter := p.r[router.DefaultRouter]
+			routerMtx.RUnlock()
+			if err := defaultRouter.Config.UpdateUser(u); err != nil {
 				resp.RequestStatus = cmonapi.RequestStatusUnknownError
 				resp.ErrorString = "failed to update user: " + err.Error()
 			} else {

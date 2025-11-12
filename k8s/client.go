@@ -17,6 +17,7 @@ import (
 	"github.com/severalnines/cmon-proxy/auth/providers/cmonproxy"
 	"github.com/severalnines/cmon-proxy/auth/user"
 	"github.com/severalnines/cmon-proxy/config"
+	"github.com/severalnines/cmon-proxy/multi/router"
 	"go.uber.org/zap"
 )
 
@@ -26,15 +27,21 @@ const (
 )
 
 type K8sProxyClient struct {
-	httpClient *http.Client
-	cfg        *config.Config
-	auth       *auth.Auth
-	logger     *zap.SugaredLogger
+	httpClient   *http.Client
+	cfg          *config.Config
+	auth         *auth.Auth
+	logger       *zap.SugaredLogger
+	routerGetter func(*gin.Context) *router.Router // Optional function to get router from gin context
 }
 
-func NewK8sProxyClient(cfg *config.Config) (*K8sProxyClient, error) {
+func NewK8sProxyClient(cfg *config.Config, routerGetter ...func(*gin.Context) *router.Router) (*K8sProxyClient, error) {
+	var getter func(*gin.Context) *router.Router
+	if len(routerGetter) > 0 {
+		getter = routerGetter[0]
+	}
 	client := &K8sProxyClient{
-		cfg: cfg,
+		cfg:          cfg,
+		routerGetter: getter,
 		httpClient: &http.Client{
 			Timeout: time.Second * 10,
 		},
@@ -83,7 +90,7 @@ func (c *K8sProxyClient) InitAuthService(cfg *config.Config) error {
 	} else if singleControllerInstance != nil && singleControllerInstance.Url != "" {
 		// Use CMON provider if WhoamiURL is set
 		var whoamiURL string = "https://" + singleControllerInstance.Url + "/v2/users"
-		userProvider = cmon.NewProvider(whoamiURL, providerClient)
+		userProvider = cmon.NewProvider(whoamiURL, providerClient, c.routerGetter)
 		c.logger.Infof("Using CMON user provider with WhoamiURL: %s", whoamiURL)
 	} else {
 		return fmt.Errorf("no valid user provider configuration found")
@@ -106,7 +113,7 @@ func (c *K8sProxyClient) InitAuthService(cfg *config.Config) error {
 func (c *K8sProxyClient) getJWTToken(ctx *gin.Context) (string, error) {
 	// Use the auth service to generate token from the request
 	if c.auth != nil {
-		return c.auth.GenerateToken(ctx.Request)
+		return c.auth.GenerateToken(ctx.Request, ctx)
 	}
 
 	return "", fmt.Errorf("auth service not initialized")
