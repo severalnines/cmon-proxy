@@ -39,7 +39,24 @@ func isValidActivePoolController(pc *cmonapi.PoolController) bool {
 }
 
 // createPoolControllerClient creates a cmon client for a pool controller
+// It first tries to get an authenticated client from the router, and if not found,
+// creates a new client with the session from the main controller
 func (p *Proxy) createPoolControllerClient(ctx *gin.Context, data *router.Cmon, pc *cmonapi.PoolController) *cmon.Client {
+	if pc == nil || len(pc.Hostname) == 0 || pc.Port == 0 {
+		return nil
+	}
+	
+	r := p.Router(ctx)
+	if r == nil {
+		return nil
+	}
+	
+	// Try to get authenticated client from router first
+	if authenticatedClient := r.GetPoolControllerClient(pc); authenticatedClient != nil {
+		return authenticatedClient
+	}
+	
+	// Fallback: create a new client with session from main controller
 	inst := data.Client.Instance.Copy()
 	inst.Url = fmt.Sprintf("%s:%d", pc.Hostname, pc.Port+1)
 	pcClient := cmon.NewClient(inst, p.Router(ctx).Config.Timeout)

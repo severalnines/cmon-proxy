@@ -43,7 +43,9 @@ import (
 	"github.com/severalnines/cmon-proxy/config"
 	k8s "github.com/severalnines/cmon-proxy/k8s"
 	"github.com/severalnines/cmon-proxy/multi"
+	"github.com/severalnines/cmon-proxy/multi/router"
 	"github.com/severalnines/cmon-proxy/opts"
+	"github.com/severalnines/cmon-proxy/poolhelpers"
 	"github.com/severalnines/cmon-proxy/rpcserver/session"
 	"go.uber.org/zap"
 )
@@ -395,9 +397,9 @@ func forwardToCmon(ctx *gin.Context) {
 	}
 
 	controllers := proxy.GetCachedPoolControllers(ctx, controllerId.GetID())
-	activeTargets := filterActivePoolControllers(controllers)
+	activeTargets := poolhelpers.FilterActivePoolControllers(controllers)
 
-	if trySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets) {
+	if poolhelpers.TrySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets, nil, nil, func(ctx *gin.Context) *router.Router { return proxy.Router(ctx) }) {
 		return
 	}
 
@@ -694,18 +696,34 @@ func Start(cfg *config.Config) {
 
 	}
 
-	k8sClient, err := k8s.NewK8sProxyClient(cfg)
+	k8sClient, err := k8s.NewK8sProxyClient(cfg, func(ctx *gin.Context) *router.Router { return proxy.Router(ctx) })
 	if err != nil {
 		log.Sugar().Fatalf("initialization problem: %s", err.Error())
 	}
 
 	single := s.Group("/single")
 	{
-		single.POST("/v2/*any", proxy.PRCProxySingleControllerWithPoolSupport)
-		single.GET("/v2/*any", proxy.PRCProxySingleControllerWithPoolSupport)
+		// Define /v2 group - use a single handler for all routes to avoid route conflicts
+		singleV2 := single.Group("/v2")
+		singleV2.POST("/*any", func(c *gin.Context) {
+			// Check if this is the /auth endpoint
+			if c.Param("any") == "/auth" || strings.HasSuffix(c.Request.URL.Path, "/v2/auth") {
+				// Auth endpoint doesn't need middleware (it handles its own auth)
+				proxy.PRCProxySingleControllerWithPoolSupport(c)
+				return
+			}
+			// Apply auth middleware for other routes
+			proxy.RPCAuthMiddleware(c)
+			if c.IsAborted() {
+				return
+			}
+			proxy.PRCProxySingleControllerWithPoolSupport(c)
+		})
+		
 		k8s := single.Group("/k8s")
 		{
 			k8sProxyHandler := func(c *gin.Context) {
+			  	proxy.RPCAuthMiddleware(c)
 				path := c.Param("path")
 				k8sClient.ProxyRequest(c, path)
 			}

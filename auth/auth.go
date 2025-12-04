@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/severalnines/cmon-proxy/auth/jwt"
 	"github.com/severalnines/cmon-proxy/auth/user"
 	"go.uber.org/zap"
@@ -62,9 +63,12 @@ func (a *Auth) GetProvider() user.Provider {
 	return a.provider
 }
 
-func (a *Auth) GenerateToken(r *http.Request) (string, error) {
+func (a *Auth) GenerateToken(r *http.Request, ginCtx ...*gin.Context) (string, error) {
 	authCtx := &user.AuthContext{
 		Request: r,
+	}
+	if len(ginCtx) > 0 && ginCtx[0] != nil {
+		authCtx.Context = ginCtx[0]
 	}
 
 	user, err := a.provider.GetUserInfo(authCtx)

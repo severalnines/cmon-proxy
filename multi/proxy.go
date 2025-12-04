@@ -22,7 +22,8 @@ import (
 )
 
 var (
-	mtx                   *sync.Mutex
+	cacheMtx              *sync.Mutex   // Mutex for protecting controllerStatusCache
+	routerMtx             *sync.RWMutex // Mutex for protecting p.r map
 	controllerStatusCache map[string]*api.ControllerStatus
 )
 
@@ -32,7 +33,8 @@ type Proxy struct {
 }
 
 func init() {
-	mtx = &sync.Mutex{}
+	cacheMtx = &sync.Mutex{}
+	routerMtx = &sync.RWMutex{}
 	controllerStatusCache = make(map[string]*api.ControllerStatus)
 }
 
@@ -79,18 +81,57 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 	log := zap.L()
 
 	if isLDAP, ldapUsername := isLDAPSession(ctx); isLDAP {
-		if r, found := p.r[ldapUsername]; found {
+		routerMtx.RLock()
+		r, found := p.r[ldapUsername]
+		if found {
+			routerMtx.RUnlock()
+			log.Sugar().Debugf("[ROUTER] Found LDAP router for user: %s", ldapUsername)
 			return r
 		}
+		routerMtx.RUnlock()
 	}
 	if isCMON, cmonUsername := isCMONSession(ctx); isCMON {
-		if r, found := p.r[cmonUsername]; found {
+		routerMtx.RLock()
+		r, found := p.r[cmonUsername]
+		if found {
+			routerMtx.RUnlock()
 			return r
 		}
+		routerMtx.RUnlock()
 	}
-	if defaultRouter, found := p.r[router.DefaultRouter]; found {
+	
+	// For single controller mode, check if user has a router
+	if user := getUserForSession(ctx); user != nil {
+		log.Sugar().Debugf("[ROUTER] Checking for router for user: %s", user.Username)
+		routerMtx.RLock()
+		r, found := p.r[user.Username]
+		if found {
+			routerMtx.RUnlock()
+			log.Sugar().Debugf("[ROUTER] Found router for user: %s", user.Username)
+			return r
+		}
+		routerMtx.RUnlock()
+		log.Sugar().Warnf("[ROUTER] No router found for user: %s (available routers: %v)", user.Username, func() []string {
+			routerMtx.RLock()
+			defer routerMtx.RUnlock()
+			keys := make([]string, 0, len(p.r))
+			for k := range p.r {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
+	} else {
+		log.Sugar().Debugf("[ROUTER] No user found in session")
+	}
+	
+	routerMtx.RLock()
+	defaultRouter, found := p.r[router.DefaultRouter]
+	if found {
+		routerMtx.RUnlock()
+		log.Sugar().Debugf("[ROUTER] Using default router")
 		return defaultRouter
 	}
+	routerMtx.RUnlock()
 
 	// this can't really happen.. unless we are shutting down ?
 	log.Sugar().Fatalln("No router available to handle RPC sessions")
@@ -99,14 +140,14 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 
 // In case of configuration re-load, lets apply it to all of the routers
 func (p *Proxy) UpdateConfig(cfg *config.Config) {
-	mtx.Lock()
+	routerMtx.Lock()
 	p.cfg = cfg
 	for _, r := range p.r {
 		if r != nil {
 			r.Config = cfg
 		}
 	}
-	mtx.Unlock()
+	routerMtx.Unlock()
 
 	// then refresh all
 	p.Refresh()
@@ -131,9 +172,9 @@ func (p *Proxy) GetCachedPoolControllers(ctx *gin.Context, matchId string) []*cm
         if !c.MatchesID(matchId) {
             continue
         }
-        mtx.Lock()
+        cacheMtx.Lock()
         status := controllerStatusCache[addr]
-        mtx.Unlock()
+        cacheMtx.Unlock()
         if status != nil && len(status.Controllers) > 0 {
             return status.Controllers
         }
