@@ -719,11 +719,11 @@ func Start(cfg *config.Config) {
 			}
 			proxy.PRCProxySingleControllerWithPoolSupport(c)
 		})
-		
+
 		k8s := single.Group("/k8s")
 		{
 			k8sProxyHandler := func(c *gin.Context) {
-			  	proxy.RPCAuthMiddleware(c)
+				proxy.RPCAuthMiddleware(c)
 				path := c.Param("path")
 				k8sClient.ProxyRequest(c, path)
 			}
@@ -747,9 +747,7 @@ func Start(cfg *config.Config) {
 	// Proxy any /v2 requests to the specified (by controller_id) cmon
 	v2 := s.Group("/v2")
 	{
-		if cfg.SingleController == "" {
-			v2.Use(proxy.RPCAuthMiddleware)
-		}
+		v2.Use(proxy.RPCAuthMiddleware)
 		v2.POST("/*any", forwardToCmon)
 		v2.GET("/*any", forwardToCmon)
 	}
