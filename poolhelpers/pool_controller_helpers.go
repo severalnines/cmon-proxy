@@ -568,6 +568,10 @@ func aggregateListAcrossPoolControllers(
 	var baseResp map[string]interface{}
 	aggregated := make([]map[string]interface{}, 0, 256)
 
+	// Track seen IDs for deduplication per key type
+	seenAlarmIDs := make(map[int64]bool)
+	seenJobIDs := make(map[uint64]bool)
+
 	for resp := range responseChan {
 		if resp.err != nil || resp.response == nil {
 			continue
@@ -581,6 +585,26 @@ func aggregateListAcrossPoolControllers(
 			if lst, ok := resp.response[key].([]interface{}); ok {
 				for _, it := range lst {
 					if m, ok := it.(map[string]interface{}); ok {
+						// Deduplicate alarms by alarm_id
+						if key == "alarms" {
+							if alarmID, ok := m["alarm_id"].(float64); ok {
+								alarmIDInt := int64(alarmID)
+								if seenAlarmIDs[alarmIDInt] {
+									continue
+								}
+								seenAlarmIDs[alarmIDInt] = true
+							}
+						}
+						// Deduplicate jobs by job_id
+						if key == "jobs" {
+							if jobID, ok := m["job_id"].(float64); ok {
+								jobIDUint := uint64(jobID)
+								if seenJobIDs[jobIDUint] {
+									continue
+								}
+								seenJobIDs[jobIDUint] = true
+							}
+						}
 						aggregated = append(aggregated, m)
 					}
 				}
