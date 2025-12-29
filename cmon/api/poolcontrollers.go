@@ -26,12 +26,16 @@ type GetControllersResponse struct {
 	DebugMessages   []string          `json:"debug_messages"`
 }
 
+type PoolControllerProperties struct {
+	Role string `json:"role"` // "main_controller" or "nfs_member"
+}
+
 type PoolController struct {
-	ControllerID int      `json:"controller_id"`
-	Hostname     string   `json:"hostname"`
-	Port         int      `json:"port"`
-	Properties   string   `json:"properties"`
-	ReportTs     string   `json:"report_ts"`
-	Status       string   `json:"status"`
-	Clusters     []string `json:"clusters"`
+	ControllerID int                       `json:"controller_id"`
+	Hostname     string                    `json:"hostname"`
+	Port         int                       `json:"port"`
+	Properties   *PoolControllerProperties `json:"properties"`
+	ReportTs     string                    `json:"report_ts"`
+	Status       string                    `json:"status"`
+	Clusters     []string                  `json:"clusters"`
 }

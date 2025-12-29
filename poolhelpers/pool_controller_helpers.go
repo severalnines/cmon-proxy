@@ -175,6 +175,20 @@ func trySmartRouteAcrossPool(
 
 	// If multiple active pool-controllers, perform smart routing
 	if len(activeTargets) > 1 {
+		// Route jobs without cluster_id to main_controller
+		if clusterIdStr == "" && clusterId == -1 {
+			var mainController *cmonapi.PoolController
+			for _, pc := range activeTargets {
+				if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
+					mainController = pc
+					break
+				}
+			}
+			if mainController != nil && forwardTo(mainController, "poolcontroller no-cluster-id -> main_controller") {
+				return true
+			}
+		}
+
 		// Special case: createJobInstance with cluster_id=0 → choose least-loaded pool-controller
 		if strings.EqualFold(op, "createJobInstance") && clusterId == 0 {
 			var chosen *cmonapi.PoolController
