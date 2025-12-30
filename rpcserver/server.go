@@ -252,6 +252,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					"SINGLE_CONTROLLER_API_URL": "/single/v2",
 					"MULTI_CONTROLLER_API_URL":  "/v2",
 					"KUBERNETES_ENABLED":        cfg.KubernetesEnabled,
+					"POOL_VISIBLE":              cfg.PoolVisible,
 					"INSTANCES":                 cfg.Instances,
 				}
 
@@ -805,6 +806,12 @@ func Start(cfg *config.Config) {
 		k8s.Use(proxy.RPCAuthMiddleware)
 		{
 			k8s.POST("/enable", proxy.EnableK8sHandler)
+		}
+
+		pool := p.Group("/pool")
+		pool.Use(proxy.RPCAuthMiddleware)
+		{
+			pool.POST("/visible", proxy.SetPoolVisibleHandler)
 		}
 
 		clusters := p.Group("/clusters")

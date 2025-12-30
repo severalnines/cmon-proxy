@@ -26,8 +26,17 @@ type GetControllersResponse struct {
 	DebugMessages   []string          `json:"debug_messages"`
 }
 
+type PoolControllerStats struct {
+	CpuPct  string `json:"cpu_pct"`
+	MemUsed string `json:"mem_used"`
+	MemTotal string `json:"mem_total"`
+	FdUsed  int    `json:"fd_used"`
+	FdTotal int    `json:"fd_total"`
+}
+
 type PoolControllerProperties struct {
-	Role string `json:"role"` // "main_controller" or "nfs_member"
+	Role  string              `json:"role"` // "main_controller" or "nfs_member"
+	Stats *PoolControllerStats `json:"stats,omitempty"`
 }
 
 type PoolController struct {
