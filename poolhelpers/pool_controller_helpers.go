@@ -66,7 +66,11 @@ func trySmartRouteAcrossPool(
 	pathTransformer func() string,
 	routerGetter func(*gin.Context) *router.Router,
 ) bool {
+	requestPath := ctx.Request.URL.EscapedPath()
+	zap.L().Sugar().Debugf("trySmartRouteAcrossPool: path=%s, activeTargets=%d, controllerId=%s", requestPath, len(activeTargets), controllerId)
+	
 	if len(activeTargets) < 1 {
+		zap.L().Sugar().Debugf("trySmartRouteAcrossPool: no active targets, returning false")
 		return false
 	}
 
@@ -138,6 +142,9 @@ func trySmartRouteAcrossPool(
 			return false
 		}
 		router := getRouter()
+		if router == nil {
+			return false
+		}
 		for _, addr := range router.Urls() {
 			c := router.Cmon(addr)
 			if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
@@ -173,8 +180,124 @@ func trySmartRouteAcrossPool(
 		return false
 	}
 
+	// Aggregation handlers (check BEFORE smart routing to avoid routing to main_controller)
+	router := getRouter()
+	if router != nil {
+		// /clusters getAllClusterInfo aggregation
+		if strings.Contains(ctx.Request.URL.Path, "/clusters") {
+			var withOp cmonapi.WithOperation
+			_ = json.Unmarshal(jsonData, &withOp)
+			if strings.EqualFold(withOp.Operation, "getAllClusterInfo") {
+				for _, addr := range router.Urls() {
+					c := router.Cmon(addr)
+					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+						continue
+					}
+					data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"clusters"}, nil, false, 0, 0, router, routerGetter)
+					if ok {
+						ctx.Data(http.StatusOK, "application/json", data)
+						return true
+					}
+				}
+			}
+		}
+
+		// /backup getBackups aggregation
+		if strings.Contains(ctx.Request.URL.Path, "/backup") {
+			var body map[string]interface{}
+			_ = json.Unmarshal(jsonData, &body)
+			op, _ := body["operation"].(string)
+			var limit, offset int
+			var ascending bool
+			if v, ok := body["limit"].(float64); ok {
+				limit = int(v)
+			}
+			if v, ok := body["offset"].(float64); ok {
+				offset = int(v)
+			}
+			if v, ok := body["ascending"].(bool); ok {
+				ascending = v
+			}
+			if strings.EqualFold(op, "getBackups") {
+				delete(body, "limit")
+				delete(body, "offset")
+				delete(body, "ascending")
+				delete(body, "order")
+				jsonData, _ = json.Marshal(body)
+				for _, addr := range router.Urls() {
+					c := router.Cmon(addr)
+					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+						continue
+					}
+					data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"backup_records"}, func(m map[string]interface{}) time.Time {
+						if md, ok := m["metadata"].(map[string]interface{}); ok {
+							if s, ok := md["created"].(string); ok {
+								if t, err := time.Parse(time.RFC3339, s); err == nil {
+									return t
+								}
+							}
+						}
+						return time.Time{}
+					}, ascending, limit, offset, router, routerGetter)
+					if ok {
+						ctx.Data(http.StatusOK, "application/json", data)
+						return true
+					}
+					break
+				}
+			}
+		}
+
+		// Generic aggregation: reports/jobs/alarms/audit/maintenance
+		if strings.Contains(ctx.Request.URL.Path, "/reports") || strings.Contains(ctx.Request.URL.Path, "/jobs") || strings.Contains(ctx.Request.URL.Path, "/alarms") || strings.Contains(ctx.Request.URL.Path, "/audit") || strings.Contains(ctx.Request.URL.Path, "/maintenance") {
+			var body map[string]interface{}
+			_ = json.Unmarshal(jsonData, &body)
+			op, _ := body["operation"].(string)
+			var limit, offset int
+			var ascending bool
+			if v, ok := body["limit"].(float64); ok {
+				limit = int(v)
+			}
+			if v, ok := body["offset"].(float64); ok {
+				offset = int(v)
+			}
+			if v, ok := body["ascending"].(bool); ok {
+				ascending = v
+			}
+			if strings.EqualFold(op, "getReports") || strings.EqualFold(op, "listSchedules") || strings.EqualFold(op, "getAlarms") || strings.EqualFold(op, "getEntries") || strings.EqualFold(op, "getMaintenance") || strings.EqualFold(op, "getJobInstances") {
+				delete(body, "limit")
+				delete(body, "offset")
+				delete(body, "ascending")
+				delete(body, "order")
+				jsonData, _ = json.Marshal(body)
+				for _, addr := range router.Urls() {
+					c := router.Cmon(addr)
+					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+						continue
+					}
+					data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"reports", "data", "jobs", "alarms", "audit_entries", "maintenance_records"}, func(m map[string]interface{}) time.Time {
+						for _, k := range []string{"created", "created_time", "created_ts"} {
+							if s, ok := m[k].(string); ok {
+								if t, err := time.Parse(time.RFC3339, s); err == nil {
+									return t
+								}
+							}
+						}
+						return time.Time{}
+					}, ascending, limit, offset, router, routerGetter)
+					if ok {
+						ctx.Data(http.StatusOK, "application/json", data)
+						return true
+					}
+					break
+				}
+			}
+		}
+	}
+
 	// If multiple active pool-controllers, perform smart routing
 	if len(activeTargets) > 1 {
+		zap.L().Sugar().Debugf("trySmartRouteAcrossPool: multiple targets (%d), checking smart routing", len(activeTargets))
 		// Route jobs without cluster_id to main_controller
 		if clusterIdStr == "" && clusterId == -1 {
 			var mainController *cmonapi.PoolController
@@ -185,6 +308,7 @@ func trySmartRouteAcrossPool(
 				}
 			}
 			if mainController != nil && forwardTo(mainController, "poolcontroller no-cluster-id -> main_controller") {
+				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed to main_controller, returning early")
 				return true
 			}
 		}
@@ -201,6 +325,7 @@ func trySmartRouteAcrossPool(
 				}
 			}
 			if forwardTo(chosen, "poolcontroller createJobInstance cluster_id=0") {
+				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed createJobInstance to least-loaded, returning early")
 				return true
 			}
 		}
@@ -220,9 +345,12 @@ func trySmartRouteAcrossPool(
 				}
 			}
 			if forwardTo(chosen, "poolcontroller cluster-directed") {
+				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed cluster-directed request, returning early")
 				return true
 			}
 		}
+	} else {
+		zap.L().Sugar().Debugf("trySmartRouteAcrossPool: single target (%d), skipping smart routing", len(activeTargets))
 	}
 
 	// Fan-out tree aggregation: /tree with operation getTree
@@ -231,7 +359,10 @@ func trySmartRouteAcrossPool(
 		_ = json.Unmarshal(jsonData, &withOp)
 		if strings.EqualFold(withOp.Operation, "getTree") {
 			router := getRouter()
-			for _, addr := range router.Urls() {
+			if router == nil {
+				// fall through to other handlers
+			} else {
+				for _, addr := range router.Urls() {
 				c := router.Cmon(addr)
 				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
 					continue
@@ -353,128 +484,12 @@ func trySmartRouteAcrossPool(
 					ctx.Data(http.StatusOK, "application/json", b)
 					return true
 				}
-			}
-		}
-	}
-
-	// Special handling: /clusters getAllClusterInfo aggregation
-	if strings.Contains(ctx.Request.URL.Path, "/clusters") {
-		var withOp cmonapi.WithOperation
-		_ = json.Unmarshal(jsonData, &withOp)
-		if strings.EqualFold(withOp.Operation, "getAllClusterInfo") {
-			router := getRouter()
-			for _, addr := range router.Urls() {
-				c := router.Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-					continue
-				}
-				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"clusters"}, nil, false, 0, 0, router, routerGetter)
-				if ok {
-					ctx.Data(http.StatusOK, "application/json", data)
-					return true
 				}
 			}
 		}
 	}
 
-	// Backups aggregation: /backup getBackups with pagination
-	if strings.Contains(ctx.Request.URL.Path, "/backup") {
-		var body map[string]interface{}
-		_ = json.Unmarshal(jsonData, &body)
-		op, _ := body["operation"].(string)
-		var (
-			limit, offset int
-			ascending     bool
-		)
-		if v, ok := body["limit"].(float64); ok {
-			limit = int(v)
-		}
-		if v, ok := body["offset"].(float64); ok {
-			offset = int(v)
-		}
-		if v, ok := body["ascending"].(bool); ok {
-			ascending = v
-		}
-		if strings.EqualFold(op, "getBackups") {
-			delete(body, "limit")
-			delete(body, "offset")
-			delete(body, "ascending")
-			delete(body, "order")
-			jsonData, _ = json.Marshal(body)
-			router := getRouter()
-			for _, addr := range router.Urls() {
-				c := router.Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-					continue
-				}
-				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"backup_records"}, func(m map[string]interface{}) time.Time {
-					if md, ok := m["metadata"].(map[string]interface{}); ok {
-						if s, ok := md["created"].(string); ok {
-							if t, err := time.Parse(time.RFC3339, s); err == nil {
-								return t
-							}
-						}
-					}
-					return time.Time{}
-				}, ascending, limit, offset, router, routerGetter)
-				if ok {
-					ctx.Data(http.StatusOK, "application/json", data)
-					return true
-				}
-				break
-			}
-		}
-	}
-
-	// Generic aggregation: reports/jobs/alarms/audit/maintenance
-	if strings.Contains(ctx.Request.URL.Path, "/reports") || strings.Contains(ctx.Request.URL.Path, "/jobs") || strings.Contains(ctx.Request.URL.Path, "/alarms") || strings.Contains(ctx.Request.URL.Path, "/audit") || strings.Contains(ctx.Request.URL.Path, "/maintenance") {
-		var body map[string]interface{}
-		_ = json.Unmarshal(jsonData, &body)
-		op, _ := body["operation"].(string)
-		var (
-			limit, offset int
-			ascending     bool
-		)
-		if v, ok := body["limit"].(float64); ok {
-			limit = int(v)
-		}
-		if v, ok := body["offset"].(float64); ok {
-			offset = int(v)
-		}
-		if v, ok := body["ascending"].(bool); ok {
-			ascending = v
-		}
-		if strings.EqualFold(op, "getReports") || strings.EqualFold(op, "listSchedules") || strings.EqualFold(op, "getAlarms") || strings.EqualFold(op, "getEntries") || strings.EqualFold(op, "getMaintenance") || strings.EqualFold(op, "getJobInstances") {
-			delete(body, "limit")
-			delete(body, "offset")
-			delete(body, "ascending")
-			delete(body, "order")
-			jsonData, _ = json.Marshal(body)
-			router := getRouter()
-			for _, addr := range router.Urls() {
-				c := router.Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-					continue
-				}
-				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"reports", "data", "jobs", "alarms", "audit_entries", "maintenance_records"}, func(m map[string]interface{}) time.Time {
-					for _, k := range []string{"created", "created_time", "created_ts"} {
-						if s, ok := m[k].(string); ok {
-							if t, err := time.Parse(time.RFC3339, s); err == nil {
-								return t
-							}
-						}
-					}
-					return time.Time{}
-				}, ascending, limit, offset, router, routerGetter)
-				if ok {
-					ctx.Data(http.StatusOK, "application/json", data)
-					return true
-				}
-				break
-			}
-		}
-	}
-
+	zap.L().Sugar().Debugf("trySmartRouteAcrossPool: no matching aggregation/routing logic, returning false")
 	return false
 }
 
@@ -516,6 +531,8 @@ func aggregateListAcrossPoolControllers(
 	if len(targets) == 0 {
 		return nil, false
 	}
+
+	zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: aggregating %s with %d targets, listKeys: %v", path, len(targets), listKeys)
 
 	// Get router - use provided router or fall back to routerGetter if provided
 	getRouter := func() *router.Router {
@@ -570,6 +587,15 @@ func aggregateListAcrossPoolControllers(
 				return
 			}
 
+			// Count items received from this target
+			itemCount := 0
+			for _, key := range listKeys {
+				if lst, ok := respMap[key].([]interface{}); ok {
+					itemCount += len(lst)
+				}
+			}
+			zap.L().Sugar().Infof("poolcontroller %s:%d returned %d items for aggregation", target.Hostname, target.Port, itemCount)
+
 			responseChan <- poolResponse{respMap, target, nil}
 		}(target)
 	}
@@ -581,6 +607,8 @@ func aggregateListAcrossPoolControllers(
 	// Collect and aggregate responses
 	var baseResp map[string]interface{}
 	aggregated := make([]map[string]interface{}, 0, 256)
+	successCount := 0
+	failureCount := 0
 
 	// Track seen IDs for deduplication per key type
 	seenAlarmIDs := make(map[int64]bool)
@@ -588,9 +616,16 @@ func aggregateListAcrossPoolControllers(
 
 	for resp := range responseChan {
 		if resp.err != nil || resp.response == nil {
+			failureCount++
+			if resp.target != nil {
+				zap.L().Sugar().Warnf("poolcontroller %s:%d aggregation failed: %v", resp.target.Hostname, resp.target.Port, resp.err)
+			} else {
+				zap.L().Sugar().Warnf("poolcontroller aggregation failed: %v", resp.err)
+			}
 			continue
 		}
 
+		successCount++
 		if baseResp == nil {
 			baseResp = resp.response
 		}
@@ -626,7 +661,10 @@ func aggregateListAcrossPoolControllers(
 		}
 	}
 
+	zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: collected %d successful responses, %d failed, total aggregated items: %d", successCount, failureCount, len(aggregated))
+
 	if baseResp == nil {
+		zap.L().Sugar().Warnf("aggregateListAcrossPoolControllers: no valid base response found")
 		return nil, false
 	}
 
@@ -666,5 +704,6 @@ func aggregateListAcrossPoolControllers(
 	baseResp["total"] = int64(total)
 
 	b, _ := json.Marshal(baseResp)
+	zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: returning %d items (total: %d, offset: %d, limit: %d)", len(out), total, offset, limit)
 	return b, true
 }

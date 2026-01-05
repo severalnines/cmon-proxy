@@ -35,8 +35,9 @@ type PoolControllerStats struct {
 }
 
 type PoolControllerProperties struct {
-	Role  string              `json:"role"` // "main_controller" or "nfs_member"
-	Stats *PoolControllerStats `json:"stats,omitempty"`
+	Role      string              `json:"role"` // "main_controller" or "nfs_member"
+	DynamicID string              `json:"dynamic_id,omitempty"`
+	Stats     *PoolControllerStats `json:"stats,omitempty"`
 }
 
 type PoolController struct {
