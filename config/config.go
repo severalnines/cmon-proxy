@@ -129,6 +129,7 @@ type Config struct {
 	SingleController  string          `yaml:"single_controller" json:"single_controller"`
 	K8sProxyURL       string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
 	KubernetesEnabled bool            `yaml:"kubernetes_enabled" json:"kubernetes_enabled"`
+	PoolVisible       bool            `yaml:"pool_visible" json:"pool_visible"`
 	LicenseProxyURL   string          `yaml:"license_proxy_url" json:"license_proxy_url"`
 	WebServer         WebServer       `yaml:"web_server" json:"web_server"`
 
@@ -161,6 +162,7 @@ var (
 		Timeout:           30,
 		SingleController:  "",
 		KubernetesEnabled: true,
+		PoolVisible:       true,
 		K8sProxyURL:       "http://127.0.0.1:8080",
 		LicenseProxyURL:   "https://severalnines.com/service/lic.php",
 		AcmeAcceptTOS:     true,
@@ -305,6 +307,7 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 
 	// Set default values before unmarshaling
 	config.KubernetesEnabled = defaults.KubernetesEnabled
+	config.PoolVisible = defaults.PoolVisible
 	config.AcmeAcceptTOS = defaults.AcmeAcceptTOS
 
 	contents, err := ioutil.ReadFile(filename)
