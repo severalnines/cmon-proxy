@@ -69,6 +69,7 @@ type CmonInstance struct {
 	FrontendUrl   string `yaml:"frontend_url,omitempty" json:"frontend_url,omitempty"`
 	CMONSshHost   string `yaml:"cmon_ssh_host,omitempty" json:"cmon_ssh_host,omitempty"`
 	CMONSshSecure bool   `yaml:"cmon_ssh_secure,omitempty" json:"cmon_ssh_secure,omitempty"`
+	Preferences   map[string]interface{} `yaml:"preferences,omitempty" json:"preferences,omitempty"`
 }
 
 type WebServerSecurity struct {
@@ -249,7 +250,63 @@ func (cmon *CmonInstance) Copy() *CmonInstance {
 		CMONSshHost:   cmon.CMONSshHost,
 		CMONSshSecure: cmon.CMONSshSecure,
 	}
+	// Deep copy preferences
+	if cmon.Preferences != nil {
+		instance.Preferences = make(map[string]interface{})
+		for k, v := range cmon.Preferences {
+			instance.Preferences[k] = v
+		}
+	}
 	return instance
+}
+
+// GetPreference retrieves a preference value by key
+func (cmon *CmonInstance) GetPreference(key string) (interface{}, bool) {
+	if cmon.Preferences == nil {
+		return nil, false
+	}
+	value, exists := cmon.Preferences[key]
+	return value, exists
+}
+
+// SetPreference sets or updates a preference value
+func (cmon *CmonInstance) SetPreference(key string, value interface{}) {
+	if cmon.Preferences == nil {
+		cmon.Preferences = make(map[string]interface{})
+	}
+	cmon.Preferences[key] = value
+}
+
+// RemovePreference removes a preference by key
+func (cmon *CmonInstance) RemovePreference(key string) {
+	if cmon.Preferences != nil {
+		delete(cmon.Preferences, key)
+		// Clean up empty map
+		if len(cmon.Preferences) == 0 {
+			cmon.Preferences = nil
+		}
+	}
+}
+
+// UpdatePreferences merges the provided preferences into existing ones
+func (cmon *CmonInstance) UpdatePreferences(newPrefs map[string]interface{}) {
+	if newPrefs == nil || len(newPrefs) == 0 {
+		return
+	}
+	if cmon.Preferences == nil {
+		cmon.Preferences = make(map[string]interface{})
+	}
+	for k, v := range newPrefs {
+		cmon.Preferences[k] = v
+	}
+}
+
+// GetPreferences returns all preferences (or empty map if nil)
+func (cmon *CmonInstance) GetPreferences() map[string]interface{} {
+	if cmon.Preferences == nil {
+		return make(map[string]interface{})
+	}
+	return cmon.Preferences
 }
 
 // Save persist the configuration to the file it was loaded from

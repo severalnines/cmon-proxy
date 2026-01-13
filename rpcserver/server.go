@@ -839,6 +839,8 @@ func Start(cfg *config.Config) {
 			cmons.POST("/add", proxy.RPCControllerAdd)
 			cmons.POST("/update", proxy.RPCControllerUpdate)
 			cmons.POST("/remove", proxy.RPCControllerRemove)
+			cmons.GET("/:xid/preferences", proxy.RPCGetControllerPreferencesHandler)
+			cmons.POST("/preferences", proxy.RPCControllerPreferencesHandler)
 		}
 
 		alarms := p.Group("/alarms")
