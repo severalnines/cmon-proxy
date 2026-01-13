@@ -203,22 +203,22 @@ func TestTrySmartRouteAcrossPool_EndpointDetection(t *testing.T) {
 			name:        "tree endpoint triggers router access",
 			path:        "/tree",
 			operation:   "getTree",
-			shouldPanic: true, // will panic because router is nil and sessions not set up
-			description: "Tree endpoint detection should trigger router access",
+			shouldPanic: false, // router is checked before access, returns false gracefully
+			description: "Tree endpoint detection should check router and return false if nil",
 		},
 		{
 			name:        "clusters endpoint triggers router access",
 			path:        "/clusters",
 			operation:   "getAllClusterInfo", 
-			shouldPanic: true, // will panic because router is nil and sessions not set up
-			description: "Clusters endpoint detection should trigger router access",
+			shouldPanic: false, // router is checked before access, returns false gracefully
+			description: "Clusters endpoint detection should check router and return false if nil",
 		},
 		{
 			name:        "backup endpoint triggers router access",
 			path:        "/backup",
 			operation:   "getBackups",
-			shouldPanic: true, // will panic because router is nil and sessions not set up
-			description: "Backup endpoint detection should trigger router access",
+			shouldPanic: false, // router is checked before access, returns false gracefully
+			description: "Backup endpoint detection should check router and return false if nil",
 		},
 	}
 
@@ -266,7 +266,7 @@ func TestTrySmartRouteAcrossPool_OperationDetection(t *testing.T) {
 			operation:    "createJobInstance",
 			clusterId:    0,
 			multiTargets: true,
-			shouldPanic:  true, // will panic when trying to access router
+			shouldPanic:  false, // router is checked before access, returns false gracefully
 			expected:     false,
 			description:  "Should detect createJobInstance with cluster_id=0 and multiple targets",
 		},
@@ -284,7 +284,7 @@ func TestTrySmartRouteAcrossPool_OperationDetection(t *testing.T) {
 			operation:    "createJobInstance", 
 			clusterId:    "1",
 			multiTargets: true,
-			shouldPanic:  true, // will panic when trying to access router for cluster routing
+			shouldPanic:  false, // router is checked before access, returns false gracefully
 			expected:     false,
 			description:  "Should detect createJobInstance with specific cluster_id",
 		},
@@ -293,7 +293,7 @@ func TestTrySmartRouteAcrossPool_OperationDetection(t *testing.T) {
 			operation:    "someOtherOp",
 			clusterId:    "1", 
 			multiTargets: true,
-			shouldPanic:  true, // will panic when trying to access router for cluster routing
+			shouldPanic:  false, // router is checked before access, returns false gracefully
 			expected:     false,
 			description:  "Should handle cluster-directed routing for non-createJobInstance operations",
 		},
@@ -423,16 +423,9 @@ func TestTrySmartRouteAcrossPool_ClusterIdFormats(t *testing.T) {
 			
 			jsonData, _ := json.Marshal(payload)
 			
-			if tt.shouldMatch {
-				// Matching cluster IDs will trigger router access and panic
-				assert.Panics(t, func() {
-					trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
-				}, tt.description)
-			} else {
-				// Non-matching cluster IDs should not trigger router access
-				result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
-				assert.False(t, result, tt.description)
-			}
+			// Matching cluster IDs will try to route but router is nil, so returns false gracefully
+			result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
+			assert.False(t, result, tt.description)
 		})
 	}
 }
@@ -512,10 +505,9 @@ func TestTrySmartRouteAcrossPool_PaginationParsing(t *testing.T) {
 			
 			jsonData, _ := json.Marshal(payload)
 			
-			// These paths will trigger router access and panic
-			assert.Panics(t, func() {
-				trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
-			}, tt.description)
+			// These paths will try to aggregate but router is nil, so should return false gracefully
+			result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
+			assert.False(t, result, tt.description)
 		})
 	}
 }

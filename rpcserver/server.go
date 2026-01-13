@@ -252,6 +252,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					"SINGLE_CONTROLLER_API_URL": "/single/v2",
 					"MULTI_CONTROLLER_API_URL":  "/v2",
 					"KUBERNETES_ENABLED":        cfg.KubernetesEnabled,
+					"POOL_VISIBLE":              cfg.PoolVisible,
 					"INSTANCES":                 cfg.Instances,
 				}
 
@@ -807,6 +808,12 @@ func Start(cfg *config.Config) {
 			k8s.POST("/enable", proxy.EnableK8sHandler)
 		}
 
+		pool := p.Group("/pool")
+		pool.Use(proxy.RPCAuthMiddleware)
+		{
+			pool.POST("/visible", proxy.SetPoolVisibleHandler)
+		}
+
 		clusters := p.Group("/clusters")
 		clusters.Use(proxy.RPCAuthMiddleware)
 		{
@@ -832,6 +839,8 @@ func Start(cfg *config.Config) {
 			cmons.POST("/add", proxy.RPCControllerAdd)
 			cmons.POST("/update", proxy.RPCControllerUpdate)
 			cmons.POST("/remove", proxy.RPCControllerRemove)
+			cmons.GET("/:xid/preferences", proxy.RPCGetControllerPreferencesHandler)
+			cmons.POST("/preferences", proxy.RPCControllerPreferencesHandler)
 		}
 
 		alarms := p.Group("/alarms")
