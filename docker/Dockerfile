@@ -1,5 +1,7 @@
 # Frontend image tag argument (must be before FROM statements that use it)
 ARG FRONTEND_TAG=latest
+# Frontend image repo argument (default stays public; CI can override to dev registry)
+ARG FRONTEND_IMAGE_REPO=europe-docker.pkg.dev/severalnines-public/clustercontrol/mcc-frontend
 
 FROM golang:1.25-alpine AS builder
 
@@ -13,7 +15,7 @@ RUN go build -o ccmgr ./main.go
 RUN cd ccmgradm && go build -o ccmgradm .
 
 # Get frontend files from the frontend image
-FROM europe-docker.pkg.dev/severalnines-public/clustercontrol/mcc-frontend:${FRONTEND_TAG} AS frontend
+FROM ${FRONTEND_IMAGE_REPO}:${FRONTEND_TAG} AS frontend
 
 FROM alpine:latest
 
