@@ -351,8 +351,40 @@ func trySmartRouteAcrossPool(
 			}
 		}
 
-		// Special case: createJobInstance with cluster_id=0 → choose least-loaded pool-controller
+		// Special case: createJobInstance with cluster_id=0
 		if strings.EqualFold(op, "createJobInstance") && clusterId == 0 {
+			// Check if this is an ADDCONTROLLER or REMOVECONTROLLER job - these must go to main_controller
+			var body map[string]interface{}
+			if err := json.Unmarshal(jsonData, &body); err == nil {
+				if jobData, ok := body["job"].(map[string]interface{}); ok {
+					if jobSpecStr, ok := jobData["job_spec"].(string); ok {
+						var jobSpec map[string]interface{}
+						if err := json.Unmarshal([]byte(jobSpecStr), &jobSpec); err == nil {
+							if command, ok := jobSpec["command"].(string); ok {
+								if strings.EqualFold(command, "ADDCONTROLLER") || strings.EqualFold(command, "REMOVECONTROLLER") {
+									var mainController *cmonapi.PoolController
+									for _, pc := range activeTargets {
+										if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
+											mainController = pc
+											break
+										}
+									}
+									if mainController != nil {
+										if forwardTo(mainController, fmt.Sprintf("poolcontroller createJobInstance %s -> main_controller", command)) {
+											zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed createJobInstance %s to main_controller, returning early", command)
+											return true
+										}
+									} else {
+										zap.L().Sugar().Warnf("trySmartRouteAcrossPool: %s job requires main_controller but none found, falling back", command)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Default: choose least-loaded pool-controller for other jobs
 			var chosen *cmonapi.PoolController
 			minClusters := 0
 			for i, pc := range activeTargets {
