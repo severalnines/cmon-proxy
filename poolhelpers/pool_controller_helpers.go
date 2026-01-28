@@ -281,35 +281,41 @@ func trySmartRouteAcrossPool(
 						}(target)
 					}
 
-					// Wait for all requests to complete
-					wg.Wait()
-					close(responseChan)
+				// Wait for all requests to complete
+				wg.Wait()
+				close(responseChan)
 
-					// Process responses sequentially for consistent baseResp and deduplication
-					for resp := range responseChan {
-						if resp.err != nil || resp.response == nil {
-							continue
-						}
+				// Collect all responses first
+				allResponses := make([]treeResponse, 0, len(activeTargets))
+				for resp := range responseChan {
+					allResponses = append(allResponses, resp)
+				}
 
-						// Initialize base response and capture non-cluster items from the first success
-						if baseResp == nil {
-							baseResp = resp.response
-							if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
-								if subs, ok := cdt["sub_items"].([]interface{}); ok {
-									for _, it := range subs {
-										m, _ := it.(map[string]interface{})
-										if m == nil {
-											continue
-										}
-										if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") {
-											baseNonCluster = append(baseNonCluster, it)
-										}
-									}
-								}
-							}
-						}
+				// Find main controller response from collected responses
+				var mainControllerResp *treeResponse
+				for i := range allResponses {
+					resp := &allResponses[i]
+					if resp.target != nil && resp.target.Properties != nil && 
+						strings.EqualFold(resp.target.Properties.Role, "main_controller") && 
+						resp.err == nil && resp.response != nil {
+						mainControllerResp = resp
+						break
+					}
+				}
 
-						// From each response collect cluster items with deduplication
+				// Process responses sequentially for consistent baseResp and deduplication
+				for _, resp := range allResponses {
+					if resp.err != nil || resp.response == nil {
+						continue
+					}
+
+					// Initialize base response from the first success
+					if baseResp == nil {
+						baseResp = resp.response
+					}
+
+					// Extract non-cluster items ONLY from main controller
+					if mainControllerResp != nil && resp.target == mainControllerResp.target {
 						if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
 							if subs, ok := cdt["sub_items"].([]interface{}); ok {
 								for _, it := range subs {
@@ -317,21 +323,36 @@ func trySmartRouteAcrossPool(
 									if m == nil {
 										continue
 									}
-									if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
-										// Use cluster_id for deduplication
-										if id, ok := m["cluster_id"]; ok {
-											clusterKey := fmt.Sprintf("%v", id)
-											// Only add if not seen before
-											if !seenClusters[clusterKey] {
-												seenClusters[clusterKey] = true
-												clusterItems = append(clusterItems, it)
-											}
+									if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") {
+										baseNonCluster = append(baseNonCluster, it)
+									}
+								}
+							}
+						}
+					}
+
+					// Collect cluster items from ALL controllers with deduplication
+					if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
+						if subs, ok := cdt["sub_items"].([]interface{}); ok {
+							for _, it := range subs {
+								m, _ := it.(map[string]interface{})
+								if m == nil {
+									continue
+								}
+								if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
+									// Use cluster_id for deduplication
+									if id, ok := m["cluster_id"]; ok {
+										clusterKey := fmt.Sprintf("%v", id)
+										if !seenClusters[clusterKey] {
+											seenClusters[clusterKey] = true
+											clusterItems = append(clusterItems, it)
 										}
 									}
 								}
 							}
 						}
 					}
+				}
 
 					// If we couldn't build a base response, fall back to default handling
 					if baseResp == nil {
@@ -467,6 +488,23 @@ func trySmartRouteAcrossPool(
 	// If multiple active pool-controllers, perform smart routing
 	if len(activeTargets) > 1 {
 		zap.L().Sugar().Debugf("trySmartRouteAcrossPool: multiple targets (%d), checking smart routing", len(activeTargets))
+		
+		// Route ACL operations (addAcl, removeAcl) without cluster_id to main_controller
+		// These are global ACL permissions that should be managed by main controller
+		if (strings.EqualFold(op, "addAcl") || strings.EqualFold(op, "removeAcl")) && clusterIdStr == "" && clusterId == -1 {
+			var mainController *cmonapi.PoolController
+			for _, pc := range activeTargets {
+				if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
+					mainController = pc
+					break
+				}
+			}
+			if mainController != nil && forwardTo(mainController, fmt.Sprintf("poolcontroller %s (non-cluster) -> main_controller", op)) {
+				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed %s to main_controller, returning early", op)
+				return true
+			}
+		}
+		
 		// Route jobs without cluster_id to main_controller
 		if clusterIdStr == "" && clusterId == -1 {
 			var mainController *cmonapi.PoolController
