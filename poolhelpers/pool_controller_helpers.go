@@ -221,6 +221,137 @@ func trySmartRouteAcrossPool(
 			}
 		}
 
+		// Fan-out tree aggregation: /tree with operation getTree (MUST be checked BEFORE smart routing)
+		if strings.Contains(ctx.Request.URL.Path, "/tree") {
+			var withOp cmonapi.WithOperation
+			_ = json.Unmarshal(jsonData, &withOp)
+			if strings.EqualFold(withOp.Operation, "getTree") {
+				for _, addr := range router.Urls() {
+					c := router.Cmon(addr)
+					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+						continue
+					}
+
+					// Prepare aggregation containers
+					var baseResp map[string]interface{}
+					baseNonCluster := make([]interface{}, 0)
+					clusterItems := make([]interface{}, 0)
+					seenClusters := make(map[string]bool) // Deduplication map for clusters
+
+					// Channel and sync for parallel requests
+					type treeResponse struct {
+						response map[string]interface{}
+						target   *cmonapi.PoolController
+						err      error
+					}
+
+					responseChan := make(chan treeResponse, len(activeTargets))
+					var wg sync.WaitGroup
+
+					// Request each active pool controller in parallel
+					for _, target := range activeTargets {
+						wg.Add(1)
+						go func(target *cmonapi.PoolController) {
+							defer wg.Done()
+
+							instCopy := *c.Client.Instance
+							instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
+							timeout := router.Config.Timeout
+							if timeout <= 0 {
+								timeout = 10
+							}
+							tmpClient := cmon.NewClient(&instCopy, timeout)
+							if cookie := c.Client.GetSessionCookie(); cookie != nil {
+								tmpClient.SetSessionCookie(cookie)
+							}
+
+							rawResp, err := tmpClient.RequestRaw(getRequestPath(), jsonData, false)
+							if err != nil {
+								zap.L().Sugar().Warnf("poolcontroller %s:%d tree request error: %v", target.Hostname, target.Port, err)
+								responseChan <- treeResponse{nil, target, err}
+								return
+							}
+							var respMap map[string]interface{}
+							if err := json.Unmarshal(rawResp.Body, &respMap); err != nil {
+								zap.L().Sugar().Warnf("poolcontroller %s:%d tree invalid response: %v", target.Hostname, target.Port, err)
+								responseChan <- treeResponse{nil, target, err}
+								return
+							}
+							responseChan <- treeResponse{respMap, target, nil}
+						}(target)
+					}
+
+					// Wait for all requests to complete
+					wg.Wait()
+					close(responseChan)
+
+					// Process responses sequentially for consistent baseResp and deduplication
+					for resp := range responseChan {
+						if resp.err != nil || resp.response == nil {
+							continue
+						}
+
+						// Initialize base response and capture non-cluster items from the first success
+						if baseResp == nil {
+							baseResp = resp.response
+							if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
+								if subs, ok := cdt["sub_items"].([]interface{}); ok {
+									for _, it := range subs {
+										m, _ := it.(map[string]interface{})
+										if m == nil {
+											continue
+										}
+										if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") {
+											baseNonCluster = append(baseNonCluster, it)
+										}
+									}
+								}
+							}
+						}
+
+						// From each response collect cluster items with deduplication
+						if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
+							if subs, ok := cdt["sub_items"].([]interface{}); ok {
+								for _, it := range subs {
+									m, _ := it.(map[string]interface{})
+									if m == nil {
+										continue
+									}
+									if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
+										// Use cluster_id for deduplication
+										if id, ok := m["cluster_id"]; ok {
+											clusterKey := fmt.Sprintf("%v", id)
+											// Only add if not seen before
+											if !seenClusters[clusterKey] {
+												seenClusters[clusterKey] = true
+												clusterItems = append(clusterItems, it)
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+
+					// If we couldn't build a base response, fall back to default handling
+					if baseResp == nil {
+						// fall through to other handlers
+					} else {
+						// Merge: non-cluster from base + all clusters from all controllers
+						if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
+							merged := make([]interface{}, 0, len(baseNonCluster)+len(clusterItems))
+							merged = append(merged, baseNonCluster...)
+							merged = append(merged, clusterItems...)
+							cdt["sub_items"] = merged
+						}
+						b, _ := json.Marshal(baseResp)
+						ctx.Data(http.StatusOK, "application/json", b)
+						return true
+					}
+				}
+			}
+		}
+
 		// /clusters getAllClusterInfo aggregation
 		if strings.Contains(ctx.Request.URL.Path, "/clusters") {
 			var withOp cmonapi.WithOperation
@@ -287,7 +418,7 @@ func trySmartRouteAcrossPool(
 		}
 
 		// Generic aggregation: reports/jobs/alarms/audit/maintenance
-		if strings.Contains(ctx.Request.URL.Path, "/reports") || strings.Contains(ctx.Request.URL.Path, "/jobs") || strings.Contains(ctx.Request.URL.Path, "/alarms") || strings.Contains(ctx.Request.URL.Path, "/audit") || strings.Contains(ctx.Request.URL.Path, "/maintenance") {
+		if strings.Contains(ctx.Request.URL.Path, "/reports") || strings.Contains(ctx.Request.URL.Path, "/jobs") || strings.Contains(ctx.Request.URL.Path, "/alarm") || strings.Contains(ctx.Request.URL.Path, "/audit") || strings.Contains(ctx.Request.URL.Path, "/maintenance") {
 			var body map[string]interface{}
 			_ = json.Unmarshal(jsonData, &body)
 			op, _ := body["operation"].(string)
@@ -421,142 +552,6 @@ func trySmartRouteAcrossPool(
 		}
 	} else {
 		zap.L().Sugar().Debugf("trySmartRouteAcrossPool: single target (%d), skipping smart routing", len(activeTargets))
-	}
-
-	// Fan-out tree aggregation: /tree with operation getTree
-	if strings.Contains(ctx.Request.URL.Path, "/tree") {
-		var withOp cmonapi.WithOperation
-		_ = json.Unmarshal(jsonData, &withOp)
-		if strings.EqualFold(withOp.Operation, "getTree") {
-			router := getRouter()
-			if router == nil {
-				// fall through to other handlers
-			} else {
-				for _, addr := range router.Urls() {
-					c := router.Cmon(addr)
-					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-						continue
-					}
-
-					// Prepare aggregation containers
-					var baseResp map[string]interface{}
-					baseNonCluster := make([]interface{}, 0)
-					clusterItems := make([]interface{}, 0)
-					seenClusters := make(map[string]bool) // Deduplication map for clusters
-
-					// Channel and sync for parallel requests
-					type treeResponse struct {
-						response map[string]interface{}
-						target   *cmonapi.PoolController
-						err      error
-					}
-
-					responseChan := make(chan treeResponse, len(activeTargets))
-					var wg sync.WaitGroup
-
-					// Request each active pool controller in parallel
-					for _, target := range activeTargets {
-						wg.Add(1)
-						go func(target *cmonapi.PoolController) {
-							defer wg.Done()
-
-							instCopy := *c.Client.Instance
-							instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
-							timeout := router.Config.Timeout
-							if timeout <= 0 {
-								timeout = 10
-							}
-							tmpClient := cmon.NewClient(&instCopy, timeout)
-							if cookie := c.Client.GetSessionCookie(); cookie != nil {
-								tmpClient.SetSessionCookie(cookie)
-							}
-
-							rawResp, err := tmpClient.RequestRaw(getRequestPath(), jsonData, false)
-							if err != nil {
-								zap.L().Sugar().Warnf("poolcontroller %s:%d tree request error: %v", target.Hostname, target.Port, err)
-								responseChan <- treeResponse{nil, target, err}
-								return
-							}
-							var respMap map[string]interface{}
-							if err := json.Unmarshal(rawResp.Body, &respMap); err != nil {
-								zap.L().Sugar().Warnf("poolcontroller %s:%d tree invalid response: %v", target.Hostname, target.Port, err)
-								responseChan <- treeResponse{nil, target, err}
-								return
-							}
-							responseChan <- treeResponse{respMap, target, nil}
-						}(target)
-					}
-
-					// Wait for all requests to complete
-					wg.Wait()
-					close(responseChan)
-
-					// Process responses sequentially for consistent baseResp and deduplication
-					for resp := range responseChan {
-						if resp.err != nil || resp.response == nil {
-							continue
-						}
-
-						// Initialize base response and capture non-cluster items from the first success
-						if baseResp == nil {
-							baseResp = resp.response
-							if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
-								if subs, ok := cdt["sub_items"].([]interface{}); ok {
-									for _, it := range subs {
-										m, _ := it.(map[string]interface{})
-										if m == nil {
-											continue
-										}
-										if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") {
-											baseNonCluster = append(baseNonCluster, it)
-										}
-									}
-								}
-							}
-						}
-
-						// From each response collect cluster items with deduplication
-						if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
-							if subs, ok := cdt["sub_items"].([]interface{}); ok {
-								for _, it := range subs {
-									m, _ := it.(map[string]interface{})
-									if m == nil {
-										continue
-									}
-									if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
-										// Use cluster_id for deduplication
-										if id, ok := m["cluster_id"]; ok {
-											clusterKey := fmt.Sprintf("%v", id)
-											// Only add if not seen before
-											if !seenClusters[clusterKey] {
-												seenClusters[clusterKey] = true
-												clusterItems = append(clusterItems, it)
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-
-					// If we couldn't build a base response, fall back to default handling
-					if baseResp == nil {
-						// fall through to other handlers
-					} else {
-						// Merge: non-cluster from base + all clusters from all controllers
-						if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
-							merged := make([]interface{}, 0, len(baseNonCluster)+len(clusterItems))
-							merged = append(merged, baseNonCluster...)
-							merged = append(merged, clusterItems...)
-							cdt["sub_items"] = merged
-						}
-						b, _ := json.Marshal(baseResp)
-						ctx.Data(http.StatusOK, "application/json", b)
-						return true
-					}
-				}
-			}
-		}
 	}
 
 	zap.L().Sugar().Debugf("trySmartRouteAcrossPool: no matching aggregation/routing logic, returning false")

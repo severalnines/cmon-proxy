@@ -357,14 +357,61 @@ func publicClientIP(c *gin.Context) (string, bool) {
 }
 
 func forwardToCmon(ctx *gin.Context) {
-	// Proxy requests to cmon (must have controller_id)
-	var controllerId cmonapi.WithControllerID
+	// Proxy requests to cmon (must have xid or controller_id for routing)
+	// Note: controller_id in requests is for the cmon instance itself, not for proxy routing.
+	// The proxy uses xid for routing. If controller_id is provided as a number (e.g., in pool controller requests),
+	// we extract xid for routing and pass controller_id through to the actual cmon request.
 	method := ctx.Request.Method
 	jsonData, err := io.ReadAll(ctx.Request.Body)
 
-	if err == nil {
-		err = json.Unmarshal(jsonData, &controllerId)
+	var requestMap map[string]interface{}
+	var controllerId cmonapi.WithControllerID
+	var routingID string
+
+	if err == nil && len(jsonData) > 0 {
+		// First, parse as a map to handle controller_id as either number or string
+		err = json.Unmarshal(jsonData, &requestMap)
+		if err == nil {
+			// Extract xid first (preferred for routing)
+			if xidVal, ok := requestMap["xid"].(string); ok && len(xidVal) > 4 {
+				controllerId.Xid = xidVal
+				routingID = xidVal
+			}
+
+			// Handle controller_id as either number or string
+			// Note: controller_id is for the cmon instance, not for proxy routing
+			if controllerIDVal, ok := requestMap["controller_id"]; ok {
+				switch v := controllerIDVal.(type) {
+				case string:
+					controllerId.ControllerID = v
+					// Only use controller_id for routing if xid is not available
+					if routingID == "" && len(v) > 0 {
+						routingID = v
+					}
+				case float64: // JSON numbers unmarshal as float64
+					// Convert to string without decimal places if it's a whole number
+					if v == float64(int64(v)) {
+						controllerId.ControllerID = strconv.FormatInt(int64(v), 10)
+					} else {
+						controllerId.ControllerID = strconv.FormatFloat(v, 'f', -1, 64)
+					}
+					// Convert controller_id to string in the request map for proper forwarding
+					requestMap["controller_id"] = controllerId.ControllerID
+					// Re-marshal the request with controller_id as string
+					jsonData, err = json.Marshal(requestMap)
+				case int:
+					controllerId.ControllerID = strconv.Itoa(v)
+					requestMap["controller_id"] = controllerId.ControllerID
+					jsonData, err = json.Marshal(requestMap)
+				case int64:
+					controllerId.ControllerID = strconv.FormatInt(v, 10)
+					requestMap["controller_id"] = controllerId.ControllerID
+					jsonData, err = json.Marshal(requestMap)
+				}
+			}
+		}
 	}
+
 	if len(jsonData) < 2 && len(ctx.Request.URL.Query()) > 0 {
 		// lets try to construct a POST request from URL query parameters
 		// (this is for testing / simplify)
@@ -380,8 +427,45 @@ func forwardToCmon(ctx *gin.Context) {
 		// okay we converted all URL query args into a JSON map
 		jsonData, err = json.Marshal(jsonMap)
 		method = "POST"
-		_ = json.Unmarshal(jsonData, &controllerId)
+		// Re-parse after constructing from query params
+		if err == nil {
+			err = json.Unmarshal(jsonData, &requestMap)
+			if err == nil {
+				if xidVal, ok := requestMap["xid"].(string); ok && len(xidVal) > 4 {
+					controllerId.Xid = xidVal
+					routingID = xidVal
+				}
+				if controllerIDVal, ok := requestMap["controller_id"]; ok {
+					switch v := controllerIDVal.(type) {
+					case string:
+						controllerId.ControllerID = v
+						// Only use controller_id for routing if xid is not available
+						if routingID == "" && len(v) > 0 {
+							routingID = v
+						}
+					case float64:
+						// Convert to string without decimal places if it's a whole number
+						if v == float64(int64(v)) {
+							controllerId.ControllerID = strconv.FormatInt(int64(v), 10)
+						} else {
+							controllerId.ControllerID = strconv.FormatFloat(v, 'f', -1, 64)
+						}
+						requestMap["controller_id"] = controllerId.ControllerID
+						jsonData, err = json.Marshal(requestMap)
+					case int:
+						controllerId.ControllerID = strconv.Itoa(v)
+						requestMap["controller_id"] = controllerId.ControllerID
+						jsonData, err = json.Marshal(requestMap)
+					case int64:
+						controllerId.ControllerID = strconv.FormatInt(v, 10)
+						requestMap["controller_id"] = controllerId.ControllerID
+						jsonData, err = json.Marshal(requestMap)
+					}
+				}
+			}
+		}
 	}
+
 	if err != nil {
 		var resp cmonapi.WithResponseData
 		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
@@ -389,7 +473,17 @@ func forwardToCmon(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, resp)
 		return
 	}
-	if !controllerId.HasID() {
+
+	// Use xid for routing if available, otherwise fall back to controller_id
+	if routingID == "" {
+		if len(controllerId.Xid) > 4 {
+			routingID = controllerId.Xid
+		} else if len(controllerId.ControllerID) > 0 {
+			routingID = controllerId.ControllerID
+		}
+	}
+
+	if routingID == "" {
 		var resp cmonapi.WithResponseData
 		resp.RequestStatus = cmonapi.RequestStatusInvalidRequest
 		resp.ErrorString = "missing xid or controller_id from request"
@@ -397,14 +491,14 @@ func forwardToCmon(ctx *gin.Context) {
 		return
 	}
 
-	controllers := proxy.GetCachedPoolControllers(ctx, controllerId.GetID())
+	controllers := proxy.GetCachedPoolControllers(ctx, routingID)
 	activeTargets := poolhelpers.FilterActivePoolControllers(controllers)
 
-	if poolhelpers.TrySmartRouteAcrossPool(ctx, controllerId.GetID(), jsonData, activeTargets, nil, nil, func(ctx *gin.Context) *router.Router { return proxy.Router(ctx) }) {
+	if poolhelpers.TrySmartRouteAcrossPool(ctx, routingID, jsonData, activeTargets, nil, nil, func(ctx *gin.Context) *router.Router { return proxy.Router(ctx) }) {
 		return
 	}
 
-	proxy.RPCProxyRequest(ctx, controllerId.GetID(), method, jsonData)
+	proxy.RPCProxyRequest(ctx, routingID, method, jsonData)
 }
 
 func multiCmon(ctx *gin.Context) {
