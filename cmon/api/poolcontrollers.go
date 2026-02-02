@@ -26,12 +26,26 @@ type GetControllersResponse struct {
 	DebugMessages   []string          `json:"debug_messages"`
 }
 
+type PoolControllerStats struct {
+	CpuPct  string `json:"cpu_pct"`
+	MemUsed string `json:"mem_used"`
+	MemTotal string `json:"mem_total"`
+	FdUsed  int    `json:"fd_used"`
+	FdTotal int    `json:"fd_total"`
+}
+
+type PoolControllerProperties struct {
+	Role      string              `json:"role"` // "main_controller" or "nfs_member"
+	DynamicID string              `json:"dynamic_id,omitempty"`
+	Stats     *PoolControllerStats `json:"stats,omitempty"`
+}
+
 type PoolController struct {
-	ControllerID int      `json:"controller_id"`
-	Hostname     string   `json:"hostname"`
-	Port         int      `json:"port"`
-	Properties   string   `json:"properties"`
-	ReportTs     string   `json:"report_ts"`
-	Status       string   `json:"status"`
-	Clusters     []string `json:"clusters"`
+	ControllerID int                       `json:"controller_id"`
+	Hostname     string                    `json:"hostname"`
+	Port         int                       `json:"port"`
+	Properties   *PoolControllerProperties `json:"properties"`
+	ReportTs     string                    `json:"report_ts"`
+	Status       string                    `json:"status"`
+	Clusters     []string                  `json:"clusters"`
 }

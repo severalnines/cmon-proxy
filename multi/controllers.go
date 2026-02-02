@@ -367,6 +367,15 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 		return
 	}
 
+	// Before removing controller, preserve preferences if not provided
+	existingInstance := p.Router(nil).Config.ControllerById(req.Controller.Xid)
+	if existingInstance != nil && existingInstance.Preferences != nil {
+		// If new request doesn't include preferences, preserve existing ones
+		if req.Controller.Preferences == nil {
+			req.Controller.Preferences = existingInstance.Preferences
+		}
+	}
+
 	// remove & add it again
 	if err := p.Router(nil).Config.RemoveController(req.Controller.Xid, false); err != nil {
 		cmonapi.CtxWriteError(ctx,
@@ -414,6 +423,83 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 	p.Refresh()
 
 	ctx.JSON(http.StatusOK, cmonapi.NewError(cmonapi.RequestStatusOk, "The controller is removed."))
+}
+
+// RPCGetControllerPreferencesHandler retrieves preferences for a controller instance
+func (p *Proxy) RPCGetControllerPreferencesHandler(ctx *gin.Context) {
+	var resp api.GetInstancePreferencesResponse
+	resp.WithResponseData = &cmonapi.WithResponseData{
+		RequestStatus: cmonapi.RequestStatusOk,
+	}
+
+	session := sessions.Default(ctx)
+	elevated := session.Get("elevated") == true
+	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
+		if !authenticatedUser.Admin && !elevated {
+			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can view controller preferences"), http.StatusForbidden)
+			return
+		}
+	}
+
+	xid := ctx.Param("xid")
+	if xid == "" {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "controller XID is required"))
+		return
+	}
+
+	cfg := p.Router(ctx).Config
+	instance := cfg.ControllerById(xid)
+	if instance == nil {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "controller not found"))
+		return
+	}
+
+	resp.Preferences = instance.GetPreferences()
+	ctx.JSON(http.StatusOK, &resp)
+}
+
+// RPCControllerPreferencesHandler updates preferences for a controller instance
+func (p *Proxy) RPCControllerPreferencesHandler(ctx *gin.Context) {
+	var req api.UpdateInstancePreferencesRequest
+	var resp api.UpdateInstancePreferencesResponse
+	resp.WithResponseData = &cmonapi.WithResponseData{
+		RequestStatus: cmonapi.RequestStatusOk,
+	}
+
+	if err := ctx.BindJSON(&req); err != nil {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "Invalid request: "+err.Error()))
+		return
+	}
+
+	if req.ControllerXid == "" {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "controllerXid is required"))
+		return
+	}
+
+	cfg := p.Router(ctx).Config
+	instance := cfg.ControllerById(req.ControllerXid)
+	if instance == nil {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusObjectNotFound, "controller not found"))
+		return
+	}
+
+	// Update preferences (merge strategy)
+	instance.UpdatePreferences(req.Preferences)
+
+	// Save configuration
+	if err := cfg.Save(); err != nil {
+		cmonapi.CtxWriteError(ctx,
+			cmonapi.NewError(cmonapi.RequestStatusUnknownError, "Failed to save configuration: "+err.Error()))
+		return
+	}
+
+	resp.Preferences = instance.GetPreferences()
+	ctx.JSON(http.StatusOK, &resp)
 }
 
 func (p *Proxy) GetCmonById(controllerId string, ctx *gin.Context) (*router.Cmon, error) {

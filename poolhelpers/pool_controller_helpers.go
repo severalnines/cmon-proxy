@@ -66,7 +66,12 @@ func trySmartRouteAcrossPool(
 	pathTransformer func() string,
 	routerGetter func(*gin.Context) *router.Router,
 ) bool {
+	requestPath := ctx.Request.URL.EscapedPath()
+	requestPathLower := strings.ToLower(requestPath)
+	zap.L().Sugar().Debugf("trySmartRouteAcrossPool: path=%s, activeTargets=%d, controllerId=%s", requestPath, len(activeTargets), controllerId)
+
 	if len(activeTargets) < 1 {
+		zap.L().Sugar().Debugf("trySmartRouteAcrossPool: no active targets, returning false")
 		return false
 	}
 
@@ -138,6 +143,9 @@ func trySmartRouteAcrossPool(
 			return false
 		}
 		router := getRouter()
+		if router == nil {
+			return false
+		}
 		for _, addr := range router.Urls() {
 			c := router.Cmon(addr)
 			if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
@@ -173,10 +181,379 @@ func trySmartRouteAcrossPool(
 		return false
 	}
 
+	// Aggregation handlers (check BEFORE smart routing to avoid routing to main_controller)
+	router := getRouter()
+	if router != nil {
+		// Pool controller management operations must always go to main_controller
+		// Check both operation field and path for these operations
+		if strings.Contains(ctx.Request.URL.Path, "/poolcontrollers") {
+			isPoolControllerOp := strings.EqualFold(op, "stopcontroller") || strings.EqualFold(op, "startcontroller") || strings.EqualFold(op, "setPoolMode") ||
+				strings.Contains(requestPathLower, "/stopcontroller") || strings.Contains(requestPathLower, "/startcontroller") || strings.Contains(requestPathLower, "/setpoolmode")
+
+			if isPoolControllerOp {
+				var mainController *cmonapi.PoolController
+				for _, pc := range activeTargets {
+					if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
+						mainController = pc
+						break
+					}
+				}
+				// If no main_controller found in pool, fall back to routing via controllerId
+				if mainController == nil {
+					zap.L().Sugar().Warnf("trySmartRouteAcrossPool: poolcontrollers operation requires main_controller but none found, falling back to controllerId routing")
+					return false
+				}
+				opName := op
+				if opName == "" {
+					// Extract operation name from path if not in body
+					if strings.Contains(requestPathLower, "/stopcontroller") {
+						opName = "stopcontroller"
+					} else if strings.Contains(requestPathLower, "/startcontroller") {
+						opName = "startcontroller"
+					} else if strings.Contains(requestPathLower, "/setpoolmode") {
+						opName = "setPoolMode"
+					}
+				}
+				if forwardTo(mainController, fmt.Sprintf("poolcontrollers %s -> main_controller", opName)) {
+					zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed poolcontrollers operation %s to main_controller", opName)
+					return true
+				}
+			}
+		}
+
+		// Fan-out tree aggregation: /tree with operation getTree (MUST be checked BEFORE smart routing)
+		if strings.Contains(ctx.Request.URL.Path, "/tree") {
+			var withOp cmonapi.WithOperation
+			_ = json.Unmarshal(jsonData, &withOp)
+			if strings.EqualFold(withOp.Operation, "getTree") {
+				for _, addr := range router.Urls() {
+					c := router.Cmon(addr)
+					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+						continue
+					}
+
+					// Prepare aggregation containers
+					var baseResp map[string]interface{}
+					baseNonCluster := make([]interface{}, 0)
+					clusterItems := make([]interface{}, 0)
+					seenClusters := make(map[string]bool) // Deduplication map for clusters
+
+					// Channel and sync for parallel requests
+					type treeResponse struct {
+						response map[string]interface{}
+						target   *cmonapi.PoolController
+						err      error
+					}
+
+					responseChan := make(chan treeResponse, len(activeTargets))
+					var wg sync.WaitGroup
+
+					// Request each active pool controller in parallel
+					for _, target := range activeTargets {
+						wg.Add(1)
+						go func(target *cmonapi.PoolController) {
+							defer wg.Done()
+
+							instCopy := *c.Client.Instance
+							instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
+							timeout := router.Config.Timeout
+							if timeout <= 0 {
+								timeout = 10
+							}
+							tmpClient := cmon.NewClient(&instCopy, timeout)
+							if cookie := c.Client.GetSessionCookie(); cookie != nil {
+								tmpClient.SetSessionCookie(cookie)
+							}
+
+							rawResp, err := tmpClient.RequestRaw(getRequestPath(), jsonData, false)
+							if err != nil {
+								zap.L().Sugar().Warnf("poolcontroller %s:%d tree request error: %v", target.Hostname, target.Port, err)
+								responseChan <- treeResponse{nil, target, err}
+								return
+							}
+							var respMap map[string]interface{}
+							if err := json.Unmarshal(rawResp.Body, &respMap); err != nil {
+								zap.L().Sugar().Warnf("poolcontroller %s:%d tree invalid response: %v", target.Hostname, target.Port, err)
+								responseChan <- treeResponse{nil, target, err}
+								return
+							}
+							responseChan <- treeResponse{respMap, target, nil}
+						}(target)
+					}
+
+				// Wait for all requests to complete
+				wg.Wait()
+				close(responseChan)
+
+				// Collect all responses first
+				allResponses := make([]treeResponse, 0, len(activeTargets))
+				for resp := range responseChan {
+					allResponses = append(allResponses, resp)
+				}
+
+				// Find main controller response from collected responses
+				var mainControllerResp *treeResponse
+				for i := range allResponses {
+					resp := &allResponses[i]
+					if resp.target != nil && resp.target.Properties != nil && 
+						strings.EqualFold(resp.target.Properties.Role, "main_controller") && 
+						resp.err == nil && resp.response != nil {
+						mainControllerResp = resp
+						break
+					}
+				}
+
+				// Process responses sequentially for consistent baseResp and deduplication
+				for _, resp := range allResponses {
+					if resp.err != nil || resp.response == nil {
+						continue
+					}
+
+					// Initialize base response from the first success
+					if baseResp == nil {
+						baseResp = resp.response
+					}
+
+					// Extract non-cluster items ONLY from main controller
+					if mainControllerResp != nil && resp.target == mainControllerResp.target {
+						if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
+							if subs, ok := cdt["sub_items"].([]interface{}); ok {
+								for _, it := range subs {
+									m, _ := it.(map[string]interface{})
+									if m == nil {
+										continue
+									}
+									if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") {
+										baseNonCluster = append(baseNonCluster, it)
+									}
+								}
+							}
+						}
+					}
+
+					// Collect cluster items from ALL controllers with deduplication
+					if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
+						if subs, ok := cdt["sub_items"].([]interface{}); ok {
+							for _, it := range subs {
+								m, _ := it.(map[string]interface{})
+								if m == nil {
+									continue
+								}
+								if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
+									// Use cluster_id for deduplication
+									if id, ok := m["cluster_id"]; ok {
+										clusterKey := fmt.Sprintf("%v", id)
+										if !seenClusters[clusterKey] {
+											seenClusters[clusterKey] = true
+											clusterItems = append(clusterItems, it)
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
+					// If we couldn't build a base response, fall back to default handling
+					if baseResp == nil {
+						// fall through to other handlers
+					} else {
+						// Merge: non-cluster from base + all clusters from all controllers
+						if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
+							merged := make([]interface{}, 0, len(baseNonCluster)+len(clusterItems))
+							merged = append(merged, baseNonCluster...)
+							merged = append(merged, clusterItems...)
+							cdt["sub_items"] = merged
+						}
+						b, _ := json.Marshal(baseResp)
+						ctx.Data(http.StatusOK, "application/json", b)
+						return true
+					}
+				}
+			}
+		}
+
+		// /clusters getAllClusterInfo aggregation
+		if strings.Contains(ctx.Request.URL.Path, "/clusters") {
+			var withOp cmonapi.WithOperation
+			_ = json.Unmarshal(jsonData, &withOp)
+			if strings.EqualFold(withOp.Operation, "getAllClusterInfo") {
+				for _, addr := range router.Urls() {
+					c := router.Cmon(addr)
+					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+						continue
+					}
+					data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"clusters"}, nil, false, 0, 0, router, routerGetter)
+					if ok {
+						ctx.Data(http.StatusOK, "application/json", data)
+						return true
+					}
+				}
+			}
+		}
+
+		// /backup getBackups aggregation
+		if strings.Contains(ctx.Request.URL.Path, "/backup") {
+			var body map[string]interface{}
+			_ = json.Unmarshal(jsonData, &body)
+			op, _ := body["operation"].(string)
+			var limit, offset int
+			var ascending bool
+			if v, ok := body["limit"].(float64); ok {
+				limit = int(v)
+			}
+			if v, ok := body["offset"].(float64); ok {
+				offset = int(v)
+			}
+			if v, ok := body["ascending"].(bool); ok {
+				ascending = v
+			}
+			if strings.EqualFold(op, "getBackups") {
+				delete(body, "limit")
+				delete(body, "offset")
+				delete(body, "ascending")
+				delete(body, "order")
+				jsonData, _ = json.Marshal(body)
+				for _, addr := range router.Urls() {
+					c := router.Cmon(addr)
+					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+						continue
+					}
+					data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"backup_records"}, func(m map[string]interface{}) time.Time {
+						if md, ok := m["metadata"].(map[string]interface{}); ok {
+							if s, ok := md["created"].(string); ok {
+								if t, err := time.Parse(time.RFC3339, s); err == nil {
+									return t
+								}
+							}
+						}
+						return time.Time{}
+					}, ascending, limit, offset, router, routerGetter)
+					if ok {
+						ctx.Data(http.StatusOK, "application/json", data)
+						return true
+					}
+					break
+				}
+			}
+		}
+
+		// Generic aggregation: reports/jobs/alarms/audit/maintenance
+		if strings.Contains(ctx.Request.URL.Path, "/reports") || strings.Contains(ctx.Request.URL.Path, "/jobs") || strings.Contains(ctx.Request.URL.Path, "/alarm") || strings.Contains(ctx.Request.URL.Path, "/audit") || strings.Contains(ctx.Request.URL.Path, "/maintenance") {
+			var body map[string]interface{}
+			_ = json.Unmarshal(jsonData, &body)
+			op, _ := body["operation"].(string)
+			var limit, offset int
+			var ascending bool
+			if v, ok := body["limit"].(float64); ok {
+				limit = int(v)
+			}
+			if v, ok := body["offset"].(float64); ok {
+				offset = int(v)
+			}
+			if v, ok := body["ascending"].(bool); ok {
+				ascending = v
+			}
+			if strings.EqualFold(op, "getReports") || strings.EqualFold(op, "listSchedules") || strings.EqualFold(op, "getAlarms") || strings.EqualFold(op, "getEntries") || strings.EqualFold(op, "getMaintenance") || strings.EqualFold(op, "getJobInstances") {
+				delete(body, "limit")
+				delete(body, "offset")
+				delete(body, "ascending")
+				delete(body, "order")
+				jsonData, _ = json.Marshal(body)
+				for _, addr := range router.Urls() {
+					c := router.Cmon(addr)
+					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+						continue
+					}
+					data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"reports", "data", "jobs", "alarms", "audit_entries", "maintenance_records"}, func(m map[string]interface{}) time.Time {
+						for _, k := range []string{"created", "created_time", "created_ts"} {
+							if s, ok := m[k].(string); ok {
+								if t, err := time.Parse(time.RFC3339, s); err == nil {
+									return t
+								}
+							}
+						}
+						return time.Time{}
+					}, ascending, limit, offset, router, routerGetter)
+					if ok {
+						ctx.Data(http.StatusOK, "application/json", data)
+						return true
+					}
+					break
+				}
+			}
+		}
+	}
+
 	// If multiple active pool-controllers, perform smart routing
 	if len(activeTargets) > 1 {
-		// Special case: createJobInstance with cluster_id=0 → choose least-loaded pool-controller
+		zap.L().Sugar().Debugf("trySmartRouteAcrossPool: multiple targets (%d), checking smart routing", len(activeTargets))
+		
+		// Route ACL operations (addAcl, removeAcl) without cluster_id to main_controller
+		// These are global ACL permissions that should be managed by main controller
+		if (strings.EqualFold(op, "addAcl") || strings.EqualFold(op, "removeAcl")) && clusterIdStr == "" && clusterId == -1 {
+			var mainController *cmonapi.PoolController
+			for _, pc := range activeTargets {
+				if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
+					mainController = pc
+					break
+				}
+			}
+			if mainController != nil && forwardTo(mainController, fmt.Sprintf("poolcontroller %s (non-cluster) -> main_controller", op)) {
+				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed %s to main_controller, returning early", op)
+				return true
+			}
+		}
+		
+		// Route jobs without cluster_id to main_controller
+		if clusterIdStr == "" && clusterId == -1 {
+			var mainController *cmonapi.PoolController
+			for _, pc := range activeTargets {
+				if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
+					mainController = pc
+					break
+				}
+			}
+			if mainController != nil && forwardTo(mainController, "poolcontroller no-cluster-id -> main_controller") {
+				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed to main_controller, returning early")
+				return true
+			}
+		}
+
+		// Special case: createJobInstance with cluster_id=0
 		if strings.EqualFold(op, "createJobInstance") && clusterId == 0 {
+			// Check if this is an ADDCONTROLLER or REMOVECONTROLLER job - these must go to main_controller
+			var body map[string]interface{}
+			if err := json.Unmarshal(jsonData, &body); err == nil {
+				if jobData, ok := body["job"].(map[string]interface{}); ok {
+					if jobSpecStr, ok := jobData["job_spec"].(string); ok {
+						var jobSpec map[string]interface{}
+						if err := json.Unmarshal([]byte(jobSpecStr), &jobSpec); err == nil {
+							if command, ok := jobSpec["command"].(string); ok {
+								if strings.EqualFold(command, "ADDCONTROLLER") || strings.EqualFold(command, "REMOVECONTROLLER") {
+									var mainController *cmonapi.PoolController
+									for _, pc := range activeTargets {
+										if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
+											mainController = pc
+											break
+										}
+									}
+									if mainController != nil {
+										if forwardTo(mainController, fmt.Sprintf("poolcontroller createJobInstance %s -> main_controller", command)) {
+											zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed createJobInstance %s to main_controller, returning early", command)
+											return true
+										}
+									} else {
+										zap.L().Sugar().Warnf("trySmartRouteAcrossPool: %s job requires main_controller but none found, falling back", command)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Default: choose least-loaded pool-controller for other jobs
 			var chosen *cmonapi.PoolController
 			minClusters := 0
 			for i, pc := range activeTargets {
@@ -187,6 +564,7 @@ func trySmartRouteAcrossPool(
 				}
 			}
 			if forwardTo(chosen, "poolcontroller createJobInstance cluster_id=0") {
+				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed createJobInstance to least-loaded, returning early")
 				return true
 			}
 		}
@@ -206,261 +584,15 @@ func trySmartRouteAcrossPool(
 				}
 			}
 			if forwardTo(chosen, "poolcontroller cluster-directed") {
+				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed cluster-directed request, returning early")
 				return true
 			}
 		}
+	} else {
+		zap.L().Sugar().Debugf("trySmartRouteAcrossPool: single target (%d), skipping smart routing", len(activeTargets))
 	}
 
-	// Fan-out tree aggregation: /tree with operation getTree
-	if strings.Contains(ctx.Request.URL.Path, "/tree") {
-		var withOp cmonapi.WithOperation
-		_ = json.Unmarshal(jsonData, &withOp)
-		if strings.EqualFold(withOp.Operation, "getTree") {
-			router := getRouter()
-			for _, addr := range router.Urls() {
-				c := router.Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-					continue
-				}
-
-				// Prepare aggregation containers
-				var baseResp map[string]interface{}
-				baseNonCluster := make([]interface{}, 0)
-				clusterItems := make([]interface{}, 0)
-				seenClusters := make(map[string]bool) // Deduplication map for clusters
-
-				// Channel and sync for parallel requests
-				type treeResponse struct {
-					response map[string]interface{}
-					target   *cmonapi.PoolController
-					err      error
-				}
-
-				responseChan := make(chan treeResponse, len(activeTargets))
-				var wg sync.WaitGroup
-
-				// Request each active pool controller in parallel
-				for _, target := range activeTargets {
-					wg.Add(1)
-					go func(target *cmonapi.PoolController) {
-						defer wg.Done()
-
-						instCopy := *c.Client.Instance
-						instCopy.Url = target.Hostname + ":" + strconv.Itoa(target.Port+1)
-						timeout := router.Config.Timeout
-						if timeout <= 0 {
-							timeout = 10
-						}
-						tmpClient := cmon.NewClient(&instCopy, timeout)
-						if cookie := c.Client.GetSessionCookie(); cookie != nil {
-							tmpClient.SetSessionCookie(cookie)
-						}
-
-						rawResp, err := tmpClient.RequestRaw(getRequestPath(), jsonData, false)
-						if err != nil {
-							zap.L().Sugar().Warnf("poolcontroller %s:%d tree request error: %v", target.Hostname, target.Port, err)
-							responseChan <- treeResponse{nil, target, err}
-							return
-						}
-						var respMap map[string]interface{}
-						if err := json.Unmarshal(rawResp.Body, &respMap); err != nil {
-							zap.L().Sugar().Warnf("poolcontroller %s:%d tree invalid response: %v", target.Hostname, target.Port, err)
-							responseChan <- treeResponse{nil, target, err}
-							return
-						}
-						responseChan <- treeResponse{respMap, target, nil}
-					}(target)
-				}
-
-				// Wait for all requests to complete
-				wg.Wait()
-				close(responseChan)
-
-				// Process responses sequentially for consistent baseResp and deduplication
-				for resp := range responseChan {
-					if resp.err != nil || resp.response == nil {
-						continue
-					}
-
-					// Initialize base response and capture non-cluster items from the first success
-					if baseResp == nil {
-						baseResp = resp.response
-						if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
-							if subs, ok := cdt["sub_items"].([]interface{}); ok {
-								for _, it := range subs {
-									m, _ := it.(map[string]interface{})
-									if m == nil {
-										continue
-									}
-									if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") {
-										baseNonCluster = append(baseNonCluster, it)
-									}
-								}
-							}
-						}
-					}
-
-					// From each response collect cluster items with deduplication
-					if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
-						if subs, ok := cdt["sub_items"].([]interface{}); ok {
-							for _, it := range subs {
-								m, _ := it.(map[string]interface{})
-								if m == nil {
-									continue
-								}
-								if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
-									// Use cluster_id for deduplication
-									if id, ok := m["cluster_id"]; ok {
-										clusterKey := fmt.Sprintf("%v", id)
-										// Only add if not seen before
-										if !seenClusters[clusterKey] {
-											seenClusters[clusterKey] = true
-											clusterItems = append(clusterItems, it)
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-
-				// If we couldn't build a base response, fall back to default handling
-				if baseResp == nil {
-					// fall through to other handlers
-				} else {
-					// Merge: non-cluster from base + all clusters from all controllers
-					if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
-						merged := make([]interface{}, 0, len(baseNonCluster)+len(clusterItems))
-						merged = append(merged, baseNonCluster...)
-						merged = append(merged, clusterItems...)
-						cdt["sub_items"] = merged
-					}
-					b, _ := json.Marshal(baseResp)
-					ctx.Data(http.StatusOK, "application/json", b)
-					return true
-				}
-			}
-		}
-	}
-
-	// Special handling: /clusters getAllClusterInfo aggregation
-	if strings.Contains(ctx.Request.URL.Path, "/clusters") {
-		var withOp cmonapi.WithOperation
-		_ = json.Unmarshal(jsonData, &withOp)
-		if strings.EqualFold(withOp.Operation, "getAllClusterInfo") {
-			router := getRouter()
-			for _, addr := range router.Urls() {
-				c := router.Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-					continue
-				}
-				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"clusters"}, nil, false, 0, 0, router, routerGetter)
-				if ok {
-					ctx.Data(http.StatusOK, "application/json", data)
-					return true
-				}
-			}
-		}
-	}
-
-	// Backups aggregation: /backup getBackups with pagination
-	if strings.Contains(ctx.Request.URL.Path, "/backup") {
-		var body map[string]interface{}
-		_ = json.Unmarshal(jsonData, &body)
-		op, _ := body["operation"].(string)
-		var (
-			limit, offset int
-			ascending     bool
-		)
-		if v, ok := body["limit"].(float64); ok {
-			limit = int(v)
-		}
-		if v, ok := body["offset"].(float64); ok {
-			offset = int(v)
-		}
-		if v, ok := body["ascending"].(bool); ok {
-			ascending = v
-		}
-		if strings.EqualFold(op, "getBackups") {
-			delete(body, "limit")
-			delete(body, "offset")
-			delete(body, "ascending")
-			delete(body, "order")
-			jsonData, _ = json.Marshal(body)
-			router := getRouter()
-			for _, addr := range router.Urls() {
-				c := router.Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-					continue
-				}
-				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"backup_records"}, func(m map[string]interface{}) time.Time {
-					if md, ok := m["metadata"].(map[string]interface{}); ok {
-						if s, ok := md["created"].(string); ok {
-							if t, err := time.Parse(time.RFC3339, s); err == nil {
-								return t
-							}
-						}
-					}
-					return time.Time{}
-				}, ascending, limit, offset, router, routerGetter)
-				if ok {
-					ctx.Data(http.StatusOK, "application/json", data)
-					return true
-				}
-				break
-			}
-		}
-	}
-
-	// Generic aggregation: reports/jobs/alarms/audit/maintenance
-	if strings.Contains(ctx.Request.URL.Path, "/reports") || strings.Contains(ctx.Request.URL.Path, "/jobs") || strings.Contains(ctx.Request.URL.Path, "/alarms") || strings.Contains(ctx.Request.URL.Path, "/audit") || strings.Contains(ctx.Request.URL.Path, "/maintenance") {
-		var body map[string]interface{}
-		_ = json.Unmarshal(jsonData, &body)
-		op, _ := body["operation"].(string)
-		var (
-			limit, offset int
-			ascending     bool
-		)
-		if v, ok := body["limit"].(float64); ok {
-			limit = int(v)
-		}
-		if v, ok := body["offset"].(float64); ok {
-			offset = int(v)
-		}
-		if v, ok := body["ascending"].(bool); ok {
-			ascending = v
-		}
-		if strings.EqualFold(op, "getReports") || strings.EqualFold(op, "listSchedules") || strings.EqualFold(op, "getAlarms") || strings.EqualFold(op, "getEntries") || strings.EqualFold(op, "getMaintenance") || strings.EqualFold(op, "getJobInstances") {
-			delete(body, "limit")
-			delete(body, "offset")
-			delete(body, "ascending")
-			delete(body, "order")
-			jsonData, _ = json.Marshal(body)
-			router := getRouter()
-			for _, addr := range router.Urls() {
-				c := router.Cmon(addr)
-				if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-					continue
-				}
-				data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"reports", "data", "jobs", "alarms", "audit_entries", "maintenance_records"}, func(m map[string]interface{}) time.Time {
-					for _, k := range []string{"created", "created_time", "created_ts"} {
-						if s, ok := m[k].(string); ok {
-							if t, err := time.Parse(time.RFC3339, s); err == nil {
-								return t
-							}
-						}
-					}
-					return time.Time{}
-				}, ascending, limit, offset, router, routerGetter)
-				if ok {
-					ctx.Data(http.StatusOK, "application/json", data)
-					return true
-				}
-				break
-			}
-		}
-	}
-
+	zap.L().Sugar().Debugf("trySmartRouteAcrossPool: no matching aggregation/routing logic, returning false")
 	return false
 }
 
@@ -502,6 +634,8 @@ func aggregateListAcrossPoolControllers(
 	if len(targets) == 0 {
 		return nil, false
 	}
+
+	zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: aggregating %s with %d targets, listKeys: %v", path, len(targets), listKeys)
 
 	// Get router - use provided router or fall back to routerGetter if provided
 	getRouter := func() *router.Router {
@@ -556,6 +690,15 @@ func aggregateListAcrossPoolControllers(
 				return
 			}
 
+			// Count items received from this target
+			itemCount := 0
+			for _, key := range listKeys {
+				if lst, ok := respMap[key].([]interface{}); ok {
+					itemCount += len(lst)
+				}
+			}
+			zap.L().Sugar().Infof("poolcontroller %s:%d returned %d items for aggregation", target.Hostname, target.Port, itemCount)
+
 			responseChan <- poolResponse{respMap, target, nil}
 		}(target)
 	}
@@ -567,6 +710,8 @@ func aggregateListAcrossPoolControllers(
 	// Collect and aggregate responses
 	var baseResp map[string]interface{}
 	aggregated := make([]map[string]interface{}, 0, 256)
+	successCount := 0
+	failureCount := 0
 
 	// Track seen IDs for deduplication per key type
 	seenAlarmIDs := make(map[int64]bool)
@@ -574,9 +719,16 @@ func aggregateListAcrossPoolControllers(
 
 	for resp := range responseChan {
 		if resp.err != nil || resp.response == nil {
+			failureCount++
+			if resp.target != nil {
+				zap.L().Sugar().Warnf("poolcontroller %s:%d aggregation failed: %v", resp.target.Hostname, resp.target.Port, resp.err)
+			} else {
+				zap.L().Sugar().Warnf("poolcontroller aggregation failed: %v", resp.err)
+			}
 			continue
 		}
 
+		successCount++
 		if baseResp == nil {
 			baseResp = resp.response
 		}
@@ -612,7 +764,10 @@ func aggregateListAcrossPoolControllers(
 		}
 	}
 
+	zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: collected %d successful responses, %d failed, total aggregated items: %d", successCount, failureCount, len(aggregated))
+
 	if baseResp == nil {
+		zap.L().Sugar().Warnf("aggregateListAcrossPoolControllers: no valid base response found")
 		return nil, false
 	}
 
@@ -652,5 +807,6 @@ func aggregateListAcrossPoolControllers(
 	baseResp["total"] = int64(total)
 
 	b, _ := json.Marshal(baseResp)
+	zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: returning %d items (total: %d, offset: %d, limit: %d)", len(out), total, offset, limit)
 	return b, true
 }
