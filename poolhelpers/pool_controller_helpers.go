@@ -20,6 +20,35 @@ import (
 	"go.uber.org/zap"
 )
 
+// extractClusterID extracts cluster_id from a request body map, handling both string and numeric types.
+// Returns the cluster_id as int, as string, and whether a valid cluster_id was found.
+func extractClusterID(body map[string]interface{}) (clusterID int, clusterIDStr string, hasClusterID bool) {
+	clusterID = -1
+	clusterIDStr = ""
+	hasClusterID = false
+	
+	if body == nil {
+		return
+	}
+	
+	if v, ok := body["cluster_id"]; ok {
+		switch t := v.(type) {
+		case float64:
+			clusterID = int(t)
+			clusterIDStr = strconv.FormatInt(int64(t), 10)
+			hasClusterID = true
+		case string:
+			clusterIDStr = t
+			if n, err := strconv.Atoi(t); err == nil {
+				clusterID = n
+			}
+			hasClusterID = true
+		}
+	}
+	
+	return
+}
+
 // FilterActivePoolControllers returns only active targets with valid hostname and port.
 func FilterActivePoolControllers(controllers []*cmonapi.PoolController) []*cmonapi.PoolController {
 	return filterActivePoolControllers(controllers)
@@ -118,23 +147,12 @@ func trySmartRouteAcrossPool(
 	_ = json.Unmarshal(jsonData, &bodyMap)
 	var (
 		op           string
-		clusterId    = -1
+		clusterId    int
 		clusterIdStr string
 	)
 	if bodyMap != nil {
 		op, _ = bodyMap["operation"].(string)
-		if v, ok := bodyMap["cluster_id"]; ok {
-			switch t := v.(type) {
-			case float64:
-				clusterId = int(t)
-				clusterIdStr = strconv.FormatInt(int64(t), 10)
-			case string:
-				clusterIdStr = t
-				if n, err := strconv.Atoi(t); err == nil {
-					clusterId = n
-				}
-			}
-		}
+		clusterId, clusterIdStr, _ = extractClusterID(bodyMap)
 	}
 
 	// Helper to forward request to a specific pool-controller
@@ -409,31 +427,40 @@ func trySmartRouteAcrossPool(
 				ascending = v
 			}
 			if strings.EqualFold(op, "getBackups") {
-				delete(body, "limit")
-				delete(body, "offset")
-				delete(body, "ascending")
-				delete(body, "order")
-				jsonData, _ = json.Marshal(body)
-				for _, addr := range router.Urls() {
-					c := router.Cmon(addr)
-					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-						continue
-					}
-					data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"backup_records"}, func(m map[string]interface{}) time.Time {
-						if md, ok := m["metadata"].(map[string]interface{}); ok {
-							if s, ok := md["created"].(string); ok {
-								if t, err := time.Parse(time.RFC3339, s); err == nil {
-									return t
+				// Check if request has a specific cluster_id
+				_, requestClusterIdStr, hasClusterId := extractClusterID(body)
+				
+				// Only aggregate if NO specific cluster_id is provided
+				// If cluster_id is present, let smart routing handle it to route to the correct controller
+				if !hasClusterId {
+					delete(body, "limit")
+					delete(body, "offset")
+					delete(body, "ascending")
+					delete(body, "order")
+					jsonData, _ = json.Marshal(body)
+					for _, addr := range router.Urls() {
+						c := router.Cmon(addr)
+						if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+							continue
+						}
+						data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"backup_records"}, func(m map[string]interface{}) time.Time {
+							if md, ok := m["metadata"].(map[string]interface{}); ok {
+								if s, ok := md["created"].(string); ok {
+									if t, err := time.Parse(time.RFC3339, s); err == nil {
+										return t
+									}
 								}
 							}
+							return time.Time{}
+						}, ascending, limit, offset, router, routerGetter)
+						if ok {
+							ctx.Data(http.StatusOK, "application/json", data)
+							return true
 						}
-						return time.Time{}
-					}, ascending, limit, offset, router, routerGetter)
-					if ok {
-						ctx.Data(http.StatusOK, "application/json", data)
-						return true
+						break
 					}
-					break
+				} else {
+					zap.L().Sugar().Debugf("trySmartRouteAcrossPool: %s with cluster_id=%s, skipping aggregation to allow smart routing", op, requestClusterIdStr)
 				}
 			}
 		}
@@ -455,31 +482,40 @@ func trySmartRouteAcrossPool(
 				ascending = v
 			}
 			if strings.EqualFold(op, "getReports") || strings.EqualFold(op, "listSchedules") || strings.EqualFold(op, "getAlarms") || strings.EqualFold(op, "getEntries") || strings.EqualFold(op, "getMaintenance") || strings.EqualFold(op, "getJobInstances") {
-				delete(body, "limit")
-				delete(body, "offset")
-				delete(body, "ascending")
-				delete(body, "order")
-				jsonData, _ = json.Marshal(body)
-				for _, addr := range router.Urls() {
-					c := router.Cmon(addr)
-					if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
-						continue
-					}
-					data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"reports", "data", "jobs", "alarms", "audit_entries", "maintenance_records"}, func(m map[string]interface{}) time.Time {
-						for _, k := range []string{"created", "created_time", "created_ts"} {
-							if s, ok := m[k].(string); ok {
-								if t, err := time.Parse(time.RFC3339, s); err == nil {
-									return t
+				// Check if request has a specific cluster_id
+				_, requestClusterIdStr, hasClusterId := extractClusterID(body)
+				
+				// Only aggregate if NO specific cluster_id is provided
+				// If cluster_id is present, let smart routing handle it to route to the correct controller
+				if !hasClusterId {
+					delete(body, "limit")
+					delete(body, "offset")
+					delete(body, "ascending")
+					delete(body, "order")
+					jsonData, _ = json.Marshal(body)
+					for _, addr := range router.Urls() {
+						c := router.Cmon(addr)
+						if c == nil || c.Client == nil || !c.MatchesID(controllerId) {
+							continue
+						}
+						data, ok := aggregateListAcrossPoolControllers(ctx, c.Client, activeTargets, getRequestPath(), jsonData, []string{"reports", "data", "jobs", "alarms", "audit_entries", "maintenance_records"}, func(m map[string]interface{}) time.Time {
+							for _, k := range []string{"created", "created_time", "created_ts"} {
+								if s, ok := m[k].(string); ok {
+									if t, err := time.Parse(time.RFC3339, s); err == nil {
+										return t
+									}
 								}
 							}
+							return time.Time{}
+						}, ascending, limit, offset, router, routerGetter)
+						if ok {
+							ctx.Data(http.StatusOK, "application/json", data)
+							return true
 						}
-						return time.Time{}
-					}, ascending, limit, offset, router, routerGetter)
-					if ok {
-						ctx.Data(http.StatusOK, "application/json", data)
-						return true
+						break
 					}
-					break
+				} else {
+					zap.L().Sugar().Debugf("trySmartRouteAcrossPool: %s with cluster_id=%s, skipping aggregation to allow smart routing", op, requestClusterIdStr)
 				}
 			}
 		}
