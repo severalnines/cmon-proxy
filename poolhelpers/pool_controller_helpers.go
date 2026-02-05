@@ -338,7 +338,7 @@ func trySmartRouteAcrossPool(
 					if mainControllerResp != nil && resp.target == mainControllerResp.target {
 						shouldExtractNonCluster = true
 					} else if mainControllerResp == nil && len(baseNonCluster) == 0 {
-						// Fallback: if no main controller identified, take non-cluster items from first response
+						// Fallback: if no main controller identified, take non-cluster items from any successful response (once)
 						shouldExtractNonCluster = true
 					}
 
