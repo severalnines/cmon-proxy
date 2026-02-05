@@ -2,6 +2,7 @@ package poolhelpers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 
@@ -605,7 +606,7 @@ func TestTreeAggregationOwnershipPreference(t *testing.T) {
 				if resp.hasSubItems {
 					subItems := make([]interface{}, resp.subItemsCount)
 					for i := 0; i < resp.subItemsCount; i++ {
-						subItems[i] = map[string]interface{}{"item_name": "item_" + string(rune('0'+i))}
+						subItems[i] = map[string]interface{}{"item_name": fmt.Sprintf("item_%d", i)}
 					}
 					clusterItem["sub_items"] = subItems
 				}
