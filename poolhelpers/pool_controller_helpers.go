@@ -253,8 +253,8 @@ func trySmartRouteAcrossPool(
 					// Prepare aggregation containers
 					var baseResp map[string]interface{}
 					baseNonCluster := make([]interface{}, 0)
-					clusterItems := make([]interface{}, 0)
-					seenClusters := make(map[string]bool) // Deduplication map for clusters
+					clusterItemsMap := make(map[string]interface{})       // cluster_id -> cluster item
+					clusterOwnership := make(map[string]bool)             // cluster_id -> true if we have data from owning controller
 
 					// Channel and sync for parallel requests
 					type treeResponse struct {
@@ -332,8 +332,17 @@ func trySmartRouteAcrossPool(
 						baseResp = resp.response
 					}
 
-					// Extract non-cluster items ONLY from main controller
+					// Extract non-cluster items from main controller, or from first response if main controller not found
+					// (fallback ensures non-cluster items aren't lost when Properties.Role is not set)
+					shouldExtractNonCluster := false
 					if mainControllerResp != nil && resp.target == mainControllerResp.target {
+						shouldExtractNonCluster = true
+					} else if mainControllerResp == nil && len(baseNonCluster) == 0 {
+						// Fallback: if no main controller identified, take non-cluster items from any successful response (once)
+						shouldExtractNonCluster = true
+					}
+
+					if shouldExtractNonCluster {
 						if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
 							if subs, ok := cdt["sub_items"].([]interface{}); ok {
 								for _, it := range subs {
@@ -349,7 +358,7 @@ func trySmartRouteAcrossPool(
 						}
 					}
 
-					// Collect cluster items from ALL controllers with deduplication
+					// Collect cluster items from ALL controllers, preferring data from the owning controller
 					if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
 						if subs, ok := cdt["sub_items"].([]interface{}); ok {
 							for _, it := range subs {
@@ -358,12 +367,27 @@ func trySmartRouteAcrossPool(
 									continue
 								}
 								if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
-									// Use cluster_id for deduplication
 									if id, ok := m["cluster_id"]; ok {
 										clusterKey := fmt.Sprintf("%v", id)
-										if !seenClusters[clusterKey] {
-											seenClusters[clusterKey] = true
-											clusterItems = append(clusterItems, it)
+
+										// Check if this controller owns this cluster
+										ownsCluster := false
+										if resp.target != nil {
+											for _, ownedCluster := range resp.target.Clusters {
+												if ownedCluster == clusterKey {
+													ownsCluster = true
+													break
+												}
+											}
+										}
+
+										// Add cluster if not seen, or override with owning controller's data
+										_, alreadyHaveOwnerData := clusterOwnership[clusterKey]
+										if !alreadyHaveOwnerData || ownsCluster {
+											clusterItemsMap[clusterKey] = it
+											if ownsCluster {
+												clusterOwnership[clusterKey] = true
+											}
 										}
 									}
 								}
@@ -376,6 +400,12 @@ func trySmartRouteAcrossPool(
 					if baseResp == nil {
 						// fall through to other handlers
 					} else {
+						// Convert cluster items map to slice
+						clusterItems := make([]interface{}, 0, len(clusterItemsMap))
+						for _, item := range clusterItemsMap {
+							clusterItems = append(clusterItems, item)
+						}
+
 						// Merge: non-cluster from base + all clusters from all controllers
 						if cdt, ok := baseResp["cdt"].(map[string]interface{}); ok {
 							merged := make([]interface{}, 0, len(baseNonCluster)+len(clusterItems))
