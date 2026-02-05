@@ -512,6 +512,129 @@ func TestTrySmartRouteAcrossPool_PaginationParsing(t *testing.T) {
 	}
 }
 
+// TestTreeAggregationOwnershipPreference tests that cluster data from owning controllers
+// is preferred over non-owning controllers during tree aggregation
+func TestTreeAggregationOwnershipPreference(t *testing.T) {
+	// This test verifies the ownership preference logic in isolation
+	// by simulating the cluster collection algorithm
+
+	type testCase struct {
+		name           string
+		responses      []struct {
+			ownsCluster bool
+			hasSubItems bool
+			subItemsCount int
+		}
+		expectedHasSubItems bool
+		expectedSubItemsCount int
+		description    string
+	}
+
+	tests := []testCase{
+		{
+			name: "owner comes first - owner data kept",
+			responses: []struct {
+				ownsCluster bool
+				hasSubItems bool
+				subItemsCount int
+			}{
+				{ownsCluster: true, hasSubItems: true, subItemsCount: 5},
+				{ownsCluster: false, hasSubItems: false, subItemsCount: 0},
+			},
+			expectedHasSubItems: true,
+			expectedSubItemsCount: 5,
+			description: "When owner comes first, owner's rich data should be preserved",
+		},
+		{
+			name: "non-owner comes first - owner data preferred",
+			responses: []struct {
+				ownsCluster bool
+				hasSubItems bool
+				subItemsCount int
+			}{
+				{ownsCluster: false, hasSubItems: false, subItemsCount: 0},
+				{ownsCluster: true, hasSubItems: true, subItemsCount: 5},
+			},
+			expectedHasSubItems: true,
+			expectedSubItemsCount: 5,
+			description: "When non-owner comes first, owner's data should override",
+		},
+		{
+			name: "non-owner with sub_items comes first - owner without sub_items",
+			responses: []struct {
+				ownsCluster bool
+				hasSubItems bool
+				subItemsCount int
+			}{
+				{ownsCluster: false, hasSubItems: true, subItemsCount: 3},
+				{ownsCluster: true, hasSubItems: false, subItemsCount: 0},
+			},
+			expectedHasSubItems: false,
+			expectedSubItemsCount: 0,
+			description: "Owner data is preferred even if it has fewer sub_items",
+		},
+		{
+			name: "only non-owners - last one kept",
+			responses: []struct {
+				ownsCluster bool
+				hasSubItems bool
+				subItemsCount int
+			}{
+				{ownsCluster: false, hasSubItems: true, subItemsCount: 3},
+				{ownsCluster: false, hasSubItems: true, subItemsCount: 5},
+			},
+			expectedHasSubItems: true,
+			expectedSubItemsCount: 5,
+			description: "When no owner, any non-owner data is acceptable (last overwrites)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate the cluster collection algorithm from trySmartRouteAcrossPool
+			clusterItemsMap := make(map[string]interface{})
+			clusterOwnership := make(map[string]bool)
+			clusterKey := "2" // cluster_id = 2
+
+			for _, resp := range tt.responses {
+				// Create a mock cluster item
+				clusterItem := map[string]interface{}{
+					"cluster_id": 2,
+					"item_type": "Cluster",
+				}
+				if resp.hasSubItems {
+					subItems := make([]interface{}, resp.subItemsCount)
+					for i := 0; i < resp.subItemsCount; i++ {
+						subItems[i] = map[string]interface{}{"item_name": "item_" + string(rune('0'+i))}
+					}
+					clusterItem["sub_items"] = subItems
+				}
+
+				// Apply the ownership preference logic
+				_, alreadyHaveOwnerData := clusterOwnership[clusterKey]
+				if !alreadyHaveOwnerData || resp.ownsCluster {
+					clusterItemsMap[clusterKey] = clusterItem
+					if resp.ownsCluster {
+						clusterOwnership[clusterKey] = true
+					}
+				}
+			}
+
+			// Verify the result
+			result, ok := clusterItemsMap[clusterKey].(map[string]interface{})
+			assert.True(t, ok, "Cluster should be in map")
+
+			subItems, hasSubItems := result["sub_items"].([]interface{})
+			if tt.expectedHasSubItems {
+				assert.True(t, hasSubItems, tt.description)
+				assert.Equal(t, tt.expectedSubItemsCount, len(subItems), tt.description)
+			} else {
+				assert.False(t, hasSubItems, tt.description)
+			}
+		})
+	}
+}
+
 // Benchmark tests
 func BenchmarkFilterActivePoolControllers(b *testing.B) {
 	controllers := make([]*cmonapi.PoolController, 100)
