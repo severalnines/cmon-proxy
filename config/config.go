@@ -57,19 +57,19 @@ type ProxyUser struct {
 }
 
 type CmonInstance struct {
-	Xid           string `yaml:"xid" json:"xid"`
-	Url           string `yaml:"url" json:"url"`
-	Name          string `yaml:"name,omitempty" json:"name,omitempty"`
-	Username      string `yaml:"username,omitempty" json:"username,omitempty"`
-	Password      string `yaml:"password,omitempty" json:"password,omitempty"`
-	Keyfile       string `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
-	ControllerId  string `yaml:"controller_id,omitempty" json:"controller_id,omitempty"`
-	PoolId        string `yaml:"pool_id,omitempty" json:"pool_id,omitempty"`
+	Xid           string                    `yaml:"xid" json:"xid"`
+	Url           string                    `yaml:"url" json:"url"`
+	Name          string                    `yaml:"name,omitempty" json:"name,omitempty"`
+	Username      string                    `yaml:"username,omitempty" json:"username,omitempty"`
+	Password      string                    `yaml:"password,omitempty" json:"password,omitempty"`
+	Keyfile       string                    `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
+	ControllerId  string                    `yaml:"controller_id,omitempty" json:"controller_id,omitempty"`
+	PoolId        string                    `yaml:"pool_id,omitempty" json:"pool_id,omitempty"`
 	Controllers   []*cmonapi.PoolController `yaml:"controllers,omitempty" json:"controllers,omitempty"`
-	FrontendUrl   string `yaml:"frontend_url,omitempty" json:"frontend_url,omitempty"`
-	CMONSshHost   string `yaml:"cmon_ssh_host,omitempty" json:"cmon_ssh_host,omitempty"`
-	CMONSshSecure bool   `yaml:"cmon_ssh_secure,omitempty" json:"cmon_ssh_secure,omitempty"`
-	Preferences   map[string]interface{} `yaml:"preferences,omitempty" json:"preferences,omitempty"`
+	FrontendUrl   string                    `yaml:"frontend_url,omitempty" json:"frontend_url,omitempty"`
+	CMONSshHost   string                    `yaml:"cmon_ssh_host,omitempty" json:"cmon_ssh_host,omitempty"`
+	CMONSshSecure bool                      `yaml:"cmon_ssh_secure,omitempty" json:"cmon_ssh_secure,omitempty"`
+	Preferences   map[string]interface{}    `yaml:"preferences,omitempty" json:"preferences,omitempty"`
 }
 
 type WebServerSecurity struct {
@@ -160,7 +160,7 @@ var (
 		Instances:         make([]*CmonInstance, 0),
 		FetchBackupDays:   7,
 		FetchJobsHours:    12,
-		Timeout:           30,
+		Timeout:           120,
 		SingleController:  "",
 		KubernetesEnabled: true,
 		PoolVisible:       true,
@@ -212,23 +212,23 @@ func (cmon *CmonInstance) Verify() error {
 
 	// Trim whitespace from URL to prevent parsing issues
 	cmon.Url = strings.TrimSpace(cmon.Url)
-	
+
 	// Check if URL is empty after trimming
 	if len(cmon.Url) < 3 {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller, missing URL")
 	}
-	
+
 	// Check for invalid characters in URL (like spaces in the middle)
 	if strings.Contains(cmon.Url, " ") {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller URL: contains spaces")
 	}
-	
+
 	// Additional validation to ensure URL can be parsed
 	testUrl := cmon.Url
 	if !strings.HasPrefix(testUrl, "https://") && !strings.HasPrefix(testUrl, "http://") {
 		testUrl = "https://" + testUrl
 	}
-	
+
 	if _, err := url.Parse(testUrl); err != nil {
 		return cmonapi.NewError(cmonapi.RequestStatusInvalidRequest, "invalid controller URL format: "+err.Error())
 	}
@@ -632,7 +632,7 @@ func (cfg *Config) ControllerById(idString string) *CmonInstance {
 func (cfg *Config) AddController(cmon *CmonInstance, persist bool) error {
 	// Trim whitespace from URL before validation
 	cmon.Url = strings.TrimSpace(cmon.Url)
-	
+
 	if err := cmon.Verify(); err != nil {
 		return err
 	}
