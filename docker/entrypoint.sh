@@ -8,7 +8,7 @@ echo "PATH=$PATH"
 if [ ! -z "$INIT_LOCAL_CMON" ]; then
     echo "Initializing local CMON configuration..."
     
-    INIT_CMD="/usr/local/bin/ccmgradm init --basedir=/usr/share/ccmgr --local-cmon"
+    INIT_CMD="/usr/local/bin/ccmgradm init --local-cmon"
     
     if [ ! -z "$CMON_PROXY_PORT" ]; then
         INIT_CMD="$INIT_CMD -p $CMON_PROXY_PORT"
