@@ -65,6 +65,44 @@ func filterActivePoolControllers(controllers []*cmonapi.PoolController) []*cmona
 	return active
 }
 
+// chooseMainController returns the pool controller with role main_controller, or nil.
+func chooseMainController(activeTargets []*cmonapi.PoolController) *cmonapi.PoolController {
+	for _, pc := range activeTargets {
+		if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
+			return pc
+		}
+	}
+	return nil
+}
+
+// chooseControllerForClusterRequest returns the pool controller that owns the given clusterIDStr, or nil.
+func chooseControllerForClusterRequest(activeTargets []*cmonapi.PoolController, clusterIDStr string) *cmonapi.PoolController {
+	for _, pc := range activeTargets {
+		for _, cid := range pc.Clusters {
+			if cid == clusterIDStr {
+				return pc
+			}
+		}
+	}
+	return nil
+}
+
+// chooseLeastLoadedController returns the pool controller with the fewest clusters; nil if empty targets.
+func chooseLeastLoadedController(activeTargets []*cmonapi.PoolController) *cmonapi.PoolController {
+	if len(activeTargets) == 0 {
+		return nil
+	}
+	chosen := activeTargets[0]
+	minClusters := len(chosen.Clusters)
+	for _, pc := range activeTargets[1:] {
+		if l := len(pc.Clusters); l < minClusters {
+			minClusters = l
+			chosen = pc
+		}
+	}
+	return chosen
+}
+
 // TrySmartRouteAcrossPool is the exported wrapper for trySmartRouteAcrossPool
 // If r is nil and routerGetter is provided, uses routerGetter(ctx). If pathTransformer is nil, uses ctx.Request.URL.EscapedPath().
 func TrySmartRouteAcrossPool(
@@ -209,13 +247,7 @@ func trySmartRouteAcrossPool(
 				strings.Contains(requestPathLower, "/stopcontroller") || strings.Contains(requestPathLower, "/startcontroller") || strings.Contains(requestPathLower, "/setpoolmode")
 
 			if isPoolControllerOp {
-				var mainController *cmonapi.PoolController
-				for _, pc := range activeTargets {
-					if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
-						mainController = pc
-						break
-					}
-				}
+				mainController := chooseMainController(activeTargets)
 				// If no main_controller found in pool, fall back to routing via controllerId
 				if mainController == nil {
 					zap.L().Sugar().Warnf("trySmartRouteAcrossPool: poolcontrollers operation requires main_controller but none found, falling back to controllerId routing")
@@ -558,13 +590,7 @@ func trySmartRouteAcrossPool(
 		// Route ACL operations (addAcl, removeAcl) without cluster_id to main_controller
 		// These are global ACL permissions that should be managed by main controller
 		if (strings.EqualFold(op, "addAcl") || strings.EqualFold(op, "removeAcl")) && clusterIdStr == "" && clusterId == -1 {
-			var mainController *cmonapi.PoolController
-			for _, pc := range activeTargets {
-				if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
-					mainController = pc
-					break
-				}
-			}
+			mainController := chooseMainController(activeTargets)
 			if mainController != nil && forwardTo(mainController, fmt.Sprintf("poolcontroller %s (non-cluster) -> main_controller", op)) {
 				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed %s to main_controller, returning early", op)
 				return true
@@ -573,13 +599,7 @@ func trySmartRouteAcrossPool(
 		
 		// Route jobs without cluster_id to main_controller
 		if clusterIdStr == "" && clusterId == -1 {
-			var mainController *cmonapi.PoolController
-			for _, pc := range activeTargets {
-				if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
-					mainController = pc
-					break
-				}
-			}
+			mainController := chooseMainController(activeTargets)
 			if mainController != nil && forwardTo(mainController, "poolcontroller no-cluster-id -> main_controller") {
 				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed to main_controller, returning early")
 				return true
@@ -597,13 +617,7 @@ func trySmartRouteAcrossPool(
 						if err := json.Unmarshal([]byte(jobSpecStr), &jobSpec); err == nil {
 							if command, ok := jobSpec["command"].(string); ok {
 								if strings.EqualFold(command, "ADDCONTROLLER") || strings.EqualFold(command, "REMOVECONTROLLER") {
-									var mainController *cmonapi.PoolController
-									for _, pc := range activeTargets {
-										if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
-											mainController = pc
-											break
-										}
-									}
+									mainController := chooseMainController(activeTargets)
 									if mainController != nil {
 										if forwardTo(mainController, fmt.Sprintf("poolcontroller createJobInstance %s -> main_controller", command)) {
 											zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed createJobInstance %s to main_controller, returning early", command)
@@ -620,15 +634,7 @@ func trySmartRouteAcrossPool(
 			}
 
 			// Default: choose least-loaded pool-controller for other jobs
-			var chosen *cmonapi.PoolController
-			minClusters := 0
-			for i, pc := range activeTargets {
-				l := len(pc.Clusters)
-				if i == 0 || l < minClusters {
-					minClusters = l
-					chosen = pc
-				}
-			}
+			chosen := chooseLeastLoadedController(activeTargets)
 			if forwardTo(chosen, "poolcontroller createJobInstance cluster_id=0") {
 				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed createJobInstance to least-loaded, returning early")
 				return true
@@ -637,18 +643,7 @@ func trySmartRouteAcrossPool(
 
 		// If request targets a specific cluster, route directly to the controller handling it
 		if clusterIdStr != "" {
-			var chosen *cmonapi.PoolController
-			for _, pc := range activeTargets {
-				for _, cid := range pc.Clusters {
-					if cid == clusterIdStr {
-						chosen = pc
-						break
-					}
-				}
-				if chosen != nil {
-					break
-				}
-			}
+			chosen := chooseControllerForClusterRequest(activeTargets, clusterIdStr)
 			if forwardTo(chosen, "poolcontroller cluster-directed") {
 				zap.L().Sugar().Debugf("trySmartRouteAcrossPool: routed cluster-directed request, returning early")
 				return true
@@ -677,6 +672,91 @@ func AggregateListAcrossPoolControllers(
 	r *router.Router,
 ) ([]byte, bool) {
 	return aggregateListAcrossPoolControllers(ctx, baseClient, targets, path, body, listKeys, tsExtractor, ascending, limit, offset, r, nil)
+}
+
+// mergeListResponses merges list fields from multiple response maps, optionally sorts by tsExtractor,
+// paginates, and returns the marshaled base response. Used by aggregateListAcrossPoolControllers;
+// extracted for unit testing. Deduplicates alarms by alarm_id and jobs by job_id.
+func mergeListResponses(
+	responses []map[string]interface{},
+	listKeys []string,
+	tsExtractor func(map[string]interface{}) time.Time,
+	ascending bool,
+	limit int,
+	offset int,
+) ([]byte, bool) {
+	if len(responses) == 0 {
+		return nil, false
+	}
+	baseResp := responses[0]
+	aggregated := make([]map[string]interface{}, 0, 256)
+	seenAlarmIDs := make(map[int64]bool)
+	seenJobIDs := make(map[uint64]bool)
+
+	for _, resp := range responses {
+		for _, key := range listKeys {
+			if lst, ok := resp[key].([]interface{}); ok {
+				for _, it := range lst {
+					if m, ok := it.(map[string]interface{}); ok {
+						if key == "alarms" {
+							if alarmID, ok := m["alarm_id"].(float64); ok {
+								alarmIDInt := int64(alarmID)
+								if seenAlarmIDs[alarmIDInt] {
+									continue
+								}
+								seenAlarmIDs[alarmIDInt] = true
+							}
+						}
+						if key == "jobs" {
+							if jobID, ok := m["job_id"].(float64); ok {
+								jobIDUint := uint64(jobID)
+								if seenJobIDs[jobIDUint] {
+									continue
+								}
+								seenJobIDs[jobIDUint] = true
+							}
+						}
+						aggregated = append(aggregated, m)
+					}
+				}
+			}
+		}
+	}
+
+	if tsExtractor != nil {
+		sort.SliceStable(aggregated, func(i, j int) bool {
+			ti := tsExtractor(aggregated[i])
+			tj := tsExtractor(aggregated[j])
+			if ascending {
+				return ti.Before(tj)
+			}
+			return ti.After(tj)
+		})
+	}
+
+	total := len(aggregated)
+	start := offset
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
+	end := total
+	if limit > 0 && start+limit < end {
+		end = start + limit
+	}
+	sliced := aggregated[start:end]
+	out := make([]interface{}, len(sliced))
+	for i, m := range sliced {
+		out[i] = m
+	}
+	for _, key := range listKeys {
+		baseResp[key] = out
+	}
+	baseResp["total"] = int64(total)
+	b, _ := json.Marshal(baseResp)
+	return b, true
 }
 
 // aggregateListAcrossPoolControllers fans out a request to the given pool controllers in parallel,
@@ -773,15 +853,10 @@ func aggregateListAcrossPoolControllers(
 	wg.Wait()
 	close(responseChan)
 
-	// Collect and aggregate responses
-	var baseResp map[string]interface{}
-	aggregated := make([]map[string]interface{}, 0, 256)
+	// Collect successful responses
+	successResponses := make([]map[string]interface{}, 0, len(targets))
 	successCount := 0
 	failureCount := 0
-
-	// Track seen IDs for deduplication per key type
-	seenAlarmIDs := make(map[int64]bool)
-	seenJobIDs := make(map[uint64]bool)
 
 	for resp := range responseChan {
 		if resp.err != nil || resp.response == nil {
@@ -793,86 +868,20 @@ func aggregateListAcrossPoolControllers(
 			}
 			continue
 		}
-
 		successCount++
-		if baseResp == nil {
-			baseResp = resp.response
-		}
+		successResponses = append(successResponses, resp.response)
+	}
 
-		for _, key := range listKeys {
-			if lst, ok := resp.response[key].([]interface{}); ok {
-				for _, it := range lst {
-					if m, ok := it.(map[string]interface{}); ok {
-						// Deduplicate alarms by alarm_id
-						if key == "alarms" {
-							if alarmID, ok := m["alarm_id"].(float64); ok {
-								alarmIDInt := int64(alarmID)
-								if seenAlarmIDs[alarmIDInt] {
-									continue
-								}
-								seenAlarmIDs[alarmIDInt] = true
-							}
-						}
-						// Deduplicate jobs by job_id
-						if key == "jobs" {
-							if jobID, ok := m["job_id"].(float64); ok {
-								jobIDUint := uint64(jobID)
-								if seenJobIDs[jobIDUint] {
-									continue
-								}
-								seenJobIDs[jobIDUint] = true
-							}
-						}
-						aggregated = append(aggregated, m)
-					}
-				}
+	zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: collected %d successful responses, %d failed", successCount, failureCount)
+
+	b, ok := mergeListResponses(successResponses, listKeys, tsExtractor, ascending, limit, offset)
+	if ok {
+		var decoded map[string]interface{}
+		if json.Unmarshal(b, &decoded) == nil {
+			if out, _ := decoded[listKeys[0]].([]interface{}); len(listKeys) > 0 {
+				zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: returning %d items (total: %v, offset: %d, limit: %d)", len(out), decoded["total"], offset, limit)
 			}
 		}
 	}
-
-	zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: collected %d successful responses, %d failed, total aggregated items: %d", successCount, failureCount, len(aggregated))
-
-	if baseResp == nil {
-		zap.L().Sugar().Warnf("aggregateListAcrossPoolControllers: no valid base response found")
-		return nil, false
-	}
-
-	if tsExtractor != nil {
-		sort.SliceStable(aggregated, func(i, j int) bool {
-			ti := tsExtractor(aggregated[i])
-			tj := tsExtractor(aggregated[j])
-			if ascending {
-				return ti.Before(tj)
-			}
-			return ti.After(tj)
-		})
-	}
-
-	total := len(aggregated)
-	start := offset
-	if start < 0 {
-		start = 0
-	}
-	if start > total {
-		start = total
-	}
-	end := total
-	if limit > 0 && start+limit < end {
-		end = start + limit
-	}
-
-	sliced := aggregated[start:end]
-	out := make([]interface{}, len(sliced))
-	for i, m := range sliced {
-		out[i] = m
-	}
-
-	for _, key := range listKeys {
-		baseResp[key] = out
-	}
-	baseResp["total"] = int64(total)
-
-	b, _ := json.Marshal(baseResp)
-	zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: returning %d items (total: %d, offset: %d, limit: %d)", len(out), total, offset, limit)
-	return b, true
+	return b, ok
 }
