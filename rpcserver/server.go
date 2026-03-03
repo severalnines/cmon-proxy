@@ -15,6 +15,7 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -55,6 +56,20 @@ var (
 	httpServerPlain *http.Server
 	proxy           *multi.Proxy
 )
+
+func secureTLSConfig() *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		},
+	}
+}
 
 type GinWriteInterceptor struct {
 	gin.ResponseWriter
@@ -1002,7 +1017,10 @@ func Start(cfg *config.Config) {
 	}
 
 	if cfg.AcmeEnabled {
-		httpServer.TLSConfig = certManager.TLSConfig()
+		tlsCfg := certManager.TLSConfig()
+		tlsCfg.MinVersion = tls.VersionTLS12
+		tlsCfg.CipherSuites = secureTLSConfig().CipherSuites
+		httpServer.TLSConfig = tlsCfg
 		log.Sugar().Infof("Starting HTTPS Server with Let's Encrypt on port %d for domains %s", cfg.Port, strings.Join(cfg.AcmeDomains, ", "))
 		if err := httpServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			log.Sugar().Fatalf("HTTPS Server failure on port %d: %s", cfg.Port, err.Error())
@@ -1016,6 +1034,7 @@ func Start(cfg *config.Config) {
 			}
 		}
 
+		httpServer.TLSConfig = secureTLSConfig()
 		log.Sugar().Infof("Starting HTTPS Server on port %d", cfg.Port)
 		if err := httpServer.ListenAndServeTLS(cfg.TlsCert, cfg.TlsKey); err != nil && err != http.ErrServerClosed {
 			log.Sugar().Fatalf("HTTPS Server failure on port %d: %s", cfg.Port, err.Error())
