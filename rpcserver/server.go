@@ -1018,8 +1018,9 @@ func Start(cfg *config.Config) {
 
 	if cfg.AcmeEnabled {
 		tlsCfg := certManager.TLSConfig()
-		tlsCfg.MinVersion = tls.VersionTLS12
-		tlsCfg.CipherSuites = secureTLSConfig().CipherSuites
+		secureCfg := secureTLSConfig()
+		tlsCfg.MinVersion = secureCfg.MinVersion
+		tlsCfg.CipherSuites = secureCfg.CipherSuites
 		httpServer.TLSConfig = tlsCfg
 		log.Sugar().Infof("Starting HTTPS Server with Let's Encrypt on port %d for domains %s", cfg.Port, strings.Join(cfg.AcmeDomains, ", "))
 		if err := httpServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
