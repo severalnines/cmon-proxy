@@ -1069,6 +1069,17 @@ This command will:
 
 The application will create a self-signed TLS certificate automatically and be accessible at `https://localhost:19051`.
 
+### Run with PM2
+
+You can also use [PM2](https://pm2.keymetrics.io/) to manage the process:
+
+```bash
+pm2 start ecosystem.config.cjs
+pm2 logs cmon-proxy
+pm2 restart cmon-proxy
+pm2 delete cmon-proxy
+```
+
 ### Debug builds on MacOS
 
 Create builder
