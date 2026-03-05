@@ -878,8 +878,10 @@ func aggregateListAcrossPoolControllers(
 	if ok {
 		var decoded map[string]interface{}
 		if json.Unmarshal(b, &decoded) == nil {
-			if out, _ := decoded[listKeys[0]].([]interface{}); len(listKeys) > 0 {
-				zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: returning %d items (total: %v, offset: %d, limit: %d)", len(out), decoded["total"], offset, limit)
+			if len(listKeys) > 0 {
+				if out, _ := decoded[listKeys[0]].([]interface{}); out != nil {
+					zap.L().Sugar().Infof("aggregateListAcrossPoolControllers: returning %d items (total: %v, offset: %d, limit: %d)", len(out), decoded["total"], offset, limit)
+				}
 			}
 		}
 	}
