@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
@@ -21,6 +22,16 @@ import (
 //    based on operation type and cluster information
 //
 // Comprehensive Coverage includes:
+//
+// ## extractClusterID Tests (aggregation/routing helper):
+// - nil/empty body, cluster_id as float64/string, zero, non-numeric string
+//
+// ## mergeListResponses Tests (aggregation merge/sort/paginate):
+// - Empty/nil responses, single response, merging multiple responses
+// - Pagination (limit/offset), sort by time, dedupe alarms (alarm_id), dedupe jobs (job_id)
+//
+// ## chooseMainController / chooseControllerForClusterRequest / chooseLeastLoadedController:
+// - Smart routing: main_controller selection, cluster-directed controller, least-loaded selection
 //
 // ## filterActivePoolControllers Tests:
 // - Normal operation scenarios (all active, mixed status)
@@ -42,6 +53,285 @@ import (
 // Note: Many tests verify that proxy access is triggered by checking for expected panics,
 // since the router variable is nil in the test environment. This validates that
 // the routing logic correctly identifies when to access the router for forwarding requests.
+
+// --- Step 1: Aggregation / routing helpers (extractClusterID) ---
+
+func TestExtractClusterID(t *testing.T) {
+	tests := []struct {
+		name          string
+		body          map[string]interface{}
+		wantID        int
+		wantStr       string
+		wantHasID     bool
+		description   string
+	}{
+		{
+			name:        "nil body",
+			body:        nil,
+			wantID:      -1,
+			wantStr:     "",
+			wantHasID:   false,
+			description: "Should return zero values for nil body",
+		},
+		{
+			name:        "empty body",
+			body:        map[string]interface{}{},
+			wantID:      -1,
+			wantStr:     "",
+			wantHasID:   false,
+			description: "Should return zero values when cluster_id is missing",
+		},
+		{
+			name:        "cluster_id as float64 (JSON number)",
+			body:        map[string]interface{}{"cluster_id": float64(42)},
+			wantID:      42,
+			wantStr:     "42",
+			wantHasID:   true,
+			description: "Should parse cluster_id from JSON float64",
+		},
+		{
+			name:        "cluster_id as int not supported",
+			body:        map[string]interface{}{"cluster_id": 100}, // Go int; JSON unmarshals numbers as float64
+			wantID:      -1,
+			wantStr:     "",
+			wantHasID:   false,
+			description: "Only float64 and string are supported; raw int is not from JSON",
+		},
+		{
+			name:        "cluster_id as string number",
+			body:        map[string]interface{}{"cluster_id": "7"},
+			wantID:      7,
+			wantStr:     "7",
+			wantHasID:   true,
+			description: "Should parse cluster_id from numeric string",
+		},
+		{
+			name:        "cluster_id as string non-numeric",
+			body:        map[string]interface{}{"cluster_id": "cluster-abc"},
+			wantID:      -1,
+			wantStr:     "cluster-abc",
+			wantHasID:   true,
+			description: "Should return string as-is when not numeric, hasClusterID true",
+		},
+		{
+			name:        "cluster_id zero",
+			body:        map[string]interface{}{"cluster_id": float64(0)},
+			wantID:      0,
+			wantStr:     "0",
+			wantHasID:   true,
+			description: "Should treat zero as valid cluster_id",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotID, gotStr, gotHas := extractClusterID(tt.body)
+			assert.Equal(t, tt.wantID, gotID, "clusterID: %s", tt.description)
+			assert.Equal(t, tt.wantStr, gotStr, "clusterIDStr: %s", tt.description)
+			assert.Equal(t, tt.wantHasID, gotHas, "hasClusterID: %s", tt.description)
+		})
+	}
+}
+
+// --- Step 2: Aggregation merge/sort/paginate/dedupe (mergeListResponses) ---
+
+func TestMergeListResponses_EmptyOrNil(t *testing.T) {
+	// Empty responses
+	b, ok := mergeListResponses(nil, []string{"clusters"}, nil, false, 0, 0)
+	assert.False(t, ok)
+	assert.Nil(t, b)
+
+	b, ok = mergeListResponses([]map[string]interface{}{}, []string{"clusters"}, nil, false, 0, 0)
+	assert.False(t, ok)
+	assert.Nil(t, b)
+}
+
+func TestMergeListResponses_SingleResponse(t *testing.T) {
+	resps := []map[string]interface{}{
+		{
+			"clusters": []interface{}{
+				map[string]interface{}{"cluster_id": float64(1), "name": "c1"},
+				map[string]interface{}{"cluster_id": float64(2), "name": "c2"},
+			},
+		},
+	}
+	b, ok := mergeListResponses(resps, []string{"clusters"}, nil, false, 0, 0)
+	assert.True(t, ok)
+	assert.NotNil(t, b)
+
+	var out map[string]interface{}
+	err := json.Unmarshal(b, &out)
+	assert.NoError(t, err)
+	clusters, _ := out["clusters"].([]interface{})
+	assert.Len(t, clusters, 2)
+	assert.EqualValues(t, 2, out["total"])
+}
+
+func TestMergeListResponses_MergesMultipleResponses(t *testing.T) {
+	// Simulate two pool controllers returning different clusters
+	resps := []map[string]interface{}{
+		{"clusters": []interface{}{map[string]interface{}{"cluster_id": float64(1), "name": "c1"}}},
+		{"clusters": []interface{}{map[string]interface{}{"cluster_id": float64(2), "name": "c2"}}},
+	}
+	b, ok := mergeListResponses(resps, []string{"clusters"}, nil, false, 0, 0)
+	assert.True(t, ok)
+	assert.NotNil(t, b)
+
+	var out map[string]interface{}
+	err := json.Unmarshal(b, &out)
+	assert.NoError(t, err)
+	clusters, _ := out["clusters"].([]interface{})
+	assert.Len(t, clusters, 2)
+	assert.EqualValues(t, 2, out["total"])
+}
+
+func TestMergeListResponses_Pagination(t *testing.T) {
+	items := make([]interface{}, 10)
+	for i := 0; i < 10; i++ {
+		items[i] = map[string]interface{}{"id": float64(i)}
+	}
+	resps := []map[string]interface{}{
+		{"reports": items},
+	}
+	// limit=3, offset=2
+	b, ok := mergeListResponses(resps, []string{"reports"}, nil, false, 3, 2)
+	assert.True(t, ok)
+	var out map[string]interface{}
+	err := json.Unmarshal(b, &out)
+	assert.NoError(t, err)
+	reports, _ := out["reports"].([]interface{})
+	assert.Len(t, reports, 3)
+	assert.EqualValues(t, 10, out["total"])
+	// offset 2 -> indices 2,3,4
+	assert.Equal(t, float64(2), reports[0].(map[string]interface{})["id"])
+	assert.Equal(t, float64(4), reports[2].(map[string]interface{})["id"])
+}
+
+func TestMergeListResponses_SortByTime(t *testing.T) {
+	resps := []map[string]interface{}{
+		{
+			"alarms": []interface{}{
+				map[string]interface{}{"alarm_id": float64(1), "created": "2024-01-02T00:00:00Z"},
+				map[string]interface{}{"alarm_id": float64(2), "created": "2024-01-01T00:00:00Z"},
+			},
+		},
+	}
+	extractor := func(m map[string]interface{}) time.Time {
+		if s, ok := m["created"].(string); ok {
+			t, _ := time.Parse(time.RFC3339, s)
+			return t
+		}
+		return time.Time{}
+	}
+	b, ok := mergeListResponses(resps, []string{"alarms"}, extractor, true, 0, 0)
+	assert.True(t, ok)
+	var out map[string]interface{}
+	err := json.Unmarshal(b, &out)
+	assert.NoError(t, err)
+	alarms, _ := out["alarms"].([]interface{})
+	assert.Len(t, alarms, 2)
+	// ascending: 2024-01-01 before 2024-01-02
+	assert.Equal(t, "2024-01-01T00:00:00Z", alarms[0].(map[string]interface{})["created"])
+	assert.Equal(t, "2024-01-02T00:00:00Z", alarms[1].(map[string]interface{})["created"])
+}
+
+func TestMergeListResponses_DedupeAlarms(t *testing.T) {
+	// Same alarm_id from two "controllers" should appear once
+	resps := []map[string]interface{}{
+		{"alarms": []interface{}{map[string]interface{}{"alarm_id": float64(42), "msg": "a1"}}},
+		{"alarms": []interface{}{map[string]interface{}{"alarm_id": float64(42), "msg": "a2"}}},
+	}
+	b, ok := mergeListResponses(resps, []string{"alarms"}, nil, false, 0, 0)
+	assert.True(t, ok)
+	var out map[string]interface{}
+	err := json.Unmarshal(b, &out)
+	assert.NoError(t, err)
+	alarms, _ := out["alarms"].([]interface{})
+	assert.Len(t, alarms, 1)
+	assert.EqualValues(t, 1, out["total"])
+}
+
+func TestMergeListResponses_DedupeJobs(t *testing.T) {
+	resps := []map[string]interface{}{
+		{"jobs": []interface{}{map[string]interface{}{"job_id": float64(100), "cmd": "x"}}},
+		{"jobs": []interface{}{map[string]interface{}{"job_id": float64(100), "cmd": "y"}}},
+	}
+	b, ok := mergeListResponses(resps, []string{"jobs"}, nil, false, 0, 0)
+	assert.True(t, ok)
+	var out map[string]interface{}
+	err := json.Unmarshal(b, &out)
+	assert.NoError(t, err)
+	jobs, _ := out["jobs"].([]interface{})
+	assert.Len(t, jobs, 1)
+	assert.EqualValues(t, 1, out["total"])
+}
+
+func TestAggregateListAcrossPoolControllers_EmptyTargets(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v2/clusters", nil)
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = req
+
+	b, ok := AggregateListAcrossPoolControllers(ctx, nil, []*cmonapi.PoolController{}, "/v2/clusters", []byte(`{}`), []string{"clusters"}, nil, false, 0, 0, nil)
+	assert.False(t, ok)
+	assert.Nil(t, b)
+}
+
+// --- Step 3: Smart routing – controller selection ---
+
+func TestChooseMainController(t *testing.T) {
+	main := &cmonapi.PoolController{Hostname: "main", Port: 1, Properties: &cmonapi.PoolControllerProperties{Role: "main_controller"}}
+	other := &cmonapi.PoolController{Hostname: "other", Port: 2, Properties: &cmonapi.PoolControllerProperties{Role: "nfs_member"}}
+
+	assert.Nil(t, chooseMainController(nil))
+	assert.Nil(t, chooseMainController([]*cmonapi.PoolController{}))
+	assert.Equal(t, main, chooseMainController([]*cmonapi.PoolController{main}))
+	assert.Equal(t, main, chooseMainController([]*cmonapi.PoolController{other, main}))
+	assert.Equal(t, main, chooseMainController([]*cmonapi.PoolController{main, other}))
+	// Case insensitive
+	mainLower := &cmonapi.PoolController{Hostname: "m", Port: 1, Properties: &cmonapi.PoolControllerProperties{Role: "Main_Controller"}}
+	assert.Equal(t, mainLower, chooseMainController([]*cmonapi.PoolController{mainLower}))
+	// No main when Properties or Role missing
+	noRole := &cmonapi.PoolController{Hostname: "x", Port: 1, Properties: &cmonapi.PoolControllerProperties{}}
+	assert.Nil(t, chooseMainController([]*cmonapi.PoolController{noRole}))
+	assert.Nil(t, chooseMainController([]*cmonapi.PoolController{&cmonapi.PoolController{Hostname: "x", Port: 1}}))
+}
+
+func TestChooseControllerForClusterRequest(t *testing.T) {
+	pc1 := &cmonapi.PoolController{Hostname: "h1", Port: 1, Clusters: []string{"1", "2"}}
+	pc2 := &cmonapi.PoolController{Hostname: "h2", Port: 2, Clusters: []string{"3", "4"}}
+	targets := []*cmonapi.PoolController{pc1, pc2}
+
+	assert.Nil(t, chooseControllerForClusterRequest(nil, "1"))
+	assert.Nil(t, chooseControllerForClusterRequest(targets, ""))
+	assert.Nil(t, chooseControllerForClusterRequest(targets, "99"))
+	assert.Equal(t, pc1, chooseControllerForClusterRequest(targets, "1"))
+	assert.Equal(t, pc1, chooseControllerForClusterRequest(targets, "2"))
+	assert.Equal(t, pc2, chooseControllerForClusterRequest(targets, "3"))
+	assert.Equal(t, pc2, chooseControllerForClusterRequest(targets, "4"))
+	// First match wins when same cluster appears on multiple (shouldn't happen in practice)
+	assert.Equal(t, pc1, chooseControllerForClusterRequest(targets, "1"))
+}
+
+func TestChooseLeastLoadedController(t *testing.T) {
+	heavy := &cmonapi.PoolController{Hostname: "heavy", Port: 1, Clusters: []string{"1", "2", "3"}}
+	light := &cmonapi.PoolController{Hostname: "light", Port: 2, Clusters: []string{"4"}}
+	mid := &cmonapi.PoolController{Hostname: "mid", Port: 3, Clusters: []string{"5", "6"}}
+
+	assert.Nil(t, chooseLeastLoadedController(nil))
+	assert.Nil(t, chooseLeastLoadedController([]*cmonapi.PoolController{}))
+	assert.Equal(t, light, chooseLeastLoadedController([]*cmonapi.PoolController{heavy, light, mid}))
+	assert.Equal(t, light, chooseLeastLoadedController([]*cmonapi.PoolController{light, heavy, mid}))
+	// Tie: first with minimum wins
+	// heavy has 3 clusters, mid has 2 -> least loaded is mid
+	assert.Equal(t, mid, chooseLeastLoadedController([]*cmonapi.PoolController{heavy, mid}))
+	// Single element
+	assert.Equal(t, heavy, chooseLeastLoadedController([]*cmonapi.PoolController{heavy}))
+	// All empty clusters: first wins
+	empty1 := &cmonapi.PoolController{Hostname: "e1", Port: 1, Clusters: nil}
+	empty2 := &cmonapi.PoolController{Hostname: "e2", Port: 2, Clusters: []string{}}
+	assert.Equal(t, empty1, chooseLeastLoadedController([]*cmonapi.PoolController{empty1, empty2}))
+}
 
 func TestFilterActivePoolControllers(t *testing.T) {
 	tests := []struct {
