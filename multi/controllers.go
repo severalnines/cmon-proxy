@@ -846,8 +846,10 @@ func (p *Proxy) PRCProxySingleController(ctx *gin.Context) {
 }
 
 /**
- * Single controller websocket proxy without authentication
- * This works like PRCProxySingleController but for websocket connections
+ * Single controller websocket proxy for cmon-ssh.
+ * Uses the same Client.ProxyWebSocket path as the multi-controller version
+ * (CmonShhWsProxyRequest) so that authentication and cmon-sid injection are
+ * handled by the cmon client. RPCAuthMiddleware must run before this handler.
  */
 func (p *Proxy) PRCProxySingleControllerWebSocket(ctx *gin.Context) {
 	if p.cfg.SingleController == "" {
@@ -861,26 +863,33 @@ func (p *Proxy) PRCProxySingleControllerWebSocket(ctx *gin.Context) {
 		return
 	}
 
-	// Upgrade connection to websocket
+	r := p.Router(ctx)
+	if r == nil {
+		http.Error(ctx.Writer, "No authenticated session", http.StatusUnauthorized)
+		return
+	}
+	c := r.Cmon(controller.Url)
+	if c == nil || c.Client == nil {
+		http.Error(ctx.Writer, "No cmon client for controller", http.StatusInternalServerError)
+		return
+	}
+
 	conn, err := upGrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
 		log.Printf("PRCProxySingleControllerWebSocket: Failed to upgrade to websocket: %v\n", err)
 		return
 	}
-
 	clientConnectionClosed := false
 	defer func() {
 		if !clientConnectionClosed {
-			log.Println("PRCProxySingleControllerWebSocket: Ensuring client-side WebSocket connection is closed due to error or early exit.")
 			conn.Close()
 		}
 	}()
 
-	// Construct target websocket URL - matching original logic
+	// Construct target websocket URL — same logic as CmonShhWsProxyRequest
 	scheme := "ws"
 	host := controller.CMONSshHost
 	if host == "" {
-		// Clean up the controller URL to handle trailing slashes properly
 		controllerURL := strings.TrimRight(controller.Url, "/")
 		host = controllerURL + "/v2/cmon-ssh/"
 		scheme = "wss"
@@ -888,67 +897,18 @@ func (p *Proxy) PRCProxySingleControllerWebSocket(ctx *gin.Context) {
 	if controller.CMONSshSecure {
 		scheme = "wss"
 	}
-	postfix := ctx.Param("any")
-	targetURL := scheme + "://" + host + postfix
+	targetURL := scheme + "://" + host + ctx.Param("any")
 
-	log.Printf("PRCProxySingleControllerWebSocket: Constructed target WebSocket URL: %s\n", targetURL)
-
-	// Create websocket dialer with TLS config
-	dialer := websocket.Dialer{}
-
-	// Copy headers from original request
-	headers := http.Header{}
-	for key, values := range ctx.Request.Header {
-		// Skip websocket-specific headers that the dialer will add automatically
-		lowerKey := strings.ToLower(key)
-		if lowerKey == "sec-websocket-version" ||
-			lowerKey == "sec-websocket-key" ||
-			lowerKey == "sec-websocket-extensions" ||
-			lowerKey == "sec-websocket-protocol" ||
-			lowerKey == "connection" ||
-			lowerKey == "upgrade" {
-			continue
-		}
-		for _, value := range values {
-			headers.Add(key, value)
-		}
-	}
-	headers.Set("Origin", ctx.Request.Header.Get("Origin"))
-
-	// Connect to target websocket without authentication
-	targetConn, _, err := dialer.Dial(targetURL, headers)
+	// Delegate to Client.ProxyWebSocket which handles cmon-sid injection
+	err = c.Client.ProxyWebSocket(targetURL, http.Header{
+		"Origin": {ctx.Request.Header.Get("Origin")},
+	}, conn)
 	if err != nil {
-		log.Printf("PRCProxySingleControllerWebSocket: Error connecting to target %s: %v\n", targetURL, err)
+		log.Printf("PRCProxySingleControllerWebSocket: %v\n", err)
 		return
 	}
-	defer targetConn.Close()
 
-	// Handle message proxying in both directions
-	go func() {
-		for {
-			messageType, p, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			err = targetConn.WriteMessage(messageType, p)
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	for {
-		messageType, p, err := targetConn.ReadMessage()
-		if err != nil {
-			log.Printf("PRCProxySingleControllerWebSocket: Error reading message from target: %v\n", err)
-			return
-		}
-		err = conn.WriteMessage(messageType, p)
-		if err != nil {
-			log.Printf("PRCProxySingleControllerWebSocket: Error writing message to client: %v\n", err)
-			return
-		}
-	}
+	clientConnectionClosed = true
 }
 
 /**
