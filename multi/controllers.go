@@ -757,20 +757,11 @@ func (p *Proxy) PRCProxySingleControllerWebSocket(ctx *gin.Context) {
 		return
 	}
 
-	controller := p.cfg.ControllerById(p.cfg.SingleController)
-	if controller == nil {
-		http.Error(ctx.Writer, "Controller not found", http.StatusBadRequest)
-		return
-	}
-
-	r := p.Router(ctx)
-	if r == nil {
-		http.Error(ctx.Writer, "No authenticated session", http.StatusUnauthorized)
-		return
-	}
-	c := r.Cmon(controller.Url)
-	if c == nil || c.Client == nil {
-		http.Error(ctx.Writer, "No cmon client for controller", http.StatusInternalServerError)
+	// Look up user's cmon client via GetCmonById — same path as the multi-controller
+	// CmonShhWsProxyRequest. RPCAuthMiddleware must run before this handler.
+	c, err := p.GetCmonById(p.cfg.SingleController, ctx)
+	if err != nil {
+		http.Error(ctx.Writer, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -788,13 +779,12 @@ func (p *Proxy) PRCProxySingleControllerWebSocket(ctx *gin.Context) {
 
 	// Construct target websocket URL — same logic as CmonShhWsProxyRequest
 	scheme := "ws"
-	host := controller.CMONSshHost
+	host := c.Client.Instance.CMONSshHost
 	if host == "" {
-		controllerURL := strings.TrimRight(controller.Url, "/")
-		host = controllerURL + "/v2/cmon-ssh/"
+		host = c.Client.Instance.Url + "/v2/cmon-ssh/"
 		scheme = "wss"
 	}
-	if controller.CMONSshSecure {
+	if c.Client.Instance.CMONSshSecure {
 		scheme = "wss"
 	}
 	targetURL := scheme + "://" + host + ctx.Param("any")
