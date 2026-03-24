@@ -716,6 +716,11 @@ func Start(cfg *config.Config) {
 		}
 
 		single.GET("/cmon-ssh/*any", func(c *gin.Context) {
+			// Authenticate before proxying to cmon-ssh
+			proxy.RPCAuthMiddleware(c)
+			if c.IsAborted() {
+				return
+			}
 			// could not find better to check if it is a websocket request or not
 			if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
 				proxy.PRCProxySingleControllerWebSocket(c)
