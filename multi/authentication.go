@@ -78,7 +78,15 @@ func cleanupOldSessions(p *Proxy) {
 	}
 
 	// Additional cleanup for user routers
+	// Snapshot router keys under RLock to avoid concurrent map iteration panic
+	routerMtx.RLock()
+	routerKeys := make([]string, 0, len(p.r))
 	for username := range p.r {
+		routerKeys = append(routerKeys, username)
+	}
+	routerMtx.RUnlock()
+
+	for _, username := range routerKeys {
 		hasSessionForUser := false
 		for _, loggedinUser := range usernames {
 			if routerKey(loggedinUser) == username {
