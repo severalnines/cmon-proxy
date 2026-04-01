@@ -78,10 +78,18 @@ func cleanupOldSessions(p *Proxy) {
 	}
 
 	// Additional cleanup for user routers
+	// Snapshot router keys under RLock to avoid concurrent map iteration panic
+	routerMtx.RLock()
+	routerKeys := make([]string, 0, len(p.r))
 	for username := range p.r {
+		routerKeys = append(routerKeys, username)
+	}
+	routerMtx.RUnlock()
+
+	for _, username := range routerKeys {
 		hasSessionForUser := false
 		for _, loggedinUser := range usernames {
-			if loggedinUser == username {
+			if routerKey(loggedinUser) == username {
 				hasSessionForUser = true
 				break
 			}
@@ -244,7 +252,7 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 	// Try to get cmon-sid from existing router first (if user already has a router in single mode)
 	var CMONCookie *http.Cookie
 	routerMtx.RLock()
-	existingRouter, found := p.r[req.Username]
+	existingRouter, found := p.r[routerKey(req.Username)]
 	routerMtx.RUnlock()
 	if found && existingRouter != nil {
 		// Check if user has a router with an authenticated session
@@ -256,7 +264,7 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 			}
 		}
 	}
-	
+
 	// No existing router session available
 	if CMONCookie == nil {
 		zap.L().Info("[AUDIT] No existing router session found")
@@ -265,7 +273,7 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 
 	// create a router for this login attempt (if there is not already one)
 	routerMtx.RLock()
-	r, found := p.r[req.Username]
+	r, found := p.r[routerKey(req.Username)]
 	routerMtx.RUnlock()
 	if !found || r == nil {
 		var err error
@@ -337,7 +345,7 @@ func (p *Proxy) authByCookie(ctx *gin.Context, req *api.LoginRequest, resp *api.
 		// Authenticate with pool controllers after successful cookie-based login
 		r.AuthenticateWithPoolControllers()
 		routerMtx.Lock()
-		p.r[user.Username] = r
+		p.r[routerKey(user.Username)] = r
 		routerMtx.Unlock()
 
 		resp.RequestStatus = cmonapi.RequestStatusOk
@@ -393,7 +401,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 
 	if user != nil {
 		routerMtx.RLock()
-		existsRouter, found := p.r[req.Username]
+		existsRouter, found := p.r[routerKey(req.Username)]
 		routerMtx.RUnlock()
 		if found && existsRouter != nil {
 			existsRouter.AuthController = router.AuthController{ // Create a new object without preserving reference
@@ -430,7 +438,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 		})
 	}
 
-	r.Ping(true);
+	r.Ping(true)
 	// Authenticate with pool controllers after successful login
 	if authSucceed {
 		r.AuthenticateWithPoolControllers()
@@ -438,7 +446,7 @@ func (p *Proxy) controllerLogin(ctx *gin.Context, req *api.LoginRequest, resp *a
 	// okay, keep this router as login succeed to some of the cmon's
 	if user := getUserForSession(ctx); authSucceed && user != nil {
 		routerMtx.Lock()
-		p.r[user.Username] = r
+		p.r[routerKey(user.Username)] = r
 		routerMtx.Unlock()
 
 		// Controller auth succeed, wohoo, return the syntetic proxy user
@@ -493,7 +501,7 @@ func (p *Proxy) singleControllerLogin(ctx *gin.Context, username, password strin
 
 	// Check if router already exists for this user
 	routerMtx.RLock()
-	existsRouter, found := p.r[username]
+	existsRouter, found := p.r[routerKey(username)]
 	routerMtx.RUnlock()
 	if found && existsRouter != nil {
 		// Update existing router with new credentials
@@ -535,7 +543,7 @@ func (p *Proxy) singleControllerLogin(ctx *gin.Context, username, password strin
 
 	// Store router for this user
 	routerMtx.Lock()
-	p.r[username] = r
+	p.r[routerKey(username)] = r
 	routerMtx.Unlock()
 
 	return user, nil
@@ -594,7 +602,7 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 	routerMtx.RLock()
 	defaultRouter := p.r[router.DefaultRouter]
 	routerMtx.RUnlock()
-	
+
 	user, err := defaultRouter.Config.GetUser(req.Username)
 	if err != nil {
 		externalLoginSucceed := p.controllerLogin(ctx, &req, &resp)
@@ -939,7 +947,7 @@ func (p *Proxy) RPCExitElevatedSession(ctx *gin.Context) {
 		resp.ErrorString = "Authentication required"
 	} else {
 		resp.RequestStatus = cmonapi.RequestStatusOk
-		resp.ErrorString = ""	
+		resp.ErrorString = ""
 	}
 
 	// Remove elevated session flag

@@ -11,6 +11,7 @@ package multi
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -36,6 +37,14 @@ func init() {
 	cacheMtx = &sync.Mutex{}
 	routerMtx = &sync.RWMutex{}
 	controllerStatusCache = make(map[string]*api.ControllerStatus)
+}
+
+// routerKey normalizes a username for use as a router map key.
+// LDAP and CmonDb usernames are case-insensitive, but cmon may return
+// a different case than what the user typed (e.g. LDAP canonical form).
+// Normalizing to lowercase prevents router lookup mismatches.
+func routerKey(username string) string {
+	return strings.ToLower(username)
 }
 
 func New(cfg *config.Config) (*Proxy, error) {
@@ -82,7 +91,7 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 
 	if isLDAP, ldapUsername := isLDAPSession(ctx); isLDAP {
 		routerMtx.RLock()
-		r, found := p.r[ldapUsername]
+		r, found := p.r[routerKey(ldapUsername)]
 		if found {
 			routerMtx.RUnlock()
 			log.Sugar().Debugf("[ROUTER] Found LDAP router for user: %s", ldapUsername)
@@ -92,19 +101,19 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 	}
 	if isCMON, cmonUsername := isCMONSession(ctx); isCMON {
 		routerMtx.RLock()
-		r, found := p.r[cmonUsername]
+		r, found := p.r[routerKey(cmonUsername)]
 		if found {
 			routerMtx.RUnlock()
 			return r
 		}
 		routerMtx.RUnlock()
 	}
-	
+
 	// For single controller mode, check if user has a router
 	if user := getUserForSession(ctx); user != nil {
 		log.Sugar().Debugf("[ROUTER] Checking for router for user: %s", user.Username)
 		routerMtx.RLock()
-		r, found := p.r[user.Username]
+		r, found := p.r[routerKey(user.Username)]
 		if found {
 			routerMtx.RUnlock()
 			log.Sugar().Debugf("[ROUTER] Found router for user: %s", user.Username)
