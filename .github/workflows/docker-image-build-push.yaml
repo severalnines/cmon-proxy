@@ -178,6 +178,10 @@ jobs:
             docker tag ${{ env.IMAGE_NAME }}:${{ env.CUSTOM_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CUSTOM_TAG }}
             docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CUSTOM_TAG }}
             echo "Pushed custom tag: ${{ env.CUSTOM_TAG }}"
+            echo "### Docker Image Published :whale:" >> $GITHUB_STEP_SUMMARY
+            echo "| Image | Tag |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------|-----|" >> $GITHUB_STEP_SUMMARY
+            echo "| \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` | \`${{ env.CUSTOM_TAG }}\` |" >> $GITHUB_STEP_SUMMARY
           elif [[ "${{ env.IS_RELEASE }}" == "true" ]]; then
             # Release build: tag and push both version with build number and latest
             docker tag ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}
@@ -185,9 +189,18 @@ jobs:
             docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}
             docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }}
             echo "Pushed tags: ${{ env.VERSION_TAG }}, ${{ env.LATEST_TAG }}"
+            echo "### Docker Image Published :whale:" >> $GITHUB_STEP_SUMMARY
+            echo "| Image | Tag |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------|-----|" >> $GITHUB_STEP_SUMMARY
+            echo "| \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` | \`${{ env.VERSION_TAG }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` | \`${{ env.LATEST_TAG }}\` |" >> $GITHUB_STEP_SUMMARY
           else
             # Development build: tag and push dev tag only
             docker tag ${{ env.IMAGE_NAME }}:${{ env.DEV_TAG }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_TAG }}
             docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_TAG }}
             echo "Pushed tag: ${{ env.DEV_TAG }}"
+            echo "### Docker Image Published :whale:" >> $GITHUB_STEP_SUMMARY
+            echo "| Image | Tag |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------|-----|" >> $GITHUB_STEP_SUMMARY
+            echo "| \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` | \`${{ env.DEV_TAG }}\` |" >> $GITHUB_STEP_SUMMARY
           fi 
