@@ -10,6 +10,8 @@ package api
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
+import "encoding/json"
+
 type GetControllersRequest struct {
 	*WithOperation `json:",inline"`
 	ControllerID   int `json:"controller_id,omitempty"` // Use int instead of string
@@ -21,31 +23,48 @@ type GetControllersResponse struct {
 	*WithResponseData `json:",inline"`
 
 	FullControllerID string            `json:"full_controller_id"`
-	Total           int               `json:"total"`
-	Controllers     []*PoolController `json:"controllers"`
-	DebugMessages   []string          `json:"debug_messages"`
+	Total            int               `json:"total"`
+	Controllers      []*PoolController `json:"controllers"`
+	DebugMessages    []string          `json:"debug_messages"`
 }
 
 type PoolControllerStats struct {
-	CpuPct  string `json:"cpu_pct"`
-	MemUsed string `json:"mem_used"`
+	CpuPct   string `json:"cpu_pct"`
+	MemUsed  string `json:"mem_used"`
 	MemTotal string `json:"mem_total"`
-	FdUsed  int    `json:"fd_used"`
-	FdTotal int    `json:"fd_total"`
+	FdUsed   int    `json:"fd_used"`
+	FdTotal  int    `json:"fd_total"`
 }
 
 type PoolControllerProperties struct {
-	Role      string              `json:"role"` // "main_controller" or "nfs_member"
-	DynamicID string              `json:"dynamic_id,omitempty"`
+	Role      string               `json:"role"` // "main_controller" or "nfs_member"
+	DynamicID string               `json:"dynamic_id,omitempty"`
 	Stats     *PoolControllerStats `json:"stats,omitempty"`
 }
 
 type PoolController struct {
-	ControllerID int                       `json:"controller_id"`
-	Hostname     string                    `json:"hostname"`
-	Port         int                       `json:"port"`
-	Properties   *PoolControllerProperties `json:"properties"`
-	ReportTs     string                    `json:"report_ts"`
-	Status       string                    `json:"status"`
-	Clusters     []string                  `json:"clusters"`
+	ControllerID int             `json:"controller_id"`
+	Hostname     string          `json:"hostname"`
+	Port         int             `json:"port"`
+	Properties   json.RawMessage `json:"properties"`
+	ReportTs     string          `json:"report_ts"`
+	Status       string          `json:"status"`
+	Clusters     []string        `json:"clusters"`
+}
+
+// GetProperties parses the Properties field which can be either a string or object.
+func (pc *PoolController) GetProperties() *PoolControllerProperties {
+	if pc.Properties == nil {
+		return nil
+	}
+	var props PoolControllerProperties
+	if err := json.Unmarshal(pc.Properties, &props); err == nil {
+		return &props
+	}
+	// If it's a string like "full_controller", map to role
+	var s string
+	if err := json.Unmarshal(pc.Properties, &s); err == nil {
+		return &PoolControllerProperties{Role: s}
+	}
+	return nil
 }
