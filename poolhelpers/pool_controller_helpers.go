@@ -26,11 +26,11 @@ func extractClusterID(body map[string]interface{}) (clusterID int, clusterIDStr 
 	clusterID = -1
 	clusterIDStr = ""
 	hasClusterID = false
-	
+
 	if body == nil {
 		return
 	}
-	
+
 	if v, ok := body["cluster_id"]; ok {
 		switch t := v.(type) {
 		case float64:
@@ -45,7 +45,7 @@ func extractClusterID(body map[string]interface{}) (clusterID int, clusterIDStr 
 			hasClusterID = true
 		}
 	}
-	
+
 	return
 }
 
@@ -68,7 +68,7 @@ func filterActivePoolControllers(controllers []*cmonapi.PoolController) []*cmona
 // chooseMainController returns the pool controller with role main_controller, or nil.
 func chooseMainController(activeTargets []*cmonapi.PoolController) *cmonapi.PoolController {
 	for _, pc := range activeTargets {
-		if pc.Properties != nil && strings.EqualFold(pc.Properties.Role, "main_controller") {
+		if props := pc.GetProperties(); props != nil && strings.EqualFold(props.Role, "main_controller") {
 			return pc
 		}
 	}
@@ -285,8 +285,8 @@ func trySmartRouteAcrossPool(
 					// Prepare aggregation containers
 					var baseResp map[string]interface{}
 					baseNonCluster := make([]interface{}, 0)
-					clusterItemsMap := make(map[string]interface{})       // cluster_id -> cluster item
-					clusterOwnership := make(map[string]bool)             // cluster_id -> true if we have data from owning controller
+					clusterItemsMap := make(map[string]interface{}) // cluster_id -> cluster item
+					clusterOwnership := make(map[string]bool)       // cluster_id -> true if we have data from owning controller
 
 					// Channel and sync for parallel requests
 					type treeResponse struct {
@@ -331,50 +331,67 @@ func trySmartRouteAcrossPool(
 						}(target)
 					}
 
-				// Wait for all requests to complete
-				wg.Wait()
-				close(responseChan)
+					// Wait for all requests to complete
+					wg.Wait()
+					close(responseChan)
 
-				// Collect all responses first
-				allResponses := make([]treeResponse, 0, len(activeTargets))
-				for resp := range responseChan {
-					allResponses = append(allResponses, resp)
-				}
-
-				// Find main controller response from collected responses
-				var mainControllerResp *treeResponse
-				for i := range allResponses {
-					resp := &allResponses[i]
-					if resp.target != nil && resp.target.Properties != nil && 
-						strings.EqualFold(resp.target.Properties.Role, "main_controller") && 
-						resp.err == nil && resp.response != nil {
-						mainControllerResp = resp
-						break
-					}
-				}
-
-				// Process responses sequentially for consistent baseResp and deduplication
-				for _, resp := range allResponses {
-					if resp.err != nil || resp.response == nil {
-						continue
+					// Collect all responses first
+					allResponses := make([]treeResponse, 0, len(activeTargets))
+					for resp := range responseChan {
+						allResponses = append(allResponses, resp)
 					}
 
-					// Initialize base response from the first success
-					if baseResp == nil {
-						baseResp = resp.response
+					// Find main controller response from collected responses
+					var mainControllerResp *treeResponse
+					for i := range allResponses {
+						resp := &allResponses[i]
+						if resp.target != nil && resp.err == nil && resp.response != nil {
+							props := resp.target.GetProperties()
+							if props != nil && strings.EqualFold(props.Role, "main_controller") {
+								mainControllerResp = resp
+								break
+							}
+						}
 					}
 
-					// Extract non-cluster items from main controller, or from first response if main controller not found
-					// (fallback ensures non-cluster items aren't lost when Properties.Role is not set)
-					shouldExtractNonCluster := false
-					if mainControllerResp != nil && resp.target == mainControllerResp.target {
-						shouldExtractNonCluster = true
-					} else if mainControllerResp == nil && len(baseNonCluster) == 0 {
-						// Fallback: if no main controller identified, take non-cluster items from any successful response (once)
-						shouldExtractNonCluster = true
-					}
+					// Process responses sequentially for consistent baseResp and deduplication
+					for _, resp := range allResponses {
+						if resp.err != nil || resp.response == nil {
+							continue
+						}
 
-					if shouldExtractNonCluster {
+						// Initialize base response from the first success
+						if baseResp == nil {
+							baseResp = resp.response
+						}
+
+						// Extract non-cluster items from main controller, or from first response if main controller not found
+						// (fallback ensures non-cluster items aren't lost when Properties.Role is not set)
+						shouldExtractNonCluster := false
+						if mainControllerResp != nil && resp.target == mainControllerResp.target {
+							shouldExtractNonCluster = true
+						} else if mainControllerResp == nil && len(baseNonCluster) == 0 {
+							// Fallback: if no main controller identified, take non-cluster items from any successful response (once)
+							shouldExtractNonCluster = true
+						}
+
+						if shouldExtractNonCluster {
+							if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
+								if subs, ok := cdt["sub_items"].([]interface{}); ok {
+									for _, it := range subs {
+										m, _ := it.(map[string]interface{})
+										if m == nil {
+											continue
+										}
+										if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") {
+											baseNonCluster = append(baseNonCluster, it)
+										}
+									}
+								}
+							}
+						}
+
+						// Collect cluster items from ALL controllers, preferring data from the owning controller
 						if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
 							if subs, ok := cdt["sub_items"].([]interface{}); ok {
 								for _, it := range subs {
@@ -382,51 +399,35 @@ func trySmartRouteAcrossPool(
 									if m == nil {
 										continue
 									}
-									if t, _ := m["item_type"].(string); !strings.EqualFold(t, "Cluster") {
-										baseNonCluster = append(baseNonCluster, it)
-									}
-								}
-							}
-						}
-					}
+									if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
+										if id, ok := m["cluster_id"]; ok {
+											clusterKey := fmt.Sprintf("%v", id)
 
-					// Collect cluster items from ALL controllers, preferring data from the owning controller
-					if cdt, ok := resp.response["cdt"].(map[string]interface{}); ok {
-						if subs, ok := cdt["sub_items"].([]interface{}); ok {
-							for _, it := range subs {
-								m, _ := it.(map[string]interface{})
-								if m == nil {
-									continue
-								}
-								if t, _ := m["item_type"].(string); strings.EqualFold(t, "Cluster") {
-									if id, ok := m["cluster_id"]; ok {
-										clusterKey := fmt.Sprintf("%v", id)
+											// Check if this controller owns this cluster
+											ownsCluster := false
+											if resp.target != nil {
+												for _, ownedCluster := range resp.target.Clusters {
+													if ownedCluster == clusterKey {
+														ownsCluster = true
+														break
+													}
+												}
+											}
 
-										// Check if this controller owns this cluster
-										ownsCluster := false
-										if resp.target != nil {
-											for _, ownedCluster := range resp.target.Clusters {
-												if ownedCluster == clusterKey {
-													ownsCluster = true
-													break
+											// Add cluster if not seen, or override with owning controller's data
+											_, alreadyHaveOwnerData := clusterOwnership[clusterKey]
+											if !alreadyHaveOwnerData || ownsCluster {
+												clusterItemsMap[clusterKey] = it
+												if ownsCluster {
+													clusterOwnership[clusterKey] = true
 												}
 											}
 										}
-
-										// Add cluster if not seen, or override with owning controller's data
-										_, alreadyHaveOwnerData := clusterOwnership[clusterKey]
-										if !alreadyHaveOwnerData || ownsCluster {
-											clusterItemsMap[clusterKey] = it
-											if ownsCluster {
-												clusterOwnership[clusterKey] = true
-											}
-										}
 									}
 								}
 							}
 						}
 					}
-				}
 
 					// If we couldn't build a base response, fall back to default handling
 					if baseResp == nil {
@@ -491,7 +492,7 @@ func trySmartRouteAcrossPool(
 			if strings.EqualFold(op, "getBackups") {
 				// Check if request has a specific cluster_id
 				_, requestClusterIdStr, hasClusterId := extractClusterID(body)
-				
+
 				// Only aggregate if NO specific cluster_id is provided
 				// If cluster_id is present, let smart routing handle it to route to the correct controller
 				if !hasClusterId {
@@ -546,7 +547,7 @@ func trySmartRouteAcrossPool(
 			if strings.EqualFold(op, "getReports") || strings.EqualFold(op, "listSchedules") || strings.EqualFold(op, "getAlarms") || strings.EqualFold(op, "getEntries") || strings.EqualFold(op, "getMaintenance") || strings.EqualFold(op, "getJobInstances") {
 				// Check if request has a specific cluster_id
 				_, requestClusterIdStr, hasClusterId := extractClusterID(body)
-				
+
 				// Only aggregate if NO specific cluster_id is provided
 				// If cluster_id is present, let smart routing handle it to route to the correct controller
 				if !hasClusterId {
@@ -586,7 +587,7 @@ func trySmartRouteAcrossPool(
 	// If multiple active pool-controllers, perform smart routing
 	if len(activeTargets) > 1 {
 		zap.L().Sugar().Debugf("trySmartRouteAcrossPool: multiple targets (%d), checking smart routing", len(activeTargets))
-		
+
 		// Route ACL operations (addAcl, removeAcl) without cluster_id to main_controller
 		// These are global ACL permissions that should be managed by main controller
 		if (strings.EqualFold(op, "addAcl") || strings.EqualFold(op, "removeAcl")) && clusterIdStr == "" && clusterId == -1 {
@@ -596,7 +597,7 @@ func trySmartRouteAcrossPool(
 				return true
 			}
 		}
-		
+
 		// Route jobs without cluster_id to main_controller
 		if clusterIdStr == "" && clusterId == -1 {
 			mainController := chooseMainController(activeTargets)

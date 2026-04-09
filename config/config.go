@@ -126,7 +126,8 @@ type Config struct {
 	Port              int             `yaml:"port" json:"port"`
 	TlsCert           string          `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
 	TlsKey            string          `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
-	SessionTtl        int64           `yaml:"session_ttl" json:"session_ttl"` // in nanoseconds, min 30 minutes
+	SessionTtl        int64           `yaml:"session_ttl" json:"session_ttl"`                           // in nanoseconds, min 30 minutes
+	SessionSecure     *bool           `yaml:"session_secure,omitempty" json:"session_secure,omitempty"` // if false, disables Secure flag on session cookie (for dev with self-signed certs)
 	SingleController  string          `yaml:"single_controller" json:"single_controller"`
 	K8sProxyURL       string          `yaml:"k8s_proxy_url" json:"k8s_proxy_url"`
 	KubernetesEnabled bool            `yaml:"kubernetes_enabled" json:"kubernetes_enabled"`

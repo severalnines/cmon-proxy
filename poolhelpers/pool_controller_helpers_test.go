@@ -58,12 +58,12 @@ import (
 
 func TestExtractClusterID(t *testing.T) {
 	tests := []struct {
-		name          string
-		body          map[string]interface{}
-		wantID        int
-		wantStr       string
-		wantHasID     bool
-		description   string
+		name        string
+		body        map[string]interface{}
+		wantID      int
+		wantStr     string
+		wantHasID   bool
+		description string
 	}{
 		{
 			name:        "nil body",
@@ -279,9 +279,17 @@ func TestAggregateListAcrossPoolControllers_EmptyTargets(t *testing.T) {
 
 // --- Step 3: Smart routing – controller selection ---
 
+func mustMarshalJSON(v interface{}) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
 func TestChooseMainController(t *testing.T) {
-	main := &cmonapi.PoolController{Hostname: "main", Port: 1, Properties: &cmonapi.PoolControllerProperties{Role: "main_controller"}}
-	other := &cmonapi.PoolController{Hostname: "other", Port: 2, Properties: &cmonapi.PoolControllerProperties{Role: "nfs_member"}}
+	main := &cmonapi.PoolController{Hostname: "main", Port: 1, Properties: mustMarshalJSON(&cmonapi.PoolControllerProperties{Role: "main_controller"})}
+	other := &cmonapi.PoolController{Hostname: "other", Port: 2, Properties: mustMarshalJSON(&cmonapi.PoolControllerProperties{Role: "nfs_member"})}
 
 	assert.Nil(t, chooseMainController(nil))
 	assert.Nil(t, chooseMainController([]*cmonapi.PoolController{}))
@@ -289,10 +297,10 @@ func TestChooseMainController(t *testing.T) {
 	assert.Equal(t, main, chooseMainController([]*cmonapi.PoolController{other, main}))
 	assert.Equal(t, main, chooseMainController([]*cmonapi.PoolController{main, other}))
 	// Case insensitive
-	mainLower := &cmonapi.PoolController{Hostname: "m", Port: 1, Properties: &cmonapi.PoolControllerProperties{Role: "Main_Controller"}}
+	mainLower := &cmonapi.PoolController{Hostname: "m", Port: 1, Properties: mustMarshalJSON(&cmonapi.PoolControllerProperties{Role: "Main_Controller"})}
 	assert.Equal(t, mainLower, chooseMainController([]*cmonapi.PoolController{mainLower}))
 	// No main when Properties or Role missing
-	noRole := &cmonapi.PoolController{Hostname: "x", Port: 1, Properties: &cmonapi.PoolControllerProperties{}}
+	noRole := &cmonapi.PoolController{Hostname: "x", Port: 1, Properties: mustMarshalJSON(&cmonapi.PoolControllerProperties{})}
 	assert.Nil(t, chooseMainController([]*cmonapi.PoolController{noRole}))
 	assert.Nil(t, chooseMainController([]*cmonapi.PoolController{&cmonapi.PoolController{Hostname: "x", Port: 1}}))
 }
@@ -407,7 +415,7 @@ func TestFilterActivePoolControllers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := filterActivePoolControllers(tt.controllers)
 			assert.Equal(t, tt.expected, len(result), tt.description)
-			
+
 			// Verify all returned controllers are active with valid hostname and port
 			for _, pc := range result {
 				assert.True(t, len(pc.Status) > 0 && (pc.Status == "active" || pc.Status == "ACTIVE" || pc.Status == "Active"), "All returned controllers should have active status")
@@ -425,9 +433,9 @@ func TestTrySmartRouteAcrossPool_EmptyTargets(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = req
-	
+
 	result := trySmartRouteAcrossPool(ctx, "controller1", []byte(`{}`), []*cmonapi.PoolController{}, nil, nil, nil)
-	
+
 	assert.False(t, result, "Should return false when no active targets")
 }
 
@@ -435,14 +443,14 @@ func TestTrySmartRouteAcrossPool_InvalidJSON(t *testing.T) {
 	activeTargets := []*cmonapi.PoolController{
 		{Hostname: "host1", Port: 8080},
 	}
-	
+
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/test", nil)
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = req
 	invalidJSON := []byte(`{invalid json}`)
-	
+
 	// Should not panic with invalid JSON
 	result := trySmartRouteAcrossPool(ctx, "controller1", invalidJSON, activeTargets, nil, nil, nil)
 	assert.False(t, result, "Should return false for invalid JSON without panicking")
@@ -453,14 +461,14 @@ func TestTrySmartRouteAcrossPool_ValidJSONNoRouting(t *testing.T) {
 		{Hostname: "host1", Port: 8080, Clusters: []string{"1", "2"}},
 		{Hostname: "host2", Port: 8081, Clusters: []string{"3", "4"}},
 	}
-	
+
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/test", nil)
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = req
 	validJSON := []byte(`{"operation": "someOperation", "cluster_id": "5"}`)
-	
+
 	// Should return false when cluster_id doesn't match any controller and router is nil
 	result := trySmartRouteAcrossPool(ctx, "controller1", validJSON, activeTargets, nil, nil, nil)
 	assert.False(t, result, "Should return false when no matching cluster and router is nil")
@@ -484,7 +492,7 @@ func TestTrySmartRouteAcrossPool_EndpointDetection(t *testing.T) {
 			description: "Should handle non-special endpoints gracefully",
 		},
 		{
-			name:        "unknown endpoint", 
+			name:        "unknown endpoint",
 			path:        "/unknown",
 			operation:   "someOperation",
 			shouldPanic: false,
@@ -500,7 +508,7 @@ func TestTrySmartRouteAcrossPool_EndpointDetection(t *testing.T) {
 		{
 			name:        "clusters endpoint triggers router access",
 			path:        "/clusters",
-			operation:   "getAllClusterInfo", 
+			operation:   "getAllClusterInfo",
 			shouldPanic: false, // router is checked before access, returns false gracefully
 			description: "Clusters endpoint detection should check router and return false if nil",
 		},
@@ -518,15 +526,15 @@ func TestTrySmartRouteAcrossPool_EndpointDetection(t *testing.T) {
 			activeTargets := []*cmonapi.PoolController{
 				{Hostname: "host1", Port: 8080},
 			}
-			
+
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", tt.path, nil)
 			ctx, _ := gin.CreateTestContext(w)
 			ctx.Request = req
-			
+
 			jsonData := []byte(`{"operation": "` + tt.operation + `"}`)
-			
+
 			if tt.shouldPanic {
 				// These endpoints will try to access router which panics
 				// We test that the endpoint detection logic is reached
@@ -562,7 +570,7 @@ func TestTrySmartRouteAcrossPool_OperationDetection(t *testing.T) {
 			description:  "Should detect createJobInstance with cluster_id=0 and multiple targets",
 		},
 		{
-			name:         "createJobInstance with cluster_id 0 - single target", 
+			name:         "createJobInstance with cluster_id 0 - single target",
 			operation:    "createJobInstance",
 			clusterId:    0,
 			multiTargets: false,
@@ -572,7 +580,7 @@ func TestTrySmartRouteAcrossPool_OperationDetection(t *testing.T) {
 		},
 		{
 			name:         "createJobInstance with specific cluster_id",
-			operation:    "createJobInstance", 
+			operation:    "createJobInstance",
 			clusterId:    "1",
 			multiTargets: true,
 			shouldPanic:  false, // router is checked before access, returns false gracefully
@@ -582,7 +590,7 @@ func TestTrySmartRouteAcrossPool_OperationDetection(t *testing.T) {
 		{
 			name:         "other operation with cluster_id",
 			operation:    "someOtherOp",
-			clusterId:    "1", 
+			clusterId:    "1",
 			multiTargets: true,
 			shouldPanic:  false, // router is checked before access, returns false gracefully
 			expected:     false,
@@ -621,22 +629,22 @@ func TestTrySmartRouteAcrossPool_OperationDetection(t *testing.T) {
 					{Hostname: "host1", Port: 8080, Clusters: []string{"1", "2"}},
 				}
 			}
-			
+
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", "/test", nil)
 			ctx, _ := gin.CreateTestContext(w)
 			ctx.Request = req
-			
+
 			payload := map[string]interface{}{
 				"operation": tt.operation,
 			}
 			if tt.clusterId != nil {
 				payload["cluster_id"] = tt.clusterId
 			}
-			
+
 			jsonData, _ := json.Marshal(payload)
-			
+
 			if tt.shouldPanic {
 				assert.Panics(t, func() {
 					trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
@@ -665,7 +673,7 @@ func TestTrySmartRouteAcrossPool_ClusterIdFormats(t *testing.T) {
 		{
 			name:        "cluster_id as float (from JSON)",
 			clusterId:   123.0,
-			shouldMatch: true, 
+			shouldMatch: true,
 			description: "Should handle cluster_id as float from JSON parsing",
 		},
 		{
@@ -700,20 +708,20 @@ func TestTrySmartRouteAcrossPool_ClusterIdFormats(t *testing.T) {
 				{Hostname: "host1", Port: 8080, Clusters: []string{"123", "cluster-abc"}},
 				{Hostname: "host2", Port: 8081, Clusters: []string{"456"}},
 			}
-			
+
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", "/test", nil)
 			ctx, _ := gin.CreateTestContext(w)
 			ctx.Request = req
-			
+
 			payload := map[string]interface{}{
 				"operation":  "someOperation",
 				"cluster_id": tt.clusterId,
 			}
-			
+
 			jsonData, _ := json.Marshal(payload)
-			
+
 			// Matching cluster IDs will try to route but router is nil, so returns false gracefully
 			result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
 			assert.False(t, result, tt.description)
@@ -727,7 +735,7 @@ func TestTrySmartRouteAcrossPool_PaginationParsing(t *testing.T) {
 		path        string
 		operation   string
 		limit       interface{}
-		offset      interface{} 
+		offset      interface{}
 		ascending   interface{}
 		description string
 	}{
@@ -742,7 +750,7 @@ func TestTrySmartRouteAcrossPool_PaginationParsing(t *testing.T) {
 		},
 		{
 			name:        "reports with pagination parameters",
-			path:        "/reports", 
+			path:        "/reports",
 			operation:   "getReports",
 			limit:       50.0,
 			offset:      0.0,
@@ -752,7 +760,7 @@ func TestTrySmartRouteAcrossPool_PaginationParsing(t *testing.T) {
 		{
 			name:        "jobs without pagination",
 			path:        "/jobs",
-			operation:   "getJobInstances", 
+			operation:   "getJobInstances",
 			limit:       nil,
 			offset:      nil,
 			ascending:   nil,
@@ -774,13 +782,13 @@ func TestTrySmartRouteAcrossPool_PaginationParsing(t *testing.T) {
 			activeTargets := []*cmonapi.PoolController{
 				{Hostname: "host1", Port: 8080},
 			}
-			
+
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", tt.path, nil)
 			ctx, _ := gin.CreateTestContext(w)
 			ctx.Request = req
-			
+
 			payload := map[string]interface{}{
 				"operation": tt.operation,
 			}
@@ -793,9 +801,9 @@ func TestTrySmartRouteAcrossPool_PaginationParsing(t *testing.T) {
 			if tt.ascending != nil {
 				payload["ascending"] = tt.ascending
 			}
-			
+
 			jsonData, _ := json.Marshal(payload)
-			
+
 			// These paths will try to aggregate but router is nil, so should return false gracefully
 			result := trySmartRouteAcrossPool(ctx, "controller1", jsonData, activeTargets, nil, nil, nil)
 			assert.False(t, result, tt.description)
@@ -810,73 +818,73 @@ func TestTreeAggregationOwnershipPreference(t *testing.T) {
 	// by simulating the cluster collection algorithm
 
 	type testCase struct {
-		name           string
-		responses      []struct {
-			ownsCluster bool
-			hasSubItems bool
+		name      string
+		responses []struct {
+			ownsCluster   bool
+			hasSubItems   bool
 			subItemsCount int
 		}
-		expectedHasSubItems bool
+		expectedHasSubItems   bool
 		expectedSubItemsCount int
-		description    string
+		description           string
 	}
 
 	tests := []testCase{
 		{
 			name: "owner comes first - owner data kept",
 			responses: []struct {
-				ownsCluster bool
-				hasSubItems bool
+				ownsCluster   bool
+				hasSubItems   bool
 				subItemsCount int
 			}{
 				{ownsCluster: true, hasSubItems: true, subItemsCount: 5},
 				{ownsCluster: false, hasSubItems: false, subItemsCount: 0},
 			},
-			expectedHasSubItems: true,
+			expectedHasSubItems:   true,
 			expectedSubItemsCount: 5,
-			description: "When owner comes first, owner's rich data should be preserved",
+			description:           "When owner comes first, owner's rich data should be preserved",
 		},
 		{
 			name: "non-owner comes first - owner data preferred",
 			responses: []struct {
-				ownsCluster bool
-				hasSubItems bool
+				ownsCluster   bool
+				hasSubItems   bool
 				subItemsCount int
 			}{
 				{ownsCluster: false, hasSubItems: false, subItemsCount: 0},
 				{ownsCluster: true, hasSubItems: true, subItemsCount: 5},
 			},
-			expectedHasSubItems: true,
+			expectedHasSubItems:   true,
 			expectedSubItemsCount: 5,
-			description: "When non-owner comes first, owner's data should override",
+			description:           "When non-owner comes first, owner's data should override",
 		},
 		{
 			name: "non-owner with sub_items comes first - owner without sub_items",
 			responses: []struct {
-				ownsCluster bool
-				hasSubItems bool
+				ownsCluster   bool
+				hasSubItems   bool
 				subItemsCount int
 			}{
 				{ownsCluster: false, hasSubItems: true, subItemsCount: 3},
 				{ownsCluster: true, hasSubItems: false, subItemsCount: 0},
 			},
-			expectedHasSubItems: false,
+			expectedHasSubItems:   false,
 			expectedSubItemsCount: 0,
-			description: "Owner data is preferred even if it has fewer sub_items",
+			description:           "Owner data is preferred even if it has fewer sub_items",
 		},
 		{
 			name: "only non-owners - last one kept",
 			responses: []struct {
-				ownsCluster bool
-				hasSubItems bool
+				ownsCluster   bool
+				hasSubItems   bool
 				subItemsCount int
 			}{
 				{ownsCluster: false, hasSubItems: true, subItemsCount: 3},
 				{ownsCluster: false, hasSubItems: true, subItemsCount: 5},
 			},
-			expectedHasSubItems: true,
+			expectedHasSubItems:   true,
 			expectedSubItemsCount: 5,
-			description: "When no owner, any non-owner data is acceptable (last overwrites)",
+			description:           "When no owner, any non-owner data is acceptable (last overwrites)",
 		},
 	}
 
@@ -891,7 +899,7 @@ func TestTreeAggregationOwnershipPreference(t *testing.T) {
 				// Create a mock cluster item
 				clusterItem := map[string]interface{}{
 					"cluster_id": 2,
-					"item_type": "Cluster",
+					"item_type":  "Cluster",
 				}
 				if resp.hasSubItems {
 					subItems := make([]interface{}, resp.subItemsCount)
@@ -940,7 +948,7 @@ func BenchmarkFilterActivePoolControllers(b *testing.B) {
 			Port:     8080 + i,
 		}
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		filterActivePoolControllers(controllers)

@@ -54,14 +54,19 @@ func SessionDestroy(ctx *gin.Context) {
 
 func getStore(cfg *config.Config) sessions.Store {
 	store := cookie.NewStore(getSessionKeys()...)
-	// sTTL := time.Duration(cfg.SessionTtl)
+	secure := true
+	sameSite := http.SameSiteNoneMode
+	if cfg.SessionSecure != nil && !*cfg.SessionSecure {
+		secure = false
+		sameSite = http.SameSiteDefaultMode
+	}
 	store.Options(sessions.Options{
 		Domain:   domain,
 		MaxAge:   0,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteNoneMode,
-		Secure:   true,
+		SameSite: sameSite,
+		Secure:   secure,
 	})
 	return store
 }
