@@ -280,11 +280,14 @@ func (p *Proxy) RPCControllerAdd(ctx *gin.Context) {
 
 	session := sessions.Default(ctx)
 	elevated := session.Get("elevated") == true
-	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if !authenticatedUser.Admin && !elevated {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("Only admin users can add controllers"), http.StatusForbidden)
-			return
-		}
+	authenticatedUser := getUserForSession(ctx)
+	if authenticatedUser == nil {
+		cmonapi.CtxWriteError(ctx, fmt.Errorf("authentication required"), http.StatusUnauthorized)
+		return
+	}
+	if !authenticatedUser.Admin && !elevated {
+		cmonapi.CtxWriteError(ctx, fmt.Errorf("Only admin users can add controllers"), http.StatusForbidden)
+		return
 	}
 
 	if err := ctx.BindJSON(&req); err != nil || req.Controller == nil {
@@ -327,11 +330,14 @@ func (p *Proxy) RPCControllerUpdate(ctx *gin.Context) {
 
 	session := sessions.Default(ctx)
 	elevated := session.Get("elevated") == true
-	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if !authenticatedUser.Admin && !elevated {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can update controllers"), http.StatusForbidden)
-			return
-		}
+	authenticatedUser := getUserForSession(ctx)
+	if authenticatedUser == nil {
+		cmonapi.CtxWriteError(ctx, fmt.Errorf("authentication required"), http.StatusUnauthorized)
+		return
+	}
+	if !authenticatedUser.Admin && !elevated {
+		cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can update controllers"), http.StatusForbidden)
+		return
 	}
 
 	if err := ctx.BindJSON(&req); err != nil || req.Controller == nil {
@@ -401,11 +407,14 @@ func (p *Proxy) RPCControllerRemove(ctx *gin.Context) {
 
 	session := sessions.Default(ctx)
 	elevated := session.Get("elevated") == true
-	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if !authenticatedUser.Admin && !elevated {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can remove controllers"), http.StatusForbidden)
-			return
-		}
+	authenticatedUser := getUserForSession(ctx)
+	if authenticatedUser == nil {
+		cmonapi.CtxWriteError(ctx, fmt.Errorf("authentication required"), http.StatusUnauthorized)
+		return
+	}
+	if !authenticatedUser.Admin && !elevated {
+		cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can remove controllers"), http.StatusForbidden)
+		return
 	}
 
 	if err := ctx.BindJSON(&req); err != nil || len(req.ControllerXid) < 1 {
@@ -434,11 +443,14 @@ func (p *Proxy) RPCGetControllerPreferencesHandler(ctx *gin.Context) {
 
 	session := sessions.Default(ctx)
 	elevated := session.Get("elevated") == true
-	if authenticatedUser := getUserForSession(ctx); authenticatedUser != nil {
-		if !authenticatedUser.Admin && !elevated {
-			cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can view controller preferences"), http.StatusForbidden)
-			return
-		}
+	authenticatedUser := getUserForSession(ctx)
+	if authenticatedUser == nil {
+		cmonapi.CtxWriteError(ctx, fmt.Errorf("authentication required"), http.StatusUnauthorized)
+		return
+	}
+	if !authenticatedUser.Admin && !elevated {
+		cmonapi.CtxWriteError(ctx, fmt.Errorf("only admin users can view controller preferences"), http.StatusForbidden)
+		return
 	}
 
 	xid := ctx.Param("xid")

@@ -52,6 +52,7 @@ type ProxyUser struct {
 	LdapUser     bool     `yaml:"ldap,omitempty" json:"ldap,omitempty"`
 	CMONUser     bool     `yaml:"cmon,omitempty" json:"cmon,omitempty"`
 	Admin        bool     `yaml:"admin,omitempty" json:"admin,omitempty"`
+	Suspended    bool     `yaml:"suspended,omitempty" json:"suspended,omitempty"`
 	Groups       []string `yaml:"groups,omitempty" json:"groups,omitempty"`
 	ControllerId string   `yaml:"xid,omitempty" json:"xid,omitempty"`
 }
