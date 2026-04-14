@@ -61,7 +61,7 @@ type CmonInstance struct {
 	Url           string                    `yaml:"url" json:"url"`
 	Name          string                    `yaml:"name,omitempty" json:"name,omitempty"`
 	Username      string                    `yaml:"username,omitempty" json:"username,omitempty"`
-	Password      string                    `yaml:"password,omitempty" json:"password,omitempty"`
+	Password      string                    `yaml:"password,omitempty" json:"-"`
 	Keyfile       string                    `yaml:"keyfile,omitempty" json:"keyfile,omitempty"`
 	ControllerId  string                    `yaml:"controller_id,omitempty" json:"controller_id,omitempty"`
 	PoolId        string                    `yaml:"pool_id,omitempty" json:"pool_id,omitempty"`
