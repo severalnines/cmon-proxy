@@ -244,6 +244,11 @@ func (p *Proxy) RPCAuthMiddleware(ctx *gin.Context) {
 		ctx.Abort()
 		return
 	}
+	// Refresh LastActive on every authenticated request so TTL is an idle timeout,
+	// not a fixed-duration timeout. A session in active use will never be cleaned up.
+	if sessionId := getSessionIdFromRequest(ctx); sessionId != "" {
+		refreshSession(sessionId)
+	}
 	// we store the 'user' object in context
 	ctx.Set(userKey, user)
 }
