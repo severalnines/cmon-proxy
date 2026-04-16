@@ -62,7 +62,16 @@ func (e *Emitter) Stop() {
 func (e *Emitter) run() {
 	defer close(e.done)
 
-	// Initial emission on startup.
+	// Wait for the Router to authenticate with controllers before first emission.
+	// The Router authenticates asynchronously on startup; 30 seconds is enough
+	// for the initial auth + GetAllClusterInfo cache to populate.
+	e.logger.Info("[otel-metering] waiting 30s for controller authentication...")
+	select {
+	case <-e.stopCh:
+		return
+	case <-time.After(30 * time.Second):
+	}
+
 	e.emit()
 
 	// Align to interval boundary.
