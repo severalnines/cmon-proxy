@@ -265,9 +265,15 @@ func TestIntegration_CollectSnapshots(t *testing.T) {
 
 	for _, s := range snapshots {
 		vcpu, ram, vol := "nil", "nil", "nil"
-		if s.VCPU != nil { vcpu = fmt.Sprintf("%d", *s.VCPU) }
-		if s.RAMMB != nil { ram = fmt.Sprintf("%dMB", *s.RAMMB) }
-		if s.VolumeGB != nil { vol = fmt.Sprintf("%dGB", *s.VolumeGB) }
+		if s.VCPU != nil {
+			vcpu = fmt.Sprintf("%d", *s.VCPU)
+		}
+		if s.RAMMB != nil {
+			ram = fmt.Sprintf("%dMB", *s.RAMMB)
+		}
+		if s.VolumeGB != nil {
+			vol = fmt.Sprintf("%dGB", *s.VolumeGB)
+		}
 		t.Logf("  Snapshot: node=%s cluster=%s(%d) type=%s vendor=%s role=%s status=%s vcpu=%s ram=%s vol=%s tags=%v",
 			s.NodeID, s.ClusterName, s.ClusterID, s.ClusterType, s.DBVendor,
 			s.NodeRole, s.NodeStatus, vcpu, ram, vol, s.Tags)
@@ -320,7 +326,7 @@ func TestIntegration_FullPipeline(t *testing.T) {
 	periodEnd := now.Add(time.Hour)
 
 	// Use minActiveHours=1 since we may only have a handful of snapshot hours.
-	gen := metering.NewReportGenerator(backend, 1)
+	gen := metering.NewReportGenerator(backend, 1, time.Hour)
 	reportData, err := gen.Generate(ctx, periodStart, periodEnd, 1)
 	require.NoError(t, err)
 	require.NotNil(t, reportData)

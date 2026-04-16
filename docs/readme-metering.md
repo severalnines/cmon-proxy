@@ -60,8 +60,10 @@ All settings can be configured via environment variables in `/etc/default/cmon-p
 | `METERING_ENABLED` | `metering_enabled` | `false` | Enable/disable metering collection |
 | `METERING_DB_PATH` | `metering_db_path` | `<basedir>/metering.db` | Path to the SQLite database |
 | `METERING_INTERVAL` | `metering_interval` | `60m` | Collection interval (Go duration: `30m`, `1h`, `2h`) |
+| `METERING_RETENTION_MONTHS` | `metering_retention_months` | `12` | Raw snapshot retention period in months |
 | `METERING_SIGNING_KEY` | `metering_signing_key` | (none) | HMAC key for sealing reports |
 | `METERING_KEY_ID` | `metering_key_id` | `default` | Identifier for the signing key (for rotation) |
+| `METERING_VERIFICATION_KEYS` | `metering_verification_keys` | (none) | JSON object or YAML map of verification keys keyed by signing key ID |
 
 **YAML example** (`ccmgr.yaml`):
 
@@ -69,8 +71,12 @@ All settings can be configured via environment variables in `/etc/default/cmon-p
 metering_enabled: true
 metering_db_path: /var/lib/ccmgr/metering.db
 metering_interval: "30m"
+metering_retention_months: 12
 metering_signing_key: "your-secret-key"
 metering_key_id: "key-2026-01"
+metering_verification_keys:
+  key-2025-12: "previous-secret-key"
+  key-2026-01: "your-secret-key"
 ```
 
 ## API Reference
@@ -86,11 +92,16 @@ Returns collector health and database statistics.
 ```json
 {
   "collector_running": true,
+  "collection_healthy": true,
+  "health_status": "ok",
   "last_successful_collection": "2026-04-16T15:00:00Z",
   "total_snapshots": 4400,
   "oldest_snapshot": "2026-04-01T00:00:00Z",
   "db_size_bytes": 1048576,
-  "collection_interval": "1h0m0s"
+  "collection_interval": "1h0m0s",
+  "retention_months": 12,
+  "last_retention_cleanup": "2026-04-16T00:00:00Z",
+  "last_cleanup_deleted_rows": 24
 }
 ```
 
@@ -150,6 +161,35 @@ To regenerate (creates a new version):
         "max_volume_gb": 1200
       }
     ],
+    "billing_table_rows": [
+      {
+        "row_type": "vendor",
+        "deployment_type": "GALERA",
+        "vendor": "percona",
+        "max_concurrent_nodes": 3,
+        "max_vcpu": 0,
+        "max_ram_gb": 5,
+        "max_volume_gb": 1200
+      },
+      {
+        "row_type": "type_total",
+        "deployment_type": "GALERA",
+        "vendor": "Total",
+        "max_concurrent_nodes": 3,
+        "max_vcpu": 0,
+        "max_ram_gb": 5,
+        "max_volume_gb": 1200
+      },
+      {
+        "row_type": "grand_total",
+        "deployment_type": "",
+        "vendor": "Grand Total",
+        "max_concurrent_nodes": 22,
+        "max_vcpu": 0,
+        "max_ram_gb": 40,
+        "max_volume_gb": 8800
+      }
+    ],
     "node_details": [
       {
         "node_id": "ctrl-1:10.0.1.1",
@@ -191,7 +231,8 @@ Returns metadata for all sealed reports.
       "period_start": "2026-04-01T00:00:00Z",
       "period_end": "2026-04-30T23:59:59Z",
       "generated_at": "2026-05-01T00:05:00Z",
-      "sha256_hash": "a1b2c3..."
+      "sha256_hash": "a1b2c3...",
+      "total_billable_nodes": 22
     }
   ]
 }
@@ -212,6 +253,8 @@ Recomputes the SHA-256 hash and HMAC signature and compares to stored values.
   "report_id": 1,
   "hash_valid": true,
   "signature_valid": true,
+  "signing_key_id": "key-2026-01",
+  "verification_key_found": true,
   "verified_at": "2026-05-10T12:00:00Z"
 }
 ```
@@ -224,7 +267,7 @@ Downloads a report as JSON or CSV.
 { "operation": "exportReport", "report_id": 1, "format": "json" }
 ```
 
-For CSV, returns a ZIP file containing `summary.csv` and `node_details.csv`:
+For CSV, returns a ZIP file containing `summary.csv` and `node_details.csv`. `summary.csv` is the billing-table export with vendor rows, per-deployment `Total` rows, and a `Grand Total` row:
 
 ```json
 { "operation": "exportReport", "report_id": 1, "format": "csv" }
@@ -254,7 +297,7 @@ A node is billable for a billing period if it has **24 or more cumulative hours*
 
 | Metric | Source | Notes |
 |--------|--------|-------|
-| Active hours | Snapshot count | Each snapshot = 1 interval of active time |
+| Active hours | Snapshot count × configured interval | Reported as cumulative whole hours derived from the collection interval |
 | Max vCPU | Not yet available | Requires CMON API enhancement |
 | Max RAM (MB) | `memorystat` API → `ramtotal` | High-water mark per billing period |
 | Max Volume (GB) | `diskstat` API → `total` | Largest disk mount, high-water mark |
@@ -291,4 +334,4 @@ Tests are automatically skipped if `CMON_ENDPOINT` is not set.
 
 **Report shows 0 billable nodes**: Nodes need ≥24 cumulative hours of "active" or "stopped" status in the billing period. Check if enough time has elapsed since metering was enabled.
 
-**Signature verification fails**: Ensure the same `METERING_SIGNING_KEY` is configured when generating and verifying. If the key was rotated, old reports can only be verified with their original key.
+**Signature verification fails**: Ensure the report's `signing_key_id` exists in `metering_verification_keys` or matches the current `METERING_KEY_ID`. After key rotation, keep old verification keys configured for old reports.

@@ -176,6 +176,58 @@ func TestCollector_Collect_DetectsRemovedNodes(t *testing.T) {
 	assert.Equal(t, NodeStatusRemoved, removed[0].NodeStatus)
 }
 
+func TestCollector_Collect_DetectsRemovedNodesAfterRestart(t *testing.T) {
+	backend, provider := newTestCollectorSetup(t)
+	ctx := context.Background()
+
+	firstCollector := NewCollector(backend, provider, time.Hour)
+	firstCollector.collect(ctx)
+
+	// Simulate a node being removed while cmon-proxy is down.
+	provider.data["https://ctrl-1:9501"].Clusters[0].Hosts =
+		provider.data["https://ctrl-1:9501"].Clusters[0].Hosts[1:]
+
+	restartedCollector := NewCollector(backend, provider, time.Hour)
+	restartedCollector.collect(ctx)
+
+	removed, err := backend.QuerySnapshots(ctx, SnapshotFilter{
+		NodeStatuses: []string{NodeStatusRemoved},
+	})
+	require.NoError(t, err)
+	assert.Len(t, removed, 1)
+	assert.Equal(t, "ctrl-1:10.0.1.1", removed[0].NodeID)
+}
+
+func TestCollector_Collect_PreservesControllerIdentityAcrossMetadataChanges(t *testing.T) {
+	backend, provider := newTestCollectorSetup(t)
+	ctx := context.Background()
+
+	addr := "https://ctrl-1:9501"
+	provider.data[addr].ControllerID = addr
+
+	firstCollector := NewCollector(backend, provider, time.Hour)
+	firstCollector.collect(ctx)
+
+	// Simulate controller metadata switching to a different identifier on restart.
+	provider.data[addr].ControllerID = "ctrl-1"
+
+	restartedCollector := NewCollector(backend, provider, time.Hour)
+	restartedCollector.collect(ctx)
+
+	nodeID := addr + ":10.0.1.1"
+	snapshots, err := backend.QuerySnapshots(ctx, SnapshotFilter{
+		NodeID: &nodeID,
+	})
+	require.NoError(t, err)
+	assert.Len(t, snapshots, 2)
+
+	removed, err := backend.QuerySnapshots(ctx, SnapshotFilter{
+		NodeStatuses: []string{NodeStatusRemoved},
+	})
+	require.NoError(t, err)
+	assert.Len(t, removed, 0)
+}
+
 func TestCollector_Collect_ControllerUnreachable(t *testing.T) {
 	backend, provider := newTestCollectorSetup(t)
 
@@ -273,6 +325,48 @@ func TestCollector_Collect_EmptyProvider(t *testing.T) {
 
 	count, _ := backend.CountSnapshots(ctx)
 	assert.Equal(t, int64(0), count)
+
+	lastError, err := backend.GetConfig(ctx, ConfigLastCollectionError)
+	require.NoError(t, err)
+	assert.Equal(t, "no controllers returned data", lastError)
+}
+
+func TestCollector_Collect_RunsRetentionCleanup(t *testing.T) {
+	backend, provider := newTestCollectorSetup(t)
+	ctx := context.Background()
+
+	require.NoError(t, backend.SetConfig(ctx, ConfigRetentionMonths, "1"))
+
+	oldSnapshot := NodeSnapshot{
+		CapturedAt:   time.Now().UTC().AddDate(0, -2, 0),
+		ControllerID: "ctrl-old",
+		ClusterID:    99,
+		ClusterName:  "old-cluster",
+		ClusterType:  "galera",
+		DBVendor:     "percona",
+		NodeID:       "ctrl-old:10.0.9.9",
+		Hostname:     "old-node",
+		Port:         3306,
+		NodeRole:     NodeRoleDatabase,
+		NodeStatus:   NodeStatusActive,
+	}
+	require.NoError(t, backend.InsertSnapshots(ctx, []NodeSnapshot{oldSnapshot}))
+
+	collector := NewCollector(backend, provider, time.Hour)
+	collector.collect(ctx)
+
+	cutoff := time.Now().UTC().AddDate(0, -1, 0)
+	oldSnapshots, err := backend.QuerySnapshots(ctx, SnapshotFilter{PeriodEnd: &cutoff})
+	require.NoError(t, err)
+	assert.Empty(t, oldSnapshots)
+
+	lastCleanup, err := backend.GetConfig(ctx, ConfigLastRetentionCleanup)
+	require.NoError(t, err)
+	assert.NotEmpty(t, lastCleanup)
+
+	deletedRows, err := backend.GetConfig(ctx, ConfigLastCleanupDeletedRows)
+	require.NoError(t, err)
+	assert.Equal(t, "1", deletedRows)
 }
 
 func TestCollector_StartAndStop(t *testing.T) {

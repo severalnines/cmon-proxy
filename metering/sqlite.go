@@ -287,6 +287,34 @@ func (s *SQLiteBackend) CountSnapshots(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+// ListActiveNodeIDs returns node IDs whose latest stored snapshot is not removed.
+func (s *SQLiteBackend) ListActiveNodeIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ns.node_id
+		FROM node_snapshots ns
+		INNER JOIN (
+			SELECT node_id, MAX(id) AS max_id
+			FROM node_snapshots
+			GROUP BY node_id
+		) latest
+		ON ns.node_id = latest.node_id AND ns.id = latest.max_id
+		WHERE ns.node_status != ?`, NodeStatusRemoved)
+	if err != nil {
+		return nil, fmt.Errorf("list active node ids: %w", err)
+	}
+	defer rows.Close()
+
+	var nodeIDs []string
+	for rows.Next() {
+		var nodeID string
+		if err := rows.Scan(&nodeID); err != nil {
+			return nil, fmt.Errorf("scan active node id: %w", err)
+		}
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	return nodeIDs, rows.Err()
+}
+
 // OldestSnapshotTime returns the timestamp of the oldest snapshot, or nil if empty.
 func (s *SQLiteBackend) OldestSnapshotTime(ctx context.Context) (*time.Time, error) {
 	var ts sql.NullString

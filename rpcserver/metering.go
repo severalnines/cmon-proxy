@@ -13,6 +13,7 @@ package rpcserver
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -34,6 +35,7 @@ const (
 
 var meteringSigningKey []byte
 var meteringKeyID string
+var meteringVerificationKeys map[string][]byte
 
 func initMetering(cfg *config.Config) {
 	log := zap.L().Sugar()
@@ -59,14 +61,7 @@ func initMetering(cfg *config.Config) {
 		}
 	}
 
-	// Signing key.
-	if cfg.MeteringSigningKey != "" {
-		meteringSigningKey = []byte(cfg.MeteringSigningKey)
-		meteringKeyID = cfg.MeteringKeyID
-		if meteringKeyID == "" {
-			meteringKeyID = "default"
-		}
-	}
+	configureMeteringKeys(cfg)
 
 	// Open storage.
 	var err error
@@ -78,12 +73,70 @@ func initMetering(cfg *config.Config) {
 
 	log.Infof("[metering] database opened at %s", dbPath)
 
+	if err := configureMeteringStorage(meteringStorage, cfg); err != nil {
+		log.Warnf("[metering] failed to persist metering runtime config: %v", err)
+	}
+
 	// Create collector using the default router.
 	provider := metering.NewRouterAdapter(proxy.DefaultRouter())
 	meteringCollector = metering.NewCollector(meteringStorage, provider, meteringInterval)
 	meteringCollector.Start()
 
 	log.Infof("[metering] collector started with interval %s", meteringInterval)
+}
+
+func configureMeteringKeys(cfg *config.Config) {
+	meteringSigningKey = nil
+	meteringKeyID = ""
+	meteringVerificationKeys = make(map[string][]byte)
+
+	for keyID, key := range cfg.MeteringVerificationKeys {
+		if key == "" {
+			continue
+		}
+		meteringVerificationKeys[keyID] = []byte(key)
+	}
+
+	if cfg.MeteringSigningKey == "" {
+		return
+	}
+
+	meteringSigningKey = []byte(cfg.MeteringSigningKey)
+	meteringKeyID = cfg.MeteringKeyID
+	if meteringKeyID == "" {
+		meteringKeyID = "default"
+	}
+	meteringVerificationKeys[meteringKeyID] = meteringSigningKey
+}
+
+func configureMeteringStorage(storage metering.StorageBackend, cfg *config.Config) error {
+	ctx := context.Background()
+
+	retentionMonths := cfg.MeteringRetentionMonths
+	if retentionMonths <= 0 {
+		retentionMonths = metering.DefaultRetentionMonths
+	}
+	if err := storage.SetConfig(ctx, metering.ConfigRetentionMonths, strconv.Itoa(retentionMonths)); err != nil {
+		return err
+	}
+
+	if meteringKeyID != "" {
+		if err := storage.SetConfig(ctx, metering.ConfigSigningKeyID, meteringKeyID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func verificationKeyForReport(signingKeyID string) []byte {
+	if signingKeyID != "" {
+		return meteringVerificationKeys[signingKeyID]
+	}
+	if meteringKeyID != "" {
+		return meteringVerificationKeys[meteringKeyID]
+	}
+	return meteringSigningKey
 }
 
 func handleMeteringStatus(ctx *gin.Context) {
@@ -183,7 +236,7 @@ func handleGenerateReport(ctx *gin.Context, req reportRequest) {
 	nextVersion := latestVersion + 1
 
 	// Generate report.
-	gen := metering.NewReportGenerator(meteringStorage, defaultMinActiveHours)
+	gen := metering.NewReportGenerator(meteringStorage, defaultMinActiveHours, meteringInterval)
 	reportData, err := gen.Generate(rctx, periodStart, periodEnd, nextVersion)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "report generation failed: " + err.Error()})
@@ -230,24 +283,31 @@ func handleListReports(ctx *gin.Context) {
 	}
 
 	type reportMeta struct {
-		ID              int64  `json:"id"`
-		ReportVersion   int    `json:"report_version"`
-		PeriodStart     string `json:"period_start"`
-		PeriodEnd       string `json:"period_end"`
-		GeneratedAt     string `json:"generated_at"`
-		SHA256Hash      string `json:"sha256_hash"`
+		ID                 int64  `json:"id"`
+		ReportVersion      int    `json:"report_version"`
+		PeriodStart        string `json:"period_start"`
+		PeriodEnd          string `json:"period_end"`
+		GeneratedAt        string `json:"generated_at"`
+		SHA256Hash         string `json:"sha256_hash"`
+		TotalBillableNodes int    `json:"total_billable_nodes"`
 	}
 
 	var list []reportMeta
 	for _, r := range reports {
-		// Extract total_billable_nodes from report data for the summary.
+		var reportData metering.ReportData
+		if err := json.Unmarshal([]byte(r.ReportData), &reportData); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse stored report data"})
+			return
+		}
+
 		list = append(list, reportMeta{
-			ID:            r.ID,
-			ReportVersion: r.ReportVersion,
-			PeriodStart:   r.PeriodStart.Format(time.RFC3339),
-			PeriodEnd:     r.PeriodEnd.Format(time.RFC3339),
-			GeneratedAt:   r.GeneratedAt.Format(time.RFC3339),
-			SHA256Hash:    r.SHA256Hash,
+			ID:                 r.ID,
+			ReportVersion:      r.ReportVersion,
+			PeriodStart:        r.PeriodStart.Format(time.RFC3339),
+			PeriodEnd:          r.PeriodEnd.Format(time.RFC3339),
+			GeneratedAt:        r.GeneratedAt.Format(time.RFC3339),
+			SHA256Hash:         r.SHA256Hash,
+			TotalBillableNodes: reportData.Summary.TotalBillableNodes,
 		})
 	}
 
@@ -274,13 +334,16 @@ func handleVerifyReport(ctx *gin.Context, req reportRequest) {
 		return
 	}
 
-	hashOK, sigOK := metering.VerifySeal(report.ReportData, report.SHA256Hash, report.Signature, meteringSigningKey)
+	verificationKey := verificationKeyForReport(report.SigningKeyID)
+	hashOK, sigOK := metering.VerifySeal(report.ReportData, report.SHA256Hash, report.Signature, verificationKey)
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"report_id":       report.ID,
-		"hash_valid":      hashOK,
-		"signature_valid": sigOK,
-		"verified_at":     time.Now().UTC().Format(time.RFC3339),
+		"report_id":              report.ID,
+		"hash_valid":             hashOK,
+		"signature_valid":        sigOK,
+		"signing_key_id":         report.SigningKeyID,
+		"verification_key_found": len(verificationKey) > 0 || report.Signature == "",
+		"verified_at":            time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -341,15 +404,16 @@ func generateCSVZip(report *metering.ReportData) ([]byte, error) {
 		return nil, err
 	}
 	sw := csv.NewWriter(summaryFile)
-	sw.Write([]string{"cluster_type", "db_vendor", "max_concurrent_nodes", "max_vcpu", "max_ram_gb", "max_volume_gb"})
-	for _, tv := range report.ByTypeAndVendor {
+	sw.Write([]string{"row_type", "deployment_type", "vendor", "max_concurrent_nodes", "max_vcpu", "max_ram_gb", "max_volume_gb"})
+	for _, row := range report.BillingTableRows {
 		sw.Write([]string{
-			tv.ClusterType,
-			tv.DBVendor,
-			strconv.Itoa(tv.MaxConcurrentNodes),
-			strconv.Itoa(tv.MaxVCPU),
-			strconv.Itoa(tv.MaxRAMGB),
-			strconv.Itoa(tv.MaxVolumeGB),
+			row.RowType,
+			row.DeploymentType,
+			row.Vendor,
+			strconv.Itoa(row.MaxConcurrentNodes),
+			strconv.Itoa(row.MaxVCPU),
+			strconv.Itoa(row.MaxRAMGB),
+			strconv.Itoa(row.MaxVolumeGB),
 		})
 	}
 	sw.Flush()

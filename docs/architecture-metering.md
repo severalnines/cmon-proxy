@@ -98,7 +98,7 @@ API: POST /proxy/metering/reports
                              │
                     ┌────────┴────────┐
                     │  1. Query all snapshots in period
-                    │  2. Count active hours per node
+                    │  2. Sum active/stopped duration per node using the configured collection interval
                     │  3. Filter: ≥24h → billable
                     │  4. Per-node: max vCPU/RAM/volume + first-observed timestamps
                     │  5. Per type+vendor: max concurrent active nodes
@@ -194,7 +194,12 @@ Reports are tamper-evident:
 4. Both hash and signature stored alongside the report
 5. Verification recomputes and compares (constant-time comparison for signature)
 
-Key rotation is supported: each report records the `signing_key_id` used, so old reports can be verified with their original key.
+Key rotation is supported: each report records the `signing_key_id` used, and verification can look up historical keys via `metering_verification_keys`.
+
+## Operational State
+
+- Snapshot retention defaults to 12 months and is enforced by a daily cleanup pass in the collector.
+- Metering status exposes collector health, last collection error, retention settings, and cleanup diagnostics.
 
 ## Known Limitations
 
@@ -215,9 +220,10 @@ metering/
 ├── sealing.go          Canonical JSON, SHA-256, HMAC-SHA256
 ├── status.go           StatusResponse builder
 ├── sqlite_test.go      18 storage tests
-├── collector_test.go   12 collector tests
-├── report_test.go      9 report generator tests
+├── collector_test.go   collector coverage, restart/removal semantics, retention cleanup
+├── report_test.go      report generator coverage, interval-aware billing, billing-table rows
 ├── sealing_test.go     9 sealing tests
+├── status_test.go      status and health reporting coverage
 └── integration_test.go 5 live tests (requires CMON_ENDPOINT env var)
 
 rpcserver/

@@ -165,7 +165,7 @@ waitLoop:
 	t.Logf("Period: %s to %s", periodStart.Format(time.RFC3339), periodEnd.Format(time.RFC3339))
 
 	// Use minActiveHours=1 since we're only running for 2 hours.
-	gen := metering.NewReportGenerator(backend, 1)
+	gen := metering.NewReportGenerator(backend, 1, time.Hour)
 	reportData, err := gen.Generate(ctx, periodStart, periodEnd, 1)
 	require.NoError(t, err)
 	require.NotNil(t, reportData)

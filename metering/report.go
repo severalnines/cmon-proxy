@@ -18,20 +18,21 @@ import (
 
 // ReportData is the top-level structure of a billing report's JSON payload.
 type ReportData struct {
-	ReportVersion int                    `json:"report_version"`
-	PeriodStart   string                 `json:"period_start"`
-	PeriodEnd     string                 `json:"period_end"`
-	GeneratedAt   string                 `json:"generated_at"`
-	Summary       ReportSummary          `json:"summary"`
-	ByTypeAndVendor []TypeVendorSummary  `json:"by_type_and_vendor"`
-	NodeDetails   []NodeDetail           `json:"node_details"`
+	ReportVersion    int                 `json:"report_version"`
+	PeriodStart      string              `json:"period_start"`
+	PeriodEnd        string              `json:"period_end"`
+	GeneratedAt      string              `json:"generated_at"`
+	Summary          ReportSummary       `json:"summary"`
+	ByTypeAndVendor  []TypeVendorSummary `json:"by_type_and_vendor"`
+	BillingTableRows []BillingTableRow   `json:"billing_table_rows"`
+	NodeDetails      []NodeDetail        `json:"node_details"`
 }
 
 // ReportSummary holds the estate-wide totals.
 type ReportSummary struct {
-	TotalBillableNodes   int `json:"total_billable_nodes"`
-	GrandTotalMaxVCPU    int `json:"grand_total_max_vcpu"`
-	GrandTotalMaxRAMGB   int `json:"grand_total_max_ram_gb"`
+	TotalBillableNodes    int `json:"total_billable_nodes"`
+	GrandTotalMaxVCPU     int `json:"grand_total_max_vcpu"`
+	GrandTotalMaxRAMGB    int `json:"grand_total_max_ram_gb"`
 	GrandTotalMaxVolumeGB int `json:"grand_total_max_volume_gb"`
 }
 
@@ -45,23 +46,34 @@ type TypeVendorSummary struct {
 	MaxVolumeGB        int    `json:"max_volume_gb"`
 }
 
+// BillingTableRow represents a row in the export-oriented billing breakdown table.
+type BillingTableRow struct {
+	RowType            string `json:"row_type"`
+	DeploymentType     string `json:"deployment_type"`
+	Vendor             string `json:"vendor"`
+	MaxConcurrentNodes int    `json:"max_concurrent_nodes"`
+	MaxVCPU            int    `json:"max_vcpu"`
+	MaxRAMGB           int    `json:"max_ram_gb"`
+	MaxVolumeGB        int    `json:"max_volume_gb"`
+}
+
 // NodeDetail holds per-node billing details.
 type NodeDetail struct {
-	NodeID            string           `json:"node_id"`
-	ControllerID      string           `json:"controller_id"`
-	ClusterID         uint64           `json:"cluster_id"`
-	ClusterName       string           `json:"cluster_name"`
-	ClusterType       string           `json:"cluster_type"`
-	DBVendor          string           `json:"db_vendor"`
-	NodeRole          string           `json:"node_role"`
-	ActiveHours       int              `json:"active_hours"`
-	MaxVCPU           int              `json:"max_vcpu"`
-	MaxVCPUObservedAt string           `json:"max_vcpu_observed_at,omitempty"`
-	MaxRAMMB          int              `json:"max_ram_mb"`
-	MaxRAMObservedAt  string           `json:"max_ram_observed_at,omitempty"`
-	MaxVolumeGB       int              `json:"max_volume_gb"`
-	MaxVolumeObservedAt string         `json:"max_volume_observed_at,omitempty"`
-	ResourceChanges   []ResourceChange `json:"resource_changes,omitempty"`
+	NodeID              string           `json:"node_id"`
+	ControllerID        string           `json:"controller_id"`
+	ClusterID           uint64           `json:"cluster_id"`
+	ClusterName         string           `json:"cluster_name"`
+	ClusterType         string           `json:"cluster_type"`
+	DBVendor            string           `json:"db_vendor"`
+	NodeRole            string           `json:"node_role"`
+	ActiveHours         int              `json:"active_hours"`
+	MaxVCPU             int              `json:"max_vcpu"`
+	MaxVCPUObservedAt   string           `json:"max_vcpu_observed_at,omitempty"`
+	MaxRAMMB            int              `json:"max_ram_mb"`
+	MaxRAMObservedAt    string           `json:"max_ram_observed_at,omitempty"`
+	MaxVolumeGB         int              `json:"max_volume_gb"`
+	MaxVolumeObservedAt string           `json:"max_volume_observed_at,omitempty"`
+	ResourceChanges     []ResourceChange `json:"resource_changes,omitempty"`
 }
 
 // ResourceChange records a change in a node's resources between consecutive snapshots.
@@ -74,15 +86,20 @@ type ResourceChange struct {
 
 // ReportGenerator computes billing reports from raw snapshot data.
 type ReportGenerator struct {
-	storage          StorageBackend
-	minActiveHours   int
+	storage            StorageBackend
+	minActiveDuration  time.Duration
+	collectionInterval time.Duration
 }
 
 // NewReportGenerator creates a report generator.
-func NewReportGenerator(storage StorageBackend, minActiveHours int) *ReportGenerator {
+func NewReportGenerator(storage StorageBackend, minActiveHours int, collectionInterval time.Duration) *ReportGenerator {
+	if collectionInterval <= 0 {
+		collectionInterval = time.Hour
+	}
 	return &ReportGenerator{
-		storage:        storage,
-		minActiveHours: minActiveHours,
+		storage:            storage,
+		minActiveDuration:  time.Duration(minActiveHours) * time.Hour,
+		collectionInterval: collectionInterval,
 	}
 }
 
@@ -101,12 +118,13 @@ func (g *ReportGenerator) Generate(ctx context.Context, periodStart, periodEnd t
 
 	if len(snapshots) == 0 {
 		return &ReportData{
-			ReportVersion:   version,
-			PeriodStart:     periodStart.Format(time.RFC3339),
-			PeriodEnd:       periodEnd.Format(time.RFC3339),
-			GeneratedAt:     now.Format(time.RFC3339),
-			ByTypeAndVendor: []TypeVendorSummary{},
-			NodeDetails:     []NodeDetail{},
+			ReportVersion:    version,
+			PeriodStart:      periodStart.Format(time.RFC3339),
+			PeriodEnd:        periodEnd.Format(time.RFC3339),
+			GeneratedAt:      now.Format(time.RFC3339),
+			ByTypeAndVendor:  []TypeVendorSummary{},
+			BillingTableRows: []BillingTableRow{},
+			NodeDetails:      []NodeDetail{},
 		}, nil
 	}
 
@@ -119,13 +137,8 @@ func (g *ReportGenerator) Generate(ctx context.Context, periodStart, periodEnd t
 	// Step 2: Identify billable nodes (≥ minActiveHours of active/stopped time).
 	billableNodes := make(map[string][]NodeSnapshot)
 	for nodeID, snaps := range nodeSnapshots {
-		activeHours := 0
-		for _, s := range snaps {
-			if s.NodeStatus == NodeStatusActive || s.NodeStatus == NodeStatusStopped {
-				activeHours++
-			}
-		}
-		if activeHours >= g.minActiveHours {
+		activeDuration := activeDurationForSnapshots(snaps, g.collectionInterval)
+		if activeDuration >= g.minActiveDuration {
 			billableNodes[nodeID] = snaps
 		}
 	}
@@ -133,7 +146,7 @@ func (g *ReportGenerator) Generate(ctx context.Context, periodStart, periodEnd t
 	// Step 3: Compute per-node details.
 	var nodeDetails []NodeDetail
 	for nodeID, snaps := range billableNodes {
-		detail := computeNodeDetail(nodeID, snaps)
+		detail := computeNodeDetail(nodeID, snaps, g.collectionInterval)
 		nodeDetails = append(nodeDetails, detail)
 	}
 
@@ -147,20 +160,32 @@ func (g *ReportGenerator) Generate(ctx context.Context, periodStart, periodEnd t
 
 	// Step 5: Compute grand totals.
 	summary := computeSummary(nodeDetails)
+	billingTableRows := computeBillingTableRows(snapshots, billableNodes, byTypeVendor, summary)
 
 	return &ReportData{
-		ReportVersion:   version,
-		PeriodStart:     periodStart.Format(time.RFC3339),
-		PeriodEnd:       periodEnd.Format(time.RFC3339),
-		GeneratedAt:     now.Format(time.RFC3339),
-		Summary:         summary,
-		ByTypeAndVendor: byTypeVendor,
-		NodeDetails:     nodeDetails,
+		ReportVersion:    version,
+		PeriodStart:      periodStart.Format(time.RFC3339),
+		PeriodEnd:        periodEnd.Format(time.RFC3339),
+		GeneratedAt:      now.Format(time.RFC3339),
+		Summary:          summary,
+		ByTypeAndVendor:  byTypeVendor,
+		BillingTableRows: billingTableRows,
+		NodeDetails:      nodeDetails,
 	}, nil
 }
 
+func activeDurationForSnapshots(snaps []NodeSnapshot, interval time.Duration) time.Duration {
+	var activeDuration time.Duration
+	for _, s := range snaps {
+		if s.NodeStatus == NodeStatusActive || s.NodeStatus == NodeStatusStopped {
+			activeDuration += interval
+		}
+	}
+	return activeDuration
+}
+
 // computeNodeDetail computes billing details for a single node.
-func computeNodeDetail(nodeID string, snaps []NodeSnapshot) NodeDetail {
+func computeNodeDetail(nodeID string, snaps []NodeSnapshot, collectionInterval time.Duration) NodeDetail {
 	// Sort by captured_at for resource change detection.
 	sort.Slice(snaps, func(i, j int) bool {
 		return snaps[i].CapturedAt.Before(snaps[j].CapturedAt)
@@ -179,7 +204,8 @@ func computeNodeDetail(nodeID string, snaps []NodeSnapshot) NodeDetail {
 		ref = snaps[0]
 	}
 
-	activeHours := 0
+	activeDuration := activeDurationForSnapshots(snaps, collectionInterval)
+	activeHours := int(activeDuration / time.Hour)
 	var maxVCPU, maxRAM, maxVol int
 	var maxVCPUAt, maxRAMAt, maxVolAt string
 	var changes []ResourceChange
@@ -187,10 +213,6 @@ func computeNodeDetail(nodeID string, snaps []NodeSnapshot) NodeDetail {
 	var prevVCPU, prevRAM, prevVol *int
 
 	for _, s := range snaps {
-		if s.NodeStatus == NodeStatusActive || s.NodeStatus == NodeStatusStopped {
-			activeHours++
-		}
-
 		ts := s.CapturedAt.Format(time.RFC3339)
 
 		// Track high-water marks.
@@ -368,4 +390,95 @@ func computeSummary(details []NodeDetail) ReportSummary {
 		s.GrandTotalMaxVolumeGB += d.MaxVolumeGB
 	}
 	return s
+}
+
+func computeBillingTableRows(allSnapshots []NodeSnapshot, billableNodes map[string][]NodeSnapshot, byTypeVendor []TypeVendorSummary, summary ReportSummary) []BillingTableRow {
+	rows := make([]BillingTableRow, 0, len(byTypeVendor)+1)
+	totalsByType := make(map[string]BillingTableRow)
+	maxConcurrentByType := make(map[string]int)
+	maxConcurrentAll := 0
+
+	billableSet := make(map[string]bool, len(billableNodes))
+	for nodeID := range billableNodes {
+		billableSet[nodeID] = true
+	}
+
+	typeConcurrency := make(map[string]map[time.Time]int)
+	allConcurrency := make(map[time.Time]int)
+	for _, snapshot := range allSnapshots {
+		if !billableSet[snapshot.NodeID] || snapshot.NodeStatus != NodeStatusActive {
+			continue
+		}
+		if _, ok := typeConcurrency[snapshot.ClusterType]; !ok {
+			typeConcurrency[snapshot.ClusterType] = make(map[time.Time]int)
+		}
+		typeConcurrency[snapshot.ClusterType][snapshot.CapturedAt]++
+		allConcurrency[snapshot.CapturedAt]++
+	}
+
+	for clusterType, counts := range typeConcurrency {
+		for _, count := range counts {
+			if count > maxConcurrentByType[clusterType] {
+				maxConcurrentByType[clusterType] = count
+			}
+		}
+	}
+	for _, count := range allConcurrency {
+		if count > maxConcurrentAll {
+			maxConcurrentAll = count
+		}
+	}
+
+	for _, item := range byTypeVendor {
+		rows = append(rows, BillingTableRow{
+			RowType:            "vendor",
+			DeploymentType:     item.ClusterType,
+			Vendor:             item.DBVendor,
+			MaxConcurrentNodes: item.MaxConcurrentNodes,
+			MaxVCPU:            item.MaxVCPU,
+			MaxRAMGB:           item.MaxRAMGB,
+			MaxVolumeGB:        item.MaxVolumeGB,
+		})
+
+		total := totalsByType[item.ClusterType]
+		total.RowType = "type_total"
+		total.DeploymentType = item.ClusterType
+		total.Vendor = "Total"
+		total.MaxVCPU += item.MaxVCPU
+		total.MaxRAMGB += item.MaxRAMGB
+		total.MaxVolumeGB += item.MaxVolumeGB
+		totalsByType[item.ClusterType] = total
+	}
+
+	if len(totalsByType) > 0 {
+		typeNames := make([]string, 0, len(totalsByType))
+		for clusterType := range totalsByType {
+			typeNames = append(typeNames, clusterType)
+		}
+		sort.Strings(typeNames)
+
+		withTotals := make([]BillingTableRow, 0, len(rows)+len(typeNames)+1)
+		for _, clusterType := range typeNames {
+			for _, row := range rows {
+				if row.DeploymentType == clusterType {
+					withTotals = append(withTotals, row)
+				}
+			}
+			total := totalsByType[clusterType]
+			total.MaxConcurrentNodes = maxConcurrentByType[clusterType]
+			withTotals = append(withTotals, total)
+		}
+		rows = withTotals
+	}
+
+	rows = append(rows, BillingTableRow{
+		RowType:            "grand_total",
+		Vendor:             "Grand Total",
+		MaxConcurrentNodes: maxConcurrentAll,
+		MaxVCPU:            summary.GrandTotalMaxVCPU,
+		MaxRAMGB:           summary.GrandTotalMaxRAMGB,
+		MaxVolumeGB:        summary.GrandTotalMaxVolumeGB,
+	})
+
+	return rows
 }

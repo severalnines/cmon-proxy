@@ -22,6 +22,7 @@ type StorageBackend interface {
 	InsertSnapshots(ctx context.Context, snapshots []NodeSnapshot) error
 	QuerySnapshots(ctx context.Context, filter SnapshotFilter) ([]NodeSnapshot, error)
 	CountSnapshots(ctx context.Context) (int64, error)
+	ListActiveNodeIDs(ctx context.Context) ([]string, error)
 	OldestSnapshotTime(ctx context.Context) (*time.Time, error)
 	DeleteSnapshotsBefore(ctx context.Context, before time.Time) (int64, error)
 
@@ -56,9 +57,15 @@ type SnapshotFilter struct {
 
 // Config keys stored in metering_config.
 const (
-	ConfigBillingPeriodMonths  = "billing_period_months"
-	ConfigMinActiveHours       = "min_active_hours"
-	ConfigSigningKeyID         = "signing_key_id"
-	ConfigRetentionMonths      = "retention_months"
+	DefaultRetentionMonths = 12
+
+	ConfigBillingPeriodMonths      = "billing_period_months"
+	ConfigMinActiveHours           = "min_active_hours"
+	ConfigSigningKeyID             = "signing_key_id"
+	ConfigRetentionMonths          = "retention_months"
 	ConfigLastSuccessfulCollection = "last_successful_collection"
+	ConfigLastCollectionError      = "last_collection_error"
+	ConfigLastRetentionCleanup     = "last_retention_cleanup"
+	ConfigLastCleanupDeletedRows   = "last_cleanup_deleted_rows"
+	ConfigLastCleanupError         = "last_cleanup_error"
 )

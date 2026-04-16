@@ -37,7 +37,7 @@ func seedSnapshots(t *testing.T, backend *SQLiteBackend, start time.Time, hours 
 
 func TestReportGenerator_EmptyPeriod(t *testing.T) {
 	backend := newReportTestBackend(t)
-	gen := NewReportGenerator(backend, 24)
+	gen := NewReportGenerator(backend, 24, time.Hour)
 
 	ctx := context.Background()
 	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -53,7 +53,7 @@ func TestReportGenerator_EmptyPeriod(t *testing.T) {
 
 func TestReportGenerator_BillableThreshold(t *testing.T) {
 	backend := newReportTestBackend(t)
-	gen := NewReportGenerator(backend, 24)
+	gen := NewReportGenerator(backend, 24, time.Hour)
 	ctx := context.Background()
 
 	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -88,7 +88,7 @@ func TestReportGenerator_BillableThreshold(t *testing.T) {
 
 func TestReportGenerator_StoppedNodesCounted(t *testing.T) {
 	backend := newReportTestBackend(t)
-	gen := NewReportGenerator(backend, 24)
+	gen := NewReportGenerator(backend, 24, time.Hour)
 	ctx := context.Background()
 
 	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -119,7 +119,7 @@ func TestReportGenerator_StoppedNodesCounted(t *testing.T) {
 
 func TestReportGenerator_HighWaterMarks(t *testing.T) {
 	backend := newReportTestBackend(t)
-	gen := NewReportGenerator(backend, 1) // low threshold for testing
+	gen := NewReportGenerator(backend, 1, time.Hour) // low threshold for testing
 	ctx := context.Background()
 
 	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -168,7 +168,7 @@ func TestReportGenerator_HighWaterMarks(t *testing.T) {
 
 func TestReportGenerator_MaxConcurrentNodes(t *testing.T) {
 	backend := newReportTestBackend(t)
-	gen := NewReportGenerator(backend, 1) // low threshold
+	gen := NewReportGenerator(backend, 1, time.Hour) // low threshold
 	ctx := context.Background()
 
 	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -215,7 +215,7 @@ func TestReportGenerator_MaxConcurrentNodes(t *testing.T) {
 
 func TestReportGenerator_MultipleTypeVendor(t *testing.T) {
 	backend := newReportTestBackend(t)
-	gen := NewReportGenerator(backend, 1) // low threshold
+	gen := NewReportGenerator(backend, 1, time.Hour) // low threshold
 	ctx := context.Background()
 
 	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -255,7 +255,7 @@ func TestReportGenerator_MultipleTypeVendor(t *testing.T) {
 
 func TestReportGenerator_RemovedNodesExcluded(t *testing.T) {
 	backend := newReportTestBackend(t)
-	gen := NewReportGenerator(backend, 24)
+	gen := NewReportGenerator(backend, 24, time.Hour)
 	ctx := context.Background()
 
 	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -286,7 +286,7 @@ func TestReportGenerator_RemovedNodesExcluded(t *testing.T) {
 
 func TestReportGenerator_Exactly24Hours(t *testing.T) {
 	backend := newReportTestBackend(t)
-	gen := NewReportGenerator(backend, 24)
+	gen := NewReportGenerator(backend, 24, time.Hour)
 	ctx := context.Background()
 
 	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -310,7 +310,7 @@ func TestReportGenerator_Exactly24Hours(t *testing.T) {
 
 func TestReportGenerator_SummaryTotals(t *testing.T) {
 	backend := newReportTestBackend(t)
-	gen := NewReportGenerator(backend, 1) // low threshold
+	gen := NewReportGenerator(backend, 1, time.Hour) // low threshold
 	ctx := context.Background()
 
 	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -335,7 +335,143 @@ func TestReportGenerator_SummaryTotals(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, report.Summary.TotalBillableNodes)
-	assert.Equal(t, 12, report.Summary.GrandTotalMaxVCPU)       // 8 + 4
-	assert.Equal(t, 24, report.Summary.GrandTotalMaxRAMGB)       // 16384/1024 + 8192/1024 = 16 + 8
-	assert.Equal(t, 300, report.Summary.GrandTotalMaxVolumeGB)   // 200 + 100
+	assert.Equal(t, 12, report.Summary.GrandTotalMaxVCPU)      // 8 + 4
+	assert.Equal(t, 24, report.Summary.GrandTotalMaxRAMGB)     // 16384/1024 + 8192/1024 = 16 + 8
+	assert.Equal(t, 300, report.Summary.GrandTotalMaxVolumeGB) // 200 + 100
+}
+
+func TestReportGenerator_BillableThreshold_HalfHourInterval(t *testing.T) {
+	backend := newReportTestBackend(t)
+	gen := NewReportGenerator(backend, 24, 30*time.Minute)
+	ctx := context.Background()
+
+	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 30, 23, 59, 59, 0, time.UTC)
+
+	nodeA := NodeSnapshot{
+		ControllerID: "ctrl-1", ClusterID: 1, ClusterName: "prod", ClusterType: "galera",
+		DBVendor: "percona", NodeID: "ctrl-1:10.0.1.1", Hostname: "db1", Port: 3306,
+		NodeRole: NodeRoleDatabase, NodeStatus: NodeStatusActive,
+	}
+	nodeB := NodeSnapshot{
+		ControllerID: "ctrl-1", ClusterID: 1, ClusterName: "prod", ClusterType: "galera",
+		DBVendor: "percona", NodeID: "ctrl-1:10.0.1.2", Hostname: "db2", Port: 3306,
+		NodeRole: NodeRoleDatabase, NodeStatus: NodeStatusActive,
+	}
+
+	for i := 0; i < 48; i++ {
+		ts := start.Add(time.Duration(i) * 30 * time.Minute)
+		require.NoError(t, backend.InsertSnapshots(ctx, []NodeSnapshot{{CapturedAt: ts, ControllerID: nodeA.ControllerID, ClusterID: nodeA.ClusterID, ClusterName: nodeA.ClusterName, ClusterType: nodeA.ClusterType, DBVendor: nodeA.DBVendor, NodeID: nodeA.NodeID, Hostname: nodeA.Hostname, Port: nodeA.Port, NodeRole: nodeA.NodeRole, NodeStatus: nodeA.NodeStatus}}))
+	}
+	for i := 0; i < 24; i++ {
+		ts := start.Add(time.Duration(i) * 30 * time.Minute)
+		require.NoError(t, backend.InsertSnapshots(ctx, []NodeSnapshot{{CapturedAt: ts, ControllerID: nodeB.ControllerID, ClusterID: nodeB.ClusterID, ClusterName: nodeB.ClusterName, ClusterType: nodeB.ClusterType, DBVendor: nodeB.DBVendor, NodeID: nodeB.NodeID, Hostname: nodeB.Hostname, Port: nodeB.Port, NodeRole: nodeB.NodeRole, NodeStatus: nodeB.NodeStatus}}))
+	}
+
+	report, err := gen.Generate(ctx, start, end, 1)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, report.Summary.TotalBillableNodes)
+	require.Len(t, report.NodeDetails, 1)
+	assert.Equal(t, 24, report.NodeDetails[0].ActiveHours)
+}
+
+func TestReportGenerator_BillableThreshold_TwoHourInterval(t *testing.T) {
+	backend := newReportTestBackend(t)
+	gen := NewReportGenerator(backend, 24, 2*time.Hour)
+	ctx := context.Background()
+
+	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 30, 23, 59, 59, 0, time.UTC)
+
+	nodeA := NodeSnapshot{
+		ControllerID: "ctrl-1", ClusterID: 1, ClusterName: "prod", ClusterType: "galera",
+		DBVendor: "percona", NodeID: "ctrl-1:10.0.1.1", Hostname: "db1", Port: 3306,
+		NodeRole: NodeRoleDatabase, NodeStatus: NodeStatusActive,
+	}
+	nodeB := NodeSnapshot{
+		ControllerID: "ctrl-1", ClusterID: 1, ClusterName: "prod", ClusterType: "galera",
+		DBVendor: "percona", NodeID: "ctrl-1:10.0.1.2", Hostname: "db2", Port: 3306,
+		NodeRole: NodeRoleDatabase, NodeStatus: NodeStatusActive,
+	}
+
+	for i := 0; i < 12; i++ {
+		ts := start.Add(time.Duration(i) * 2 * time.Hour)
+		require.NoError(t, backend.InsertSnapshots(ctx, []NodeSnapshot{{CapturedAt: ts, ControllerID: nodeA.ControllerID, ClusterID: nodeA.ClusterID, ClusterName: nodeA.ClusterName, ClusterType: nodeA.ClusterType, DBVendor: nodeA.DBVendor, NodeID: nodeA.NodeID, Hostname: nodeA.Hostname, Port: nodeA.Port, NodeRole: nodeA.NodeRole, NodeStatus: nodeA.NodeStatus}}))
+	}
+	for i := 0; i < 11; i++ {
+		ts := start.Add(time.Duration(i) * 2 * time.Hour)
+		require.NoError(t, backend.InsertSnapshots(ctx, []NodeSnapshot{{CapturedAt: ts, ControllerID: nodeB.ControllerID, ClusterID: nodeB.ClusterID, ClusterName: nodeB.ClusterName, ClusterType: nodeB.ClusterType, DBVendor: nodeB.DBVendor, NodeID: nodeB.NodeID, Hostname: nodeB.Hostname, Port: nodeB.Port, NodeRole: nodeB.NodeRole, NodeStatus: nodeB.NodeStatus}}))
+	}
+
+	report, err := gen.Generate(ctx, start, end, 1)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, report.Summary.TotalBillableNodes)
+	require.Len(t, report.NodeDetails, 1)
+	assert.Equal(t, 24, report.NodeDetails[0].ActiveHours)
+}
+
+func TestReportGenerator_BillingTableRows(t *testing.T) {
+	backend := newReportTestBackend(t)
+	gen := NewReportGenerator(backend, 1, time.Hour)
+	ctx := context.Background()
+
+	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 30, 23, 59, 59, 0, time.UTC)
+
+	perconaNode := NodeSnapshot{
+		ControllerID: "ctrl-1", ClusterID: 1, ClusterName: "prod-galera", ClusterType: "galera",
+		DBVendor: "percona", NodeID: "ctrl-1:10.0.1.1", Hostname: "db1", Port: 3306,
+		NodeRole: NodeRoleDatabase, NodeStatus: NodeStatusActive,
+		VCPU: intPtr(8), RAMMB: intPtr(16384), VolumeGB: intPtr(200),
+	}
+	mariadbNode := NodeSnapshot{
+		ControllerID: "ctrl-1", ClusterID: 2, ClusterName: "prod-galera-2", ClusterType: "galera",
+		DBVendor: "mariadb", NodeID: "ctrl-1:10.0.1.2", Hostname: "db2", Port: 3306,
+		NodeRole: NodeRoleDatabase, NodeStatus: NodeStatusActive,
+		VCPU: intPtr(4), RAMMB: intPtr(8192), VolumeGB: intPtr(100),
+	}
+
+	seedSnapshots(t, backend, start, 24, []NodeSnapshot{perconaNode, mariadbNode})
+
+	report, err := gen.Generate(ctx, start, end, 1)
+	require.NoError(t, err)
+
+	require.Len(t, report.BillingTableRows, 4)
+	assert.Equal(t, BillingTableRow{
+		RowType:            "vendor",
+		DeploymentType:     "galera",
+		Vendor:             "mariadb",
+		MaxConcurrentNodes: 1,
+		MaxVCPU:            4,
+		MaxRAMGB:           8,
+		MaxVolumeGB:        100,
+	}, report.BillingTableRows[0])
+	assert.Equal(t, BillingTableRow{
+		RowType:            "vendor",
+		DeploymentType:     "galera",
+		Vendor:             "percona",
+		MaxConcurrentNodes: 1,
+		MaxVCPU:            8,
+		MaxRAMGB:           16,
+		MaxVolumeGB:        200,
+	}, report.BillingTableRows[1])
+	assert.Equal(t, BillingTableRow{
+		RowType:            "type_total",
+		DeploymentType:     "galera",
+		Vendor:             "Total",
+		MaxConcurrentNodes: 2,
+		MaxVCPU:            12,
+		MaxRAMGB:           24,
+		MaxVolumeGB:        300,
+	}, report.BillingTableRows[2])
+	assert.Equal(t, BillingTableRow{
+		RowType:            "grand_total",
+		Vendor:             "Grand Total",
+		MaxConcurrentNodes: 2,
+		MaxVCPU:            12,
+		MaxRAMGB:           24,
+		MaxVolumeGB:        300,
+	}, report.BillingTableRows[3])
 }
