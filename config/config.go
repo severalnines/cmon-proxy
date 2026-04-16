@@ -149,11 +149,11 @@ type Config struct {
 	AcmeHostPolicyStrict bool   `yaml:"acme_host_policy_strict" json:"acme_host_policy_strict"`
 
 	// Metering settings
-	MeteringEnabled    bool   `yaml:"metering_enabled" json:"metering_enabled"`
-	MeteringDBPath     string `yaml:"metering_db_path,omitempty" json:"metering_db_path,omitempty"`
-	MeteringInterval   string `yaml:"metering_interval,omitempty" json:"metering_interval,omitempty"` // Go duration, default "1h"
-	MeteringSigningKey string `yaml:"metering_signing_key,omitempty" json:"-"`                        // HMAC signing key for report sealing
-	MeteringKeyID      string `yaml:"metering_key_id,omitempty" json:"metering_key_id,omitempty"`     // Signing key identifier
+	MeteringEnabled     bool   `yaml:"metering_enabled" json:"metering_enabled"`
+	MeteringDBPath      string `yaml:"metering_db_path,omitempty" json:"metering_db_path,omitempty"`
+	MeteringIntervalMin int    `yaml:"metering_interval_min,omitempty" json:"metering_interval_min,omitempty"` // collection interval in minutes, default 60
+	MeteringSigningKey  string `yaml:"metering_signing_key,omitempty" json:"-"`                                // HMAC signing key for report sealing
+	MeteringKeyID       string `yaml:"metering_key_id,omitempty" json:"metering_key_id,omitempty"`             // Signing key identifier
 
 	mtx sync.RWMutex
 }
@@ -453,6 +453,23 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 
 	if config.LicenseProxyURL == "" {
 		config.LicenseProxyURL = defaults.LicenseProxyURL
+	}
+
+	// Metering env vars (from /etc/default/cmon-proxy.env)
+	if v := os.Getenv("METERING_ENABLED"); v != "" {
+		config.MeteringEnabled = v == "true" || v == "1" || v == "yes"
+	}
+	if v := os.Getenv("METERING_DB_PATH"); v != "" {
+		config.MeteringDBPath = v
+	}
+	if v, _ := strconv.Atoi(os.Getenv("METERING_INTERVAL_MIN")); v > 0 {
+		config.MeteringIntervalMin = v
+	}
+	if v := os.Getenv("METERING_SIGNING_KEY"); v != "" {
+		config.MeteringSigningKey = v
+	}
+	if v := os.Getenv("METERING_KEY_ID"); v != "" {
+		config.MeteringKeyID = v
 	}
 
 	// we don't want nulls

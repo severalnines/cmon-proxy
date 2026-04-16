@@ -54,6 +54,7 @@ install(
 
 
 install(FILES ${CMAKE_SOURCE_DIR}/etc/systemd/system/cmon-proxy.service DESTINATION /etc/systemd/system)
+install(FILES ${CMAKE_SOURCE_DIR}/etc/default/cmon-proxy.env DESTINATION /etc/default)
 
 
 set (CPACK_PACKAGE_NAME "clustercontrol-proxy")
@@ -88,6 +89,8 @@ set (CPACK_RPM_SPEC_MORE_DEFINE
     "%define ignore \#\n")
 
 set (CPACK_RPM_COMPONENT_INSTALL OFF)
+set (CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/etc/default")
+list (APPEND CPACK_RPM_USER_FILELIST "%config(noreplace) /etc/default/cmon-proxy.env")
 set (CPACK_RPM_PRE_INSTALL_SCRIPT_FILE "${CMAKE_SOURCE_DIR}/scripts/preinst")
 set (CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${CMAKE_SOURCE_DIR}/scripts/postinst")
 # DEB

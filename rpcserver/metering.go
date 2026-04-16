@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	defaultMeteringInterval    = time.Hour
+	defaultMeteringIntervalMin = 60 // minutes
 	defaultMinActiveHours      = 24
 )
 
@@ -48,16 +48,12 @@ func initMetering(cfg *config.Config) {
 		dbPath = filepath.Join(basedir, "metering.db")
 	}
 
-	// Parse interval.
-	meteringInterval = defaultMeteringInterval
-	if cfg.MeteringInterval != "" {
-		d, err := time.ParseDuration(cfg.MeteringInterval)
-		if err != nil {
-			log.Warnf("[metering] invalid metering_interval %q, using default %s: %v", cfg.MeteringInterval, defaultMeteringInterval, err)
-		} else {
-			meteringInterval = d
-		}
+	// Parse interval (minutes).
+	intervalMin := cfg.MeteringIntervalMin
+	if intervalMin <= 0 {
+		intervalMin = defaultMeteringIntervalMin
 	}
+	meteringInterval = time.Duration(intervalMin) * time.Minute
 
 	// Signing key.
 	if cfg.MeteringSigningKey != "" {
