@@ -33,7 +33,12 @@ func initOtelEmitter(cfg *config.Config) {
 		instanceID = "cmon-proxy"
 	}
 
-	provider := cmonotel.NewRouterAdapter(proxy.DefaultRouter())
+	// Ensure the Router is synced and authenticated before the emitter starts.
+	// Without this, the Router's cmons map is empty (Sync is lazy).
+	defaultRouter := proxy.DefaultRouter()
+	defaultRouter.Authenticate()
+
+	provider := cmonotel.NewRouterAdapter(defaultRouter)
 	otelEmitter = cmonotel.NewEmitter(provider, endpoint, interval, instanceID)
 	otelEmitter.Start()
 
