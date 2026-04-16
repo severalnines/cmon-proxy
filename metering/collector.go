@@ -32,6 +32,14 @@ type ControllerClusters struct {
 	ControllerID string
 	Clusters     []*api.Cluster
 	Err          error
+	// HostStats maps hostid → hardware stats gathered from the stat API.
+	HostStats map[uint64]*HostHardwareStats
+}
+
+// HostHardwareStats holds hardware specs for a single host, collected from stat APIs.
+type HostHardwareStats struct {
+	RAMMB    *int // total RAM in MB (from memorystat ramtotal)
+	VolumeGB *int // total data volume in GB (from diskstat total, for datadir mount)
 }
 
 // Collector periodically captures node state snapshots from all controllers.
@@ -202,6 +210,14 @@ func (c *Collector) collect(ctx context.Context) {
 					NodeRole:     NodeRoleFromClassName(className),
 					NodeStatus:   status,
 					Tags:         cluster.Tags,
+				}
+
+				// Attach hardware stats if available.
+				if data.HostStats != nil {
+					if hw, ok := data.HostStats[host.HostID]; ok && hw != nil {
+						snap.RAMMB = hw.RAMMB
+						snap.VolumeGB = hw.VolumeGB
+					}
 				}
 
 				snapshots = append(snapshots, snap)

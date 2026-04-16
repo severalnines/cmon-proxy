@@ -9,6 +9,7 @@ package metering_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/severalnines/cmon-proxy/metering"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func skipIfNoCmon(t *testing.T) {
@@ -58,6 +60,8 @@ type liveProvider struct {
 }
 
 func (p *liveProvider) FetchAllClusters() map[string]*metering.ControllerClusters {
+	log := zap.L().Sugar()
+
 	resp, err := p.client.GetAllClusterInfo(&api.GetAllClusterInfoRequest{
 		WithOperation: &api.WithOperation{Operation: "getAllClusterInfo"},
 		WithHosts:     true,
@@ -76,6 +80,82 @@ func (p *liveProvider) FetchAllClusters() map[string]*metering.ControllerCluster
 	}
 
 	result[p.url].Clusters = resp.Clusters
+
+	// Fetch hardware stats via stat API.
+	hostStats := make(map[uint64]*metering.HostHardwareStats)
+	now := time.Now().UTC()
+	startTime := now.Add(-10 * time.Minute)
+
+	clusterIDs := make(map[uint64]bool)
+	for _, c := range resp.Clusters {
+		clusterIDs[c.ClusterID] = true
+	}
+
+	for cid := range clusterIDs {
+		// Memory stats.
+		memResp, err := p.client.GetStatByName(&api.GetStatByNameRequest{
+			WithOperation: &api.WithOperation{Operation: "statByName"},
+			WithClusterID: &api.WithClusterID{ClusterID: cid},
+			Name:          api.StatTypeMemoryStat,
+			WithHosts:     true,
+			StartDateTime: api.StatTS(startTime),
+			EndDateTime:   api.StatTS(now),
+		})
+		if err != nil {
+			log.Debugf("memorystat error for cluster %d: %v", cid, err)
+		} else {
+			var entries []struct {
+				HostID   uint64 `json:"hostid"`
+				RAMTotal int64  `json:"ramtotal"`
+			}
+			json.Unmarshal(memResp.Data, &entries)
+			for _, e := range entries {
+				if e.RAMTotal > 0 {
+					ramMB := int(e.RAMTotal / (1024 * 1024))
+					if hw, ok := hostStats[e.HostID]; ok {
+						hw.RAMMB = &ramMB
+					} else {
+						hostStats[e.HostID] = &metering.HostHardwareStats{RAMMB: &ramMB}
+					}
+				}
+			}
+		}
+
+		// Disk stats.
+		diskResp, err := p.client.GetStatByName(&api.GetStatByNameRequest{
+			WithOperation: &api.WithOperation{Operation: "statByName"},
+			WithClusterID: &api.WithClusterID{ClusterID: cid},
+			Name:          api.StatTypeDiskStat,
+			WithHosts:     true,
+			StartDateTime: api.StatTS(startTime),
+			EndDateTime:   api.StatTS(now),
+		})
+		if err != nil {
+			log.Debugf("diskstat error for cluster %d: %v", cid, err)
+		} else {
+			var entries []struct {
+				HostID uint64 `json:"hostid"`
+				Total  int64  `json:"total"`
+			}
+			json.Unmarshal(diskResp.Data, &entries)
+			maxDisk := make(map[uint64]int64)
+			for _, e := range entries {
+				if e.Total > maxDisk[e.HostID] {
+					maxDisk[e.HostID] = e.Total
+				}
+			}
+			for hostID, total := range maxDisk {
+				volGB := int(total / (1024 * 1024 * 1024))
+				if hw, ok := hostStats[hostID]; ok {
+					hw.VolumeGB = &volGB
+				} else {
+					hostStats[hostID] = &metering.HostHardwareStats{VolumeGB: &volGB}
+				}
+			}
+		}
+	}
+
+	result[p.url].HostStats = hostStats
 	return result
 }
 
@@ -184,9 +264,13 @@ func TestIntegration_CollectSnapshots(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, s := range snapshots {
-		t.Logf("  Snapshot: node=%s cluster=%s(%d) type=%s vendor=%s role=%s status=%s vcpu=%v ram=%v vol=%v tags=%v",
+		vcpu, ram, vol := "nil", "nil", "nil"
+		if s.VCPU != nil { vcpu = fmt.Sprintf("%d", *s.VCPU) }
+		if s.RAMMB != nil { ram = fmt.Sprintf("%dMB", *s.RAMMB) }
+		if s.VolumeGB != nil { vol = fmt.Sprintf("%dGB", *s.VolumeGB) }
+		t.Logf("  Snapshot: node=%s cluster=%s(%d) type=%s vendor=%s role=%s status=%s vcpu=%s ram=%s vol=%s tags=%v",
 			s.NodeID, s.ClusterName, s.ClusterID, s.ClusterType, s.DBVendor,
-			s.NodeRole, s.NodeStatus, s.VCPU, s.RAMMB, s.VolumeGB, s.Tags)
+			s.NodeRole, s.NodeStatus, vcpu, ram, vol, s.Tags)
 
 		assert.NotEmpty(t, s.NodeID)
 		assert.NotEmpty(t, s.ControllerID)
@@ -219,14 +303,16 @@ func TestIntegration_FullPipeline(t *testing.T) {
 
 	// Collect snapshots (simulate multiple hourly ticks by collecting several times
 	// with different timestamps — we re-use the same data but the collector records it).
+	// Using 5 collections: each includes stat API calls per cluster, so keeping this
+	// low avoids test timeouts against the live controller.
 	collector := metering.NewCollector(backend, provider, time.Hour)
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 5; i++ {
 		collector.CollectOnce(ctx)
 	}
 
 	count, err := backend.CountSnapshots(ctx)
 	require.NoError(t, err)
-	t.Logf("Total snapshots after 30 collections: %d", count)
+	t.Logf("Total snapshots after 5 collections: %d", count)
 
 	// Generate report for a wide period that includes all snapshots.
 	now := time.Now().UTC()
