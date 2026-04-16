@@ -62,17 +62,34 @@ func (e *Emitter) Stop() {
 func (e *Emitter) run() {
 	defer close(e.done)
 
-	// Wait for the Router to authenticate with controllers before first emission.
-	// The Router authenticates asynchronously on startup; 30 seconds is enough
-	// for the initial auth + GetAllClusterInfo cache to populate.
-	e.logger.Info("[otel-metering] waiting 30s for controller authentication...")
-	select {
-	case <-e.stopCh:
-		return
-	case <-time.After(30 * time.Second):
-	}
+	// The Router authenticates asynchronously on startup. Retry the first
+	// emission with backoff until we get data from at least one controller.
+	e.logger.Info("[otel-metering] waiting for controllers to become available...")
+	for attempt := 1; attempt <= 10; attempt++ {
+		delay := time.Duration(attempt*5) * time.Second // 5s, 10s, 15s, ...
+		select {
+		case <-e.stopCh:
+			return
+		case <-time.After(delay):
+		}
 
-	e.emit()
+		controllerData := e.provider.FetchAllClusters()
+		hasData := false
+		for _, d := range controllerData {
+			if d.Err == nil && len(d.Clusters) > 0 {
+				hasData = true
+				break
+			}
+		}
+
+		if hasData {
+			e.logger.Infof("[otel-metering] controllers ready after %ds", attempt*5)
+			e.emitFromData(controllerData)
+			break
+		}
+
+		e.logger.Infof("[otel-metering] no data yet (attempt %d/10), retrying in %s...", attempt, delay)
+	}
 
 	// Align to interval boundary.
 	now := time.Now()
@@ -105,6 +122,10 @@ func (e *Emitter) emit() {
 	e.logger.Info("[otel-metering] collecting data...")
 
 	controllerData := e.provider.FetchAllClusters()
+	e.emitFromData(controllerData)
+}
+
+func (e *Emitter) emitFromData(controllerData map[string]*ControllerClusters) {
 	if len(controllerData) == 0 {
 		e.logger.Warn("[otel-metering] no controllers returned data")
 		return

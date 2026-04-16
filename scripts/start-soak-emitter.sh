@@ -38,8 +38,8 @@ if [ -z "$CMON_ENDPOINT" ] || [ -z "$CMON_USERNAME" ] || [ -z "$CMON_PASSWORD" ]
     exit 1
 fi
 
-INTERVAL="${1:-10m}"
-ENDPOINT="${2:-localhost:4317}"
+INTERVAL="${1:-${INTERVAL:-10m}}"
+ENDPOINT="${2:-${ENDPOINT:-localhost:4317}}"
 
 # Generate a temporary ccmgr.yaml for the soak test.
 # cmon-proxy loads {basedir}/ccmgr.yaml, so we write to /tmp/ccmgr-soak/ccmgr.yaml
