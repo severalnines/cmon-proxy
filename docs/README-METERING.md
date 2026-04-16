@@ -4,14 +4,27 @@ Usage metering tracks database node usage across ClusterControl for billing. It 
 
 ## Quick Start
 
-### 1. Enable metering
+### 1. Generate a signing key
+
+The signing key is used to cryptographically seal billing reports so tampering is detectable. Generate a strong random key:
+
+```bash
+# Generate a 256-bit random key (hex-encoded)
+openssl rand -hex 32
+```
+
+This outputs a 64-character hex string, e.g. `a3f1b9c7e2d4...`. Use this as your `METERING_SIGNING_KEY`.
+
+Choose a key ID that identifies this key for rotation purposes (e.g., `key-2026-Q2` or `key-prod-01`).
+
+### 2. Enable metering
 
 Edit `/etc/default/cmon-proxy.env`:
 
 ```bash
 METERING_ENABLED=true
-METERING_SIGNING_KEY=your-secret-signing-key
-METERING_KEY_ID=key-2026-01
+METERING_SIGNING_KEY=a3f1b9c7e2d4...your-generated-key...
+METERING_KEY_ID=key-2026-Q2
 ```
 
 Restart the service:
@@ -19,6 +32,8 @@ Restart the service:
 ```bash
 systemctl restart cmon-proxy
 ```
+
+> **Note:** The env file is installed with `640` permissions (`root:severalnines`) to protect the signing key. Do not relax these permissions.
 
 ### 2. Verify it's running
 
@@ -333,6 +348,53 @@ go test -v -run TestIntegration ./metering/... -timeout 300s
 ```
 
 Tests are automatically skipped if `CMON_ENDPOINT` is not set.
+
+## Key Rotation
+
+When rotating the signing key, keep the old key in `metering_verification_keys` so existing sealed reports can still be verified.
+
+### Step 1: Generate a new key
+
+```bash
+openssl rand -hex 32
+```
+
+### Step 2: Update the configuration
+
+In `/etc/default/cmon-proxy.env`:
+
+```bash
+# New signing key
+METERING_SIGNING_KEY=<new-key-hex>
+METERING_KEY_ID=key-2026-Q3
+
+# Keep old keys for verifying historical reports (JSON object)
+METERING_VERIFICATION_KEYS={"key-2026-Q2":"<old-key-hex>","key-2026-Q3":"<new-key-hex>"}
+```
+
+Or in `ccmgr.yaml`:
+
+```yaml
+metering_signing_key: "<new-key-hex>"
+metering_key_id: "key-2026-Q3"
+metering_verification_keys:
+  key-2026-Q2: "<old-key-hex>"
+  key-2026-Q3: "<new-key-hex>"
+```
+
+### Step 3: Restart and verify
+
+```bash
+systemctl restart cmon-proxy
+
+# Verify an old report still passes (uses the old key from verification_keys)
+curl -sk -X POST https://localhost:19051/proxy/metering/reports \
+  -H 'Content-Type: application/json' \
+  -H 'Cookie: <session_cookie>' \
+  -d '{"operation": "verifyReport", "report_id": 1}'
+```
+
+The response should show `"signature_valid": true` and `"verification_key_found": true`.
 
 ## Troubleshooting
 
