@@ -41,11 +41,19 @@ func NewRouterAdapter(r *router.Router) *RouterAdapter {
 // FetchAllClusters forces a cache refresh and returns per-controller cluster data
 // including hardware stats (RAM, disk) fetched from the stat API.
 func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
+	log := zap.L().Sugar()
+
+	urls := a.router.Urls()
+	log.Debugf("[otel-provider] Router has %d URLs: %v", len(urls), urls)
+
 	a.router.GetAllClusterInfo(true)
 
 	result := make(map[string]*ControllerClusters)
 
-	for _, addr := range a.router.Urls() {
+	for _, addr := range urls {
+		if addr == "" {
+			continue
+		}
 		cmonEntry := a.router.Cmon(addr)
 		if cmonEntry == nil {
 			continue
@@ -57,8 +65,11 @@ func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
 			cc.ControllerID = xid
 		}
 
-		if cmonEntry.Clusters != nil {
+		if cmonEntry.Clusters != nil && cmonEntry.Clusters.Clusters != nil {
 			cc.Clusters = cmonEntry.Clusters.Clusters
+			log.Debugf("[otel-provider] Controller %s returned %d clusters", addr, len(cc.Clusters))
+		} else {
+			log.Debugf("[otel-provider] Controller %s has no cluster data cached", addr)
 		}
 
 		client := a.router.Client(addr)
