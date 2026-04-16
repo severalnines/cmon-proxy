@@ -45,6 +45,7 @@ import (
 	k8s "github.com/severalnines/cmon-proxy/k8s"
 	"github.com/severalnines/cmon-proxy/metering"
 	"github.com/severalnines/cmon-proxy/multi"
+	cmonotel "github.com/severalnines/cmon-proxy/otel"
 	"github.com/severalnines/cmon-proxy/multi/router"
 	"github.com/severalnines/cmon-proxy/opts"
 	"github.com/severalnines/cmon-proxy/poolhelpers"
@@ -59,6 +60,7 @@ var (
 	meteringCollector  *metering.Collector
 	meteringStorage    metering.StorageBackend
 	meteringInterval   time.Duration
+	otelEmitter        *cmonotel.Emitter
 )
 
 func secureTLSConfig() *tls.Config {
@@ -783,9 +785,14 @@ func Start(cfg *config.Config) {
 
 	multi.StartSessionCleanupScheduler(proxy)
 
-	// Initialize metering if enabled
+	// Initialize metering if enabled (v1: embedded storage + reports)
 	if cfg.MeteringEnabled {
 		initMetering(cfg)
+	}
+
+	// Initialize OTel metering emitter (v2: emit to cmon-billing)
+	if cfg.OtelMeteringEnabled {
+		initOtelEmitter(cfg)
 	}
 
 	// to serve the static files
@@ -1081,6 +1088,13 @@ func Stop() {
 	if meteringStorage != nil {
 		meteringStorage.Close()
 		meteringStorage = nil
+	}
+
+	// Stop OTel emitter
+	if otelEmitter != nil {
+		log.Sugar().Info("Stopping OTel metering emitter")
+		otelEmitter.Stop()
+		otelEmitter = nil
 	}
 
 	if httpServerPlain != nil {

@@ -160,6 +160,13 @@ type Config struct {
 	MeteringKeyID               string            `yaml:"metering_key_id,omitempty" json:"metering_key_id,omitempty"` // Signing key identifier
 	MeteringVerificationKeys    map[string]string `yaml:"metering_verification_keys,omitempty" json:"-"`              // Signing keys usable for report verification, keyed by signing_key_id
 
+	// OTel metering emitter settings
+	OtelMeteringEnabled  bool   `yaml:"otel_metering_enabled" json:"otel_metering_enabled"`
+	OtelMeteringEndpoint string `yaml:"otel_metering_endpoint,omitempty" json:"otel_metering_endpoint,omitempty"` // gRPC address of cmon-billing (default "localhost:4317")
+	OtelMeteringInterval string `yaml:"otel_metering_interval,omitempty" json:"otel_metering_interval,omitempty"` // Go duration string, default "60m"
+	OtelMeteringInsecure bool   `yaml:"otel_metering_insecure" json:"otel_metering_insecure"`                     // Skip TLS for gRPC
+	OtelMeteringInstance string `yaml:"otel_metering_instance,omitempty" json:"otel_metering_instance,omitempty"` // service.instance.id for multi-proxy
+
 	mtx sync.RWMutex
 }
 
@@ -492,6 +499,23 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 		} else {
 			config.MeteringVerificationKeys = keys
 		}
+	}
+
+	// OTel metering emitter env vars
+	if v := os.Getenv("OTEL_METERING_ENABLED"); v != "" {
+		config.OtelMeteringEnabled = v == "true" || v == "1" || v == "yes"
+	}
+	if v := os.Getenv("OTEL_METERING_ENDPOINT"); v != "" {
+		config.OtelMeteringEndpoint = v
+	}
+	if v := os.Getenv("OTEL_METERING_INTERVAL"); v != "" {
+		config.OtelMeteringInterval = v
+	}
+	if v := os.Getenv("OTEL_METERING_INSECURE"); v != "" {
+		config.OtelMeteringInsecure = v == "true" || v == "1" || v == "yes"
+	}
+	if v := os.Getenv("OTEL_METERING_INSTANCE"); v != "" {
+		config.OtelMeteringInstance = v
 	}
 
 	// we don't want nulls
