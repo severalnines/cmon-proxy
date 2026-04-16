@@ -25,6 +25,8 @@ func TestGetStatus_Healthy(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 
 	require.NoError(t, backend.SetConfig(ctx, ConfigLastSuccessfulCollection, now.Format(time.RFC3339)))
+	require.NoError(t, backend.SetConfig(ctx, ConfigBillingPeriodMonths, "3"))
+	require.NoError(t, backend.SetConfig(ctx, ConfigMinActiveHours, "48"))
 	require.NoError(t, backend.SetConfig(ctx, ConfigRetentionMonths, "6"))
 	require.NoError(t, backend.SetConfig(ctx, ConfigLastRetentionCleanup, now.Format(time.RFC3339)))
 	require.NoError(t, backend.SetConfig(ctx, ConfigLastCleanupDeletedRows, "12"))
@@ -49,6 +51,8 @@ func TestGetStatus_Healthy(t *testing.T) {
 	assert.True(t, status.CollectionHealthy)
 	assert.Equal(t, "ok", status.HealthStatus)
 	assert.Equal(t, int64(1), status.TotalSnapshots)
+	assert.Equal(t, 3, status.BillingPeriodMonths)
+	assert.Equal(t, 48, status.MinActiveHours)
 	assert.Equal(t, 6, status.RetentionMonths)
 	assert.Equal(t, int64(12), status.LastCleanupDeleted)
 	assert.Empty(t, status.LastCollectionError)
@@ -71,5 +75,7 @@ func TestGetStatus_WarningWhenCollectionIsStaleOrErrored(t *testing.T) {
 	assert.Equal(t, "warning", status.HealthStatus)
 	assert.Equal(t, "1 controller returned errors", status.LastCollectionError)
 	assert.Equal(t, "database locked", status.LastCleanupError)
+	assert.Equal(t, DefaultBillingPeriodMonths, status.BillingPeriodMonths)
+	assert.Equal(t, DefaultMinActiveHours, status.MinActiveHours)
 	assert.Equal(t, DefaultRetentionMonths, status.RetentionMonths)
 }

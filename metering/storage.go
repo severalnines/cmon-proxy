@@ -57,7 +57,9 @@ type SnapshotFilter struct {
 
 // Config keys stored in metering_config.
 const (
-	DefaultRetentionMonths = 12
+	DefaultBillingPeriodMonths = 1
+	DefaultMinActiveHours      = 24
+	DefaultRetentionMonths     = 12
 
 	ConfigBillingPeriodMonths      = "billing_period_months"
 	ConfigMinActiveHours           = "min_active_hours"

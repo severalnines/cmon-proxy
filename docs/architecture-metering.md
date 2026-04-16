@@ -181,7 +181,9 @@ Excluded: `CmonHost` (controller), `CmonPrometheusHost`, `CmonHaProxyHost`, `Cmo
 
 A node is billable for a billing period if:
 1. It is an eligible node (above)
-2. It has ≥24 cumulative hours in "active" or "stopped" status during the period
+2. It has at least `min_active_hours` cumulative hours in "active" or "stopped" status during the period
+
+The billing period defaults to 1 calendar month and is configurable via `billing_period_months`.
 
 Stopped nodes count toward billing until removed from the cluster.
 

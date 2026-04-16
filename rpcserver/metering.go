@@ -30,7 +30,6 @@ import (
 
 const (
 	defaultMeteringInterval = time.Hour
-	defaultMinActiveHours   = 24
 )
 
 var meteringSigningKey []byte
@@ -120,6 +119,22 @@ func configureMeteringStorage(storage metering.StorageBackend, cfg *config.Confi
 		return err
 	}
 
+	billingPeriodMonths := cfg.MeteringBillingPeriodMonths
+	if billingPeriodMonths <= 0 {
+		billingPeriodMonths = metering.DefaultBillingPeriodMonths
+	}
+	if err := storage.SetConfig(ctx, metering.ConfigBillingPeriodMonths, strconv.Itoa(billingPeriodMonths)); err != nil {
+		return err
+	}
+
+	minActiveHours := cfg.MeteringMinActiveHours
+	if minActiveHours <= 0 {
+		minActiveHours = metering.DefaultMinActiveHours
+	}
+	if err := storage.SetConfig(ctx, metering.ConfigMinActiveHours, strconv.Itoa(minActiveHours)); err != nil {
+		return err
+	}
+
 	if meteringKeyID != "" {
 		if err := storage.SetConfig(ctx, metering.ConfigSigningKeyID, meteringKeyID); err != nil {
 			return err
@@ -195,18 +210,17 @@ func handleMeteringReports(ctx *gin.Context) {
 }
 
 func handleGenerateReport(ctx *gin.Context, req reportRequest) {
-	periodStart, err := time.Parse(time.RFC3339, req.PeriodStart)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid period_start: " + err.Error()})
-		return
-	}
-	periodEnd, err := time.Parse(time.RFC3339, req.PeriodEnd)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid period_end: " + err.Error()})
-		return
-	}
-
 	rctx := ctx.Request.Context()
+
+	periodStart, periodEnd, err := resolveReportPeriod(rctx, req, time.Now().UTC())
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if req.PeriodStart != "" || req.PeriodEnd != "" {
+			statusCode = http.StatusBadRequest
+		}
+		ctx.JSON(statusCode, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Check if a sealed report already exists.
 	if !req.ForceRegenerate {
@@ -236,7 +250,13 @@ func handleGenerateReport(ctx *gin.Context, req reportRequest) {
 	nextVersion := latestVersion + 1
 
 	// Generate report.
-	gen := metering.NewReportGenerator(meteringStorage, defaultMinActiveHours, meteringInterval)
+	minActiveHours, err := getMeteringConfigInt(rctx, metering.ConfigMinActiveHours, metering.DefaultMinActiveHours)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load metering configuration: " + err.Error()})
+		return
+	}
+
+	gen := metering.NewReportGenerator(meteringStorage, minActiveHours, meteringInterval)
 	reportData, err := gen.Generate(rctx, periodStart, periodEnd, nextVersion)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "report generation failed: " + err.Error()})
@@ -392,6 +412,68 @@ func handleExportReport(ctx *gin.Context, req reportRequest) {
 	default:
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "unsupported format: " + format})
 	}
+}
+
+func resolveReportPeriod(ctx context.Context, req reportRequest, now time.Time) (time.Time, time.Time, error) {
+	if req.PeriodStart != "" || req.PeriodEnd != "" {
+		if req.PeriodStart == "" || req.PeriodEnd == "" {
+			return time.Time{}, time.Time{}, fmt.Errorf("period_start and period_end must be provided together")
+		}
+
+		periodStart, err := time.Parse(time.RFC3339, req.PeriodStart)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid period_start: %w", err)
+		}
+		periodEnd, err := time.Parse(time.RFC3339, req.PeriodEnd)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid period_end: %w", err)
+		}
+		if periodEnd.Before(periodStart) {
+			return time.Time{}, time.Time{}, fmt.Errorf("period_end must be greater than or equal to period_start")
+		}
+
+		return periodStart, periodEnd, nil
+	}
+
+	billingPeriodMonths, err := getMeteringConfigInt(ctx, metering.ConfigBillingPeriodMonths, metering.DefaultBillingPeriodMonths)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+
+	periodStart, periodEnd := defaultReportPeriod(now, billingPeriodMonths)
+	return periodStart, periodEnd, nil
+}
+
+func defaultReportPeriod(now time.Time, billingPeriodMonths int) (time.Time, time.Time) {
+	if billingPeriodMonths <= 0 {
+		billingPeriodMonths = metering.DefaultBillingPeriodMonths
+	}
+
+	now = now.UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	periodStart := currentMonthStart.AddDate(0, -billingPeriodMonths, 0)
+	periodEnd := currentMonthStart.Add(-time.Second)
+	return periodStart, periodEnd
+}
+
+func getMeteringConfigInt(ctx context.Context, key string, fallback int) (int, error) {
+	value, err := meteringStorage.GetConfig(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	if value == "" {
+		return fallback, nil
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, err
+	}
+	if parsed <= 0 {
+		return fallback, nil
+	}
+
+	return parsed, nil
 }
 
 func generateCSVZip(report *metering.ReportData) ([]byte, error) {

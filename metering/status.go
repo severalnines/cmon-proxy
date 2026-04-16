@@ -27,6 +27,8 @@ type StatusResponse struct {
 	OldestSnapshot      string `json:"oldest_snapshot,omitempty"`
 	DBSizeBytes         int64  `json:"db_size_bytes"`
 	CollectionInterval  string `json:"collection_interval"`
+	BillingPeriodMonths int    `json:"billing_period_months"`
+	MinActiveHours      int    `json:"min_active_hours"`
 	RetentionMonths     int    `json:"retention_months"`
 	LastCleanup         string `json:"last_retention_cleanup,omitempty"`
 	LastCleanupDeleted  int64  `json:"last_cleanup_deleted_rows"`
@@ -36,11 +38,13 @@ type StatusResponse struct {
 // GetStatus builds the metering status response from the storage backend.
 func GetStatus(ctx context.Context, storage StorageBackend, collectorRunning bool, interval time.Duration) (*StatusResponse, error) {
 	resp := &StatusResponse{
-		CollectorRunning:   collectorRunning,
-		CollectionHealthy:  collectorRunning,
-		HealthStatus:       "ok",
-		CollectionInterval: interval.String(),
-		RetentionMonths:    DefaultRetentionMonths,
+		CollectorRunning:    collectorRunning,
+		CollectionHealthy:   collectorRunning,
+		HealthStatus:        "ok",
+		CollectionInterval:  interval.String(),
+		BillingPeriodMonths: DefaultBillingPeriodMonths,
+		MinActiveHours:      DefaultMinActiveHours,
+		RetentionMonths:     DefaultRetentionMonths,
 	}
 
 	lastCollection, err := storage.GetConfig(ctx, ConfigLastSuccessfulCollection)
@@ -74,6 +78,18 @@ func GetStatus(ctx context.Context, storage StorageBackend, collectorRunning boo
 		return nil, err
 	}
 	resp.DBSizeBytes = size
+
+	if billingPeriodMonths, err := getConfigInt(ctx, storage, ConfigBillingPeriodMonths, DefaultBillingPeriodMonths); err != nil {
+		return nil, err
+	} else {
+		resp.BillingPeriodMonths = billingPeriodMonths
+	}
+
+	if minActiveHours, err := getConfigInt(ctx, storage, ConfigMinActiveHours, DefaultMinActiveHours); err != nil {
+		return nil, err
+	} else {
+		resp.MinActiveHours = minActiveHours
+	}
 
 	if retentionMonths, err := getConfigInt(ctx, storage, ConfigRetentionMonths, DefaultRetentionMonths); err != nil {
 		return nil, err

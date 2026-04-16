@@ -8,6 +8,7 @@ import (
 	"io"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/metering"
@@ -53,7 +54,7 @@ func TestConfigureMeteringKeys_MissingVerificationKey(t *testing.T) {
 	assert.Nil(t, verificationKeyForReport("missing-key"))
 }
 
-func TestConfigureMeteringStorage_PersistsRetentionAndSigningKeyID(t *testing.T) {
+func TestConfigureMeteringStorage_PersistsMeteringConfig(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "metering.db")
 	backend, err := metering.NewSQLiteBackend(dbPath)
 	require.NoError(t, err)
@@ -65,11 +66,21 @@ func TestConfigureMeteringStorage_PersistsRetentionAndSigningKeyID(t *testing.T)
 	})
 
 	err = configureMeteringStorage(backend, &config.Config{
-		MeteringRetentionMonths: 6,
+		MeteringBillingPeriodMonths: 3,
+		MeteringMinActiveHours:      48,
+		MeteringRetentionMonths:     6,
 	})
 	require.NoError(t, err)
 
 	ctx := context.Background()
+	billingPeriodMonths, err := backend.GetConfig(ctx, metering.ConfigBillingPeriodMonths)
+	require.NoError(t, err)
+	assert.Equal(t, "3", billingPeriodMonths)
+
+	minActiveHours, err := backend.GetConfig(ctx, metering.ConfigMinActiveHours)
+	require.NoError(t, err)
+	assert.Equal(t, "48", minActiveHours)
+
 	retentionMonths, err := backend.GetConfig(ctx, metering.ConfigRetentionMonths)
 	require.NoError(t, err)
 	assert.Equal(t, "6", retentionMonths)
@@ -77,6 +88,61 @@ func TestConfigureMeteringStorage_PersistsRetentionAndSigningKeyID(t *testing.T)
 	signingKeyID, err := backend.GetConfig(ctx, metering.ConfigSigningKeyID)
 	require.NoError(t, err)
 	assert.Equal(t, "key-current", signingKeyID)
+}
+
+func TestResolveReportPeriod_UsesExplicitPeriod(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "metering.db")
+	backend, err := metering.NewSQLiteBackend(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { backend.Close() })
+
+	previousStorage := meteringStorage
+	meteringStorage = backend
+	t.Cleanup(func() { meteringStorage = previousStorage })
+
+	req := reportRequest{
+		PeriodStart: "2026-04-01T00:00:00Z",
+		PeriodEnd:   "2026-04-30T23:59:59Z",
+	}
+
+	start, end, err := resolveReportPeriod(context.Background(), req, time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	assert.Equal(t, "2026-04-01T00:00:00Z", start.Format(time.RFC3339))
+	assert.Equal(t, "2026-04-30T23:59:59Z", end.Format(time.RFC3339))
+}
+
+func TestResolveReportPeriod_UsesConfiguredCompletedBillingPeriod(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "metering.db")
+	backend, err := metering.NewSQLiteBackend(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { backend.Close() })
+
+	previousStorage := meteringStorage
+	meteringStorage = backend
+	t.Cleanup(func() { meteringStorage = previousStorage })
+	require.NoError(t, backend.SetConfig(context.Background(), metering.ConfigBillingPeriodMonths, "3"))
+
+	start, end, err := resolveReportPeriod(context.Background(), reportRequest{}, time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	assert.Equal(t, "2026-01-01T00:00:00Z", start.Format(time.RFC3339))
+	assert.Equal(t, "2026-03-31T23:59:59Z", end.Format(time.RFC3339))
+}
+
+func TestResolveReportPeriod_RejectsPartialPeriod(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "metering.db")
+	backend, err := metering.NewSQLiteBackend(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { backend.Close() })
+
+	previousStorage := meteringStorage
+	meteringStorage = backend
+	t.Cleanup(func() { meteringStorage = previousStorage })
+
+	_, _, err = resolveReportPeriod(context.Background(), reportRequest{
+		PeriodStart: "2026-04-01T00:00:00Z",
+	}, time.Now().UTC())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must be provided together")
 }
 
 func TestGenerateCSVZip_UsesBillingTableRows(t *testing.T) {

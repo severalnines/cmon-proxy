@@ -150,13 +150,15 @@ type Config struct {
 	AcmeHostPolicyStrict bool   `yaml:"acme_host_policy_strict" json:"acme_host_policy_strict"`
 
 	// Metering settings
-	MeteringEnabled          bool              `yaml:"metering_enabled" json:"metering_enabled"`
-	MeteringDBPath           string            `yaml:"metering_db_path,omitempty" json:"metering_db_path,omitempty"`
-	MeteringInterval         string            `yaml:"metering_interval,omitempty" json:"metering_interval,omitempty"` // Go duration string, default "60m"
-	MeteringRetentionMonths  int               `yaml:"metering_retention_months,omitempty" json:"metering_retention_months,omitempty"`
-	MeteringSigningKey       string            `yaml:"metering_signing_key,omitempty" json:"-"`                    // HMAC signing key for report sealing
-	MeteringKeyID            string            `yaml:"metering_key_id,omitempty" json:"metering_key_id,omitempty"` // Signing key identifier
-	MeteringVerificationKeys map[string]string `yaml:"metering_verification_keys,omitempty" json:"-"`              // Signing keys usable for report verification, keyed by signing_key_id
+	MeteringEnabled             bool              `yaml:"metering_enabled" json:"metering_enabled"`
+	MeteringDBPath              string            `yaml:"metering_db_path,omitempty" json:"metering_db_path,omitempty"`
+	MeteringInterval            string            `yaml:"metering_interval,omitempty" json:"metering_interval,omitempty"` // Go duration string, default "60m"
+	MeteringBillingPeriodMonths int               `yaml:"metering_billing_period_months,omitempty" json:"metering_billing_period_months,omitempty"`
+	MeteringMinActiveHours      int               `yaml:"metering_min_active_hours,omitempty" json:"metering_min_active_hours,omitempty"`
+	MeteringRetentionMonths     int               `yaml:"metering_retention_months,omitempty" json:"metering_retention_months,omitempty"`
+	MeteringSigningKey          string            `yaml:"metering_signing_key,omitempty" json:"-"`                    // HMAC signing key for report sealing
+	MeteringKeyID               string            `yaml:"metering_key_id,omitempty" json:"metering_key_id,omitempty"` // Signing key identifier
+	MeteringVerificationKeys    map[string]string `yaml:"metering_verification_keys,omitempty" json:"-"`              // Signing keys usable for report verification, keyed by signing_key_id
 
 	mtx sync.RWMutex
 }
@@ -467,6 +469,12 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 	if v := os.Getenv("METERING_INTERVAL"); v != "" {
 		config.MeteringInterval = v
+	}
+	if v, err := strconv.Atoi(os.Getenv("METERING_BILLING_PERIOD_MONTHS")); err == nil && v > 0 {
+		config.MeteringBillingPeriodMonths = v
+	}
+	if v, err := strconv.Atoi(os.Getenv("METERING_MIN_ACTIVE_HOURS")); err == nil && v > 0 {
+		config.MeteringMinActiveHours = v
 	}
 	if v, err := strconv.Atoi(os.Getenv("METERING_RETENTION_MONTHS")); err == nil && v > 0 {
 		config.MeteringRetentionMonths = v

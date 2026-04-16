@@ -60,6 +60,8 @@ All settings can be configured via environment variables in `/etc/default/cmon-p
 | `METERING_ENABLED` | `metering_enabled` | `false` | Enable/disable metering collection |
 | `METERING_DB_PATH` | `metering_db_path` | `<basedir>/metering.db` | Path to the SQLite database |
 | `METERING_INTERVAL` | `metering_interval` | `60m` | Collection interval (Go duration: `30m`, `1h`, `2h`) |
+| `METERING_BILLING_PERIOD_MONTHS` | `metering_billing_period_months` | `1` | Billing period length in whole calendar months |
+| `METERING_MIN_ACTIVE_HOURS` | `metering_min_active_hours` | `24` | Minimum cumulative active or stopped hours required for billing |
 | `METERING_RETENTION_MONTHS` | `metering_retention_months` | `12` | Raw snapshot retention period in months |
 | `METERING_SIGNING_KEY` | `metering_signing_key` | (none) | HMAC key for sealing reports |
 | `METERING_KEY_ID` | `metering_key_id` | `default` | Identifier for the signing key (for rotation) |
@@ -71,6 +73,8 @@ All settings can be configured via environment variables in `/etc/default/cmon-p
 metering_enabled: true
 metering_db_path: /var/lib/ccmgr/metering.db
 metering_interval: "30m"
+metering_billing_period_months: 1
+metering_min_active_hours: 24
 metering_retention_months: 12
 metering_signing_key: "your-secret-key"
 metering_key_id: "key-2026-01"
@@ -99,6 +103,8 @@ Returns collector health and database statistics.
   "oldest_snapshot": "2026-04-01T00:00:00Z",
   "db_size_bytes": 1048576,
   "collection_interval": "1h0m0s",
+  "billing_period_months": 1,
+  "min_active_hours": 24,
   "retention_months": 12,
   "last_retention_cleanup": "2026-04-16T00:00:00Z",
   "last_cleanup_deleted_rows": 24
@@ -112,6 +118,8 @@ All report operations use the `operation` field in the JSON body.
 #### `generateReport`
 
 Computes and seals a billing report for a given period. Idempotent — returns cached report if one already exists.
+
+If `period_start` and `period_end` are omitted, cmon-proxy uses the most recently completed configured billing period. For example, with `metering_billing_period_months: 1`, a request made in April defaults to March 1 00:00:00 UTC through March 31 23:59:59 UTC.
 
 **Request:**
 
@@ -291,7 +299,7 @@ Excluded: controller nodes, Prometheus exporters, HAProxy, MaxScale, Keepalived.
 
 ### Billable threshold
 
-A node is billable for a billing period if it has **24 or more cumulative hours** in "active" or "stopped" status. Nodes that are stopped (from ClusterControl) still count until removed from the cluster.
+A node is billable for a billing period if it has **24 or more cumulative hours** in "active" or "stopped" status by default. This threshold is configurable via `metering_min_active_hours`. Nodes that are stopped (from ClusterControl) still count until removed from the cluster.
 
 ### Tracked metrics per node
 
@@ -332,6 +340,6 @@ Tests are automatically skipped if `CMON_ENDPOINT` is not set.
 
 **RAM/volume nil in snapshots**: The stat API requires CMON's host collector to be active. Verify the controller is monitoring the hosts (check host status in ClusterControl UI).
 
-**Report shows 0 billable nodes**: Nodes need ≥24 cumulative hours of "active" or "stopped" status in the billing period. Check if enough time has elapsed since metering was enabled.
+**Report shows 0 billable nodes**: Nodes need at least `metering_min_active_hours` cumulative hours of "active" or "stopped" status in the billing period. Check if enough time has elapsed since metering was enabled.
 
 **Signature verification fails**: Ensure the report's `signing_key_id` exists in `metering_verification_keys` or matches the current `METERING_KEY_ID`. After key rotation, keep old verification keys configured for old reports.
