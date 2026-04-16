@@ -147,6 +147,14 @@ func (p *Proxy) Router(ctx *gin.Context) *router.Router {
 	return nil
 }
 
+// DefaultRouter returns the default (non-LDAP) router for background tasks
+// that don't have an HTTP context.
+func (p *Proxy) DefaultRouter() *router.Router {
+	routerMtx.RLock()
+	defer routerMtx.RUnlock()
+	return p.r[router.DefaultRouter]
+}
+
 // In case of configuration re-load, lets apply it to all of the routers
 func (p *Proxy) UpdateConfig(cfg *config.Config) {
 	routerMtx.Lock()

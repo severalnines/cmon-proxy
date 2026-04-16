@@ -148,6 +148,11 @@ type Config struct {
 	AcmeRenewBefore      string `yaml:"acme_renew_before,omitempty" json:"acme_renew_before,omitempty"`
 	AcmeHostPolicyStrict bool   `yaml:"acme_host_policy_strict" json:"acme_host_policy_strict"`
 
+	// Metering settings
+	MeteringEnabled  bool   `yaml:"metering_enabled" json:"metering_enabled"`
+	MeteringDBPath   string `yaml:"metering_db_path,omitempty" json:"metering_db_path,omitempty"`
+	MeteringInterval string `yaml:"metering_interval,omitempty" json:"metering_interval,omitempty"` // Go duration, default "1h"
+
 	mtx sync.RWMutex
 }
 

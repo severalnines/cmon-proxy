@@ -43,6 +43,7 @@ import (
 
 	"github.com/severalnines/cmon-proxy/config"
 	k8s "github.com/severalnines/cmon-proxy/k8s"
+	"github.com/severalnines/cmon-proxy/metering"
 	"github.com/severalnines/cmon-proxy/multi"
 	"github.com/severalnines/cmon-proxy/multi/router"
 	"github.com/severalnines/cmon-proxy/opts"
@@ -52,9 +53,12 @@ import (
 )
 
 var (
-	httpServer      *http.Server
-	httpServerPlain *http.Server
-	proxy           *multi.Proxy
+	httpServer         *http.Server
+	httpServerPlain    *http.Server
+	proxy              *multi.Proxy
+	meteringCollector  *metering.Collector
+	meteringStorage    metering.StorageBackend
+	meteringInterval   time.Duration
 )
 
 func secureTLSConfig() *tls.Config {
@@ -779,6 +783,11 @@ func Start(cfg *config.Config) {
 
 	multi.StartSessionCleanupScheduler(proxy)
 
+	// Initialize metering if enabled
+	if cfg.MeteringEnabled {
+		initMetering(cfg)
+	}
+
 	// to serve the static files
 	err = serveFrontend(s, cfg)
 	if err != nil {
@@ -1011,6 +1020,16 @@ func Start(cfg *config.Config) {
 			admin.GET("/reload", proxy.RPCAdminReload)
 			admin.POST("/reload", proxy.RPCAdminReload)
 		}
+
+		// Metering API
+		if cfg.MeteringEnabled {
+			meteringGrp := p.Group("/metering")
+			meteringGrp.Use(proxy.RPCAuthMiddleware)
+			{
+				meteringGrp.GET("/status", handleMeteringStatus)
+				meteringGrp.POST("/status", handleMeteringStatus)
+			}
+		}
 	}
 
 	httpServer = &http.Server{
@@ -1051,6 +1070,17 @@ func Start(cfg *config.Config) {
 func Stop() {
 	// get logger
 	log := zap.L()
+
+	// Stop metering collector
+	if meteringCollector != nil {
+		log.Sugar().Info("Stopping metering collector")
+		meteringCollector.Stop()
+		meteringCollector = nil
+	}
+	if meteringStorage != nil {
+		meteringStorage.Close()
+		meteringStorage = nil
+	}
 
 	if httpServerPlain != nil {
 		ctx, cancel := context.WithTimeout(
