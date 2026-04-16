@@ -150,10 +150,13 @@ type Config struct {
 
 	// OTel metering emitter settings (emits to cmon-billing service)
 	OtelMeteringEnabled  bool   `yaml:"otel_metering_enabled" json:"otel_metering_enabled"`
-	OtelMeteringEndpoint string `yaml:"otel_metering_endpoint,omitempty" json:"otel_metering_endpoint,omitempty"` // gRPC address of cmon-billing (default "localhost:4317")
+	OtelMeteringEndpoint string `yaml:"otel_metering_endpoint,omitempty" json:"otel_metering_endpoint,omitempty"` // gRPC address of cmon-telemetry (default "localhost:4317")
 	OtelMeteringInterval string `yaml:"otel_metering_interval,omitempty" json:"otel_metering_interval,omitempty"` // Go duration string, default "60m"
 	OtelMeteringInsecure bool   `yaml:"otel_metering_insecure" json:"otel_metering_insecure"`                     // Skip TLS for gRPC
 	OtelMeteringInstance string `yaml:"otel_metering_instance,omitempty" json:"otel_metering_instance,omitempty"` // service.instance.id for multi-proxy
+	OtelMeteringTLSCert  string `yaml:"otel_metering_tls_cert,omitempty" json:"otel_metering_tls_cert,omitempty"` // Client TLS certificate
+	OtelMeteringTLSKey   string `yaml:"otel_metering_tls_key,omitempty" json:"otel_metering_tls_key,omitempty"`   // Client TLS private key
+	OtelMeteringTLSCA    string `yaml:"otel_metering_tls_ca,omitempty" json:"otel_metering_tls_ca,omitempty"`     // CA cert for server verification
 
 	mtx sync.RWMutex
 }

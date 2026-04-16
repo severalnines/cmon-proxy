@@ -30,18 +30,24 @@ type Emitter struct {
 	endpoint   string
 	interval   time.Duration
 	instanceID string
+	dialOpts   []grpc.DialOption
 	logger     *zap.SugaredLogger
 	stopCh     chan struct{}
 	done       chan struct{}
 }
 
 // NewEmitter creates a new OTel metrics emitter.
-func NewEmitter(provider ClusterDataProvider, endpoint string, interval time.Duration, instanceID string) *Emitter {
+// dialOpts configures the gRPC connection (e.g., insecure or TLS credentials).
+func NewEmitter(provider ClusterDataProvider, endpoint string, interval time.Duration, instanceID string, dialOpts ...grpc.DialOption) *Emitter {
+	if len(dialOpts) == 0 {
+		dialOpts = []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	}
 	return &Emitter{
 		provider:   provider,
 		endpoint:   endpoint,
 		interval:   interval,
 		instanceID: instanceID,
+		dialOpts:   dialOpts,
 		logger:     zap.L().Sugar(),
 		stopCh:     make(chan struct{}),
 		done:       make(chan struct{}),
@@ -240,7 +246,7 @@ func (e *Emitter) send(req *colmetricspb.ExportMetricsServiceRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(e.endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(e.endpoint, e.dialOpts...)
 	if err != nil {
 		return fmt.Errorf("grpc connect: %w", err)
 	}
