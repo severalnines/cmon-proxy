@@ -133,6 +133,12 @@ func (c *Collector) run() {
 	}
 }
 
+// CollectOnce performs a single snapshot collection cycle.
+// Exported for use in integration tests.
+func (c *Collector) CollectOnce(ctx context.Context) {
+	c.collect(ctx)
+}
+
 // collect performs a single snapshot collection cycle.
 func (c *Collector) collect(ctx context.Context) {
 	now := time.Now().UTC().Truncate(time.Second)

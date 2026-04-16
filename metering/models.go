@@ -72,6 +72,7 @@ var EligibleDBClassNames = map[string]bool{
 	"CmonMongoHost":         true,
 	"CmonNdbHost":           true,
 	"CmonPostgreSqlHost":    true,
+	"CmonMsSqlHost":         true,
 }
 
 // EligibleProxyClassNames maps CMON host class names to whether they are eligible proxy nodes.
