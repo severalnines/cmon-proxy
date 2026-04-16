@@ -1028,6 +1028,7 @@ func Start(cfg *config.Config) {
 			{
 				meteringGrp.GET("/status", handleMeteringStatus)
 				meteringGrp.POST("/status", handleMeteringStatus)
+				meteringGrp.POST("/reports", handleMeteringReports)
 			}
 		}
 	}
