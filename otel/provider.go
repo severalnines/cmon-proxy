@@ -1,14 +1,4 @@
-package metering
-
-// Copyright 2026 Severalnines AB
-//
-// This file is part of cmon-proxy.
-//
-// cmon-proxy is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2 of the License.
-//
-// cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
+package otel
 
 import (
 	"encoding/json"
@@ -18,6 +8,25 @@ import (
 	"github.com/severalnines/cmon-proxy/multi/router"
 	"go.uber.org/zap"
 )
+
+// ClusterDataProvider abstracts the source of cluster/host data.
+type ClusterDataProvider interface {
+	FetchAllClusters() map[string]*ControllerClusters
+}
+
+// ControllerClusters holds the cluster data for a single controller.
+type ControllerClusters struct {
+	ControllerID string
+	Clusters     []*api.Cluster
+	Err          error
+	HostStats    map[uint64]*HostHardwareStats
+}
+
+// HostHardwareStats holds hardware specs for a single host.
+type HostHardwareStats struct {
+	RAMMB    *int
+	VolumeGB *int
+}
 
 // RouterAdapter wraps a Router to implement ClusterDataProvider.
 type RouterAdapter struct {
@@ -32,7 +41,6 @@ func NewRouterAdapter(r *router.Router) *RouterAdapter {
 // FetchAllClusters forces a cache refresh and returns per-controller cluster data
 // including hardware stats (RAM, disk) fetched from the stat API.
 func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
-	// Force refresh from all backends.
 	a.router.GetAllClusterInfo(true)
 
 	result := make(map[string]*ControllerClusters)
@@ -43,11 +51,8 @@ func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
 			continue
 		}
 
-		cc := &ControllerClusters{
-			ControllerID: addr,
-		}
+		cc := &ControllerClusters{ControllerID: addr}
 
-		// Use the controller's unique ID (xid or pool ID) if available.
 		if xid := cmonEntry.Xid(); xid != "" {
 			cc.ControllerID = xid
 		}
@@ -56,10 +61,9 @@ func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
 			cc.Clusters = cmonEntry.Clusters.Clusters
 		}
 
-		// Fetch hardware stats for all clusters on this controller.
 		client := a.router.Client(addr)
 		if client != nil && cc.Clusters != nil {
-			cc.HostStats = a.fetchHostStats(client, cc.Clusters)
+			cc.HostStats = fetchHostStats(client, cc.Clusters)
 		}
 
 		result[addr] = cc
@@ -68,24 +72,21 @@ func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
 	return result
 }
 
-// fetchHostStats collects memory and disk stats for all clusters and returns
-// a map of hostid → hardware stats.
-func (a *RouterAdapter) fetchHostStats(client interface{ GetStatByName(*api.GetStatByNameRequest) (*api.GetStatByNameResponse, error) }, clusters []*api.Cluster) map[uint64]*HostHardwareStats {
+func fetchHostStats(client interface {
+	GetStatByName(*api.GetStatByNameRequest) (*api.GetStatByNameResponse, error)
+}, clusters []*api.Cluster) map[uint64]*HostHardwareStats {
 	log := zap.L().Sugar()
 	stats := make(map[uint64]*HostHardwareStats)
 
 	now := time.Now().UTC()
-	// Request the last 10 minutes of stats — we only need the latest sample.
 	startTime := now.Add(-10 * time.Minute)
 
-	// Collect unique cluster IDs.
 	clusterIDs := make(map[uint64]bool)
 	for _, c := range clusters {
 		clusterIDs[c.ClusterID] = true
 	}
 
 	for cid := range clusterIDs {
-		// Fetch memory stats.
 		memResp, err := client.GetStatByName(&api.GetStatByNameRequest{
 			WithOperation: &api.WithOperation{Operation: "statByName"},
 			WithClusterID: &api.WithClusterID{ClusterID: cid},
@@ -95,12 +96,11 @@ func (a *RouterAdapter) fetchHostStats(client interface{ GetStatByName(*api.GetS
 			EndDateTime:   api.StatTS(now),
 		})
 		if err != nil {
-			log.Debugf("[metering] failed to fetch memorystat for cluster %d: %v", cid, err)
+			log.Debugf("[otel] memorystat error for cluster %d: %v", cid, err)
 		} else {
 			parseMemoryStats(memResp.Data, stats)
 		}
 
-		// Fetch disk stats.
 		diskResp, err := client.GetStatByName(&api.GetStatByNameRequest{
 			WithOperation: &api.WithOperation{Operation: "statByName"},
 			WithClusterID: &api.WithClusterID{ClusterID: cid},
@@ -110,7 +110,7 @@ func (a *RouterAdapter) fetchHostStats(client interface{ GetStatByName(*api.GetS
 			EndDateTime:   api.StatTS(now),
 		})
 		if err != nil {
-			log.Debugf("[metering] failed to fetch diskstat for cluster %d: %v", cid, err)
+			log.Debugf("[otel] diskstat error for cluster %d: %v", cid, err)
 		} else {
 			parseDiskStats(diskResp.Data, stats)
 		}
@@ -119,20 +119,16 @@ func (a *RouterAdapter) fetchHostStats(client interface{ GetStatByName(*api.GetS
 	return stats
 }
 
-// memoryStat represents a single memory stat sample from the CMON stat API.
 type memoryStat struct {
 	HostID   uint64 `json:"hostid"`
 	RAMTotal int64  `json:"ramtotal"`
 }
 
-// parseMemoryStats extracts the latest ramtotal per host from memory stat data.
 func parseMemoryStats(data json.RawMessage, stats map[uint64]*HostHardwareStats) {
 	var entries []memoryStat
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return
 	}
-
-	// Take the last entry per host (entries are time-ordered).
 	for _, e := range entries {
 		if e.RAMTotal <= 0 {
 			continue
@@ -146,33 +142,22 @@ func parseMemoryStats(data json.RawMessage, stats map[uint64]*HostHardwareStats)
 	}
 }
 
-// diskStat represents a single disk stat sample from the CMON stat API.
 type diskStat struct {
-	HostID     uint64 `json:"hostid"`
-	MountPoint string `json:"mountpoint"`
-	Total      int64  `json:"total"`
+	HostID uint64 `json:"hostid"`
+	Total  int64  `json:"total"`
 }
 
-// parseDiskStats extracts the largest disk volume per host from disk stat data.
-// Uses the largest mount point's total as the data volume (heuristic: the datadir
-// is typically on the largest partition).
 func parseDiskStats(data json.RawMessage, stats map[uint64]*HostHardwareStats) {
 	var entries []diskStat
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return
 	}
-
-	// Track max disk total per host (largest volume = likely data volume).
 	maxDisk := make(map[uint64]int64)
 	for _, e := range entries {
-		if e.Total <= 0 {
-			continue
-		}
 		if e.Total > maxDisk[e.HostID] {
 			maxDisk[e.HostID] = e.Total
 		}
 	}
-
 	for hostID, total := range maxDisk {
 		volGB := int(total / (1024 * 1024 * 1024))
 		if hw, ok := stats[hostID]; ok {
@@ -180,5 +165,62 @@ func parseDiskStats(data json.RawMessage, stats map[uint64]*HostHardwareStats) {
 		} else {
 			stats[hostID] = &HostHardwareStats{VolumeGB: &volGB}
 		}
+	}
+}
+
+// Eligible node classification — same logic as metering/models.go.
+
+var eligibleDBClassNames = map[string]bool{
+	"CmonMySqlHost": true, "CmonGaleraHost": true, "CmonElasticHost": true,
+	"CmonRedisHost": true, "CmonRedisSentinelHost": true, "CmonGroupReplHost": true,
+	"CmonMongoHost": true, "CmonNdbHost": true, "CmonPostgreSqlHost": true,
+	"CmonMsSqlHost": true,
+}
+
+var eligibleProxyClassNames = map[string]bool{
+	"CmonProxySqlHost": true,
+}
+
+// IsEligibleNode returns true if the given class name represents a billable node.
+func IsEligibleNode(className string) bool {
+	return eligibleDBClassNames[className] || eligibleProxyClassNames[className]
+}
+
+// NodeRoleFromClassName returns the metering node role for a CMON host class name.
+func NodeRoleFromClassName(className string) string {
+	if eligibleProxyClassNames[className] {
+		return "proxysql"
+	}
+	return "database"
+}
+
+// NormalizeVendor maps CMON vendor strings to normalized names.
+func NormalizeVendor(vendor string) string {
+	switch vendor {
+	case "percona", "Percona":
+		return "percona"
+	case "oracle", "Oracle":
+		return "oracle"
+	case "mariadb", "MariaDB":
+		return "mariadb"
+	case "10gen", "MongoDB", "mongodb":
+		return "mongodb"
+	case "redis", "Redis", "Redis Labs":
+		return "redis"
+	case "microsoft", "Microsoft":
+		return "microsoft"
+	case "elastic", "Elastic":
+		return "elastic"
+	case "postgresql", "PostgreSQL":
+		return "postgresql"
+	case "valkey", "Valkey":
+		return "valkey"
+	case "timescaledb", "TimescaleDB":
+		return "timescaledb"
+	default:
+		if vendor == "" {
+			return "community"
+		}
+		return vendor
 	}
 }

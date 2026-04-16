@@ -15,7 +15,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"math/big"
@@ -149,18 +148,7 @@ type Config struct {
 	AcmeRenewBefore      string `yaml:"acme_renew_before,omitempty" json:"acme_renew_before,omitempty"`
 	AcmeHostPolicyStrict bool   `yaml:"acme_host_policy_strict" json:"acme_host_policy_strict"`
 
-	// Metering settings
-	MeteringEnabled             bool              `yaml:"metering_enabled" json:"metering_enabled"`
-	MeteringDBPath              string            `yaml:"metering_db_path,omitempty" json:"metering_db_path,omitempty"`
-	MeteringInterval            string            `yaml:"metering_interval,omitempty" json:"metering_interval,omitempty"` // Go duration string, default "60m"
-	MeteringBillingPeriodMonths int               `yaml:"metering_billing_period_months,omitempty" json:"metering_billing_period_months,omitempty"`
-	MeteringMinActiveHours      int               `yaml:"metering_min_active_hours,omitempty" json:"metering_min_active_hours,omitempty"`
-	MeteringRetentionMonths     int               `yaml:"metering_retention_months,omitempty" json:"metering_retention_months,omitempty"`
-	MeteringSigningKey          string            `yaml:"metering_signing_key,omitempty" json:"-"`                    // HMAC signing key for report sealing
-	MeteringKeyID               string            `yaml:"metering_key_id,omitempty" json:"metering_key_id,omitempty"` // Signing key identifier
-	MeteringVerificationKeys    map[string]string `yaml:"metering_verification_keys,omitempty" json:"-"`              // Signing keys usable for report verification, keyed by signing_key_id
-
-	// OTel metering emitter settings
+	// OTel metering emitter settings (emits to cmon-billing service)
 	OtelMeteringEnabled  bool   `yaml:"otel_metering_enabled" json:"otel_metering_enabled"`
 	OtelMeteringEndpoint string `yaml:"otel_metering_endpoint,omitempty" json:"otel_metering_endpoint,omitempty"` // gRPC address of cmon-billing (default "localhost:4317")
 	OtelMeteringInterval string `yaml:"otel_metering_interval,omitempty" json:"otel_metering_interval,omitempty"` // Go duration string, default "60m"
@@ -467,41 +455,7 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 		config.LicenseProxyURL = defaults.LicenseProxyURL
 	}
 
-	// Metering env vars (from /etc/default/cmon-proxy.env)
-	if v := os.Getenv("METERING_ENABLED"); v != "" {
-		config.MeteringEnabled = v == "true" || v == "1" || v == "yes"
-	}
-	if v := os.Getenv("METERING_DB_PATH"); v != "" {
-		config.MeteringDBPath = v
-	}
-	if v := os.Getenv("METERING_INTERVAL"); v != "" {
-		config.MeteringInterval = v
-	}
-	if v, err := strconv.Atoi(os.Getenv("METERING_BILLING_PERIOD_MONTHS")); err == nil && v > 0 {
-		config.MeteringBillingPeriodMonths = v
-	}
-	if v, err := strconv.Atoi(os.Getenv("METERING_MIN_ACTIVE_HOURS")); err == nil && v > 0 {
-		config.MeteringMinActiveHours = v
-	}
-	if v, err := strconv.Atoi(os.Getenv("METERING_RETENTION_MONTHS")); err == nil && v > 0 {
-		config.MeteringRetentionMonths = v
-	}
-	if v := os.Getenv("METERING_SIGNING_KEY"); v != "" {
-		config.MeteringSigningKey = v
-	}
-	if v := os.Getenv("METERING_KEY_ID"); v != "" {
-		config.MeteringKeyID = v
-	}
-	if v := os.Getenv("METERING_VERIFICATION_KEYS"); v != "" {
-		keys := make(map[string]string)
-		if err := json.Unmarshal([]byte(v), &keys); err != nil {
-			zap.L().Warn("Invalid METERING_VERIFICATION_KEYS value; expected JSON object", zap.Error(err))
-		} else {
-			config.MeteringVerificationKeys = keys
-		}
-	}
-
-	// OTel metering emitter env vars
+	// OTel metering emitter env vars (from /etc/default/cmon-proxy.env)
 	if v := os.Getenv("OTEL_METERING_ENABLED"); v != "" {
 		config.OtelMeteringEnabled = v == "true" || v == "1" || v == "yes"
 	}

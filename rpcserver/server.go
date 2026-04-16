@@ -43,7 +43,6 @@ import (
 
 	"github.com/severalnines/cmon-proxy/config"
 	k8s "github.com/severalnines/cmon-proxy/k8s"
-	"github.com/severalnines/cmon-proxy/metering"
 	"github.com/severalnines/cmon-proxy/multi"
 	cmonotel "github.com/severalnines/cmon-proxy/otel"
 	"github.com/severalnines/cmon-proxy/multi/router"
@@ -57,9 +56,6 @@ var (
 	httpServer         *http.Server
 	httpServerPlain    *http.Server
 	proxy              *multi.Proxy
-	meteringCollector  *metering.Collector
-	meteringStorage    metering.StorageBackend
-	meteringInterval   time.Duration
 	otelEmitter        *cmonotel.Emitter
 )
 
@@ -785,12 +781,7 @@ func Start(cfg *config.Config) {
 
 	multi.StartSessionCleanupScheduler(proxy)
 
-	// Initialize metering if enabled (v1: embedded storage + reports)
-	if cfg.MeteringEnabled {
-		initMetering(cfg)
-	}
-
-	// Initialize OTel metering emitter (v2: emit to cmon-billing)
+	// Initialize OTel metering emitter (emits to cmon-billing service)
 	if cfg.OtelMeteringEnabled {
 		initOtelEmitter(cfg)
 	}
@@ -1028,16 +1019,6 @@ func Start(cfg *config.Config) {
 			admin.POST("/reload", proxy.RPCAdminReload)
 		}
 
-		// Metering API
-		if cfg.MeteringEnabled {
-			meteringGrp := p.Group("/metering")
-			meteringGrp.Use(proxy.RPCAuthMiddleware)
-			{
-				meteringGrp.GET("/status", handleMeteringStatus)
-				meteringGrp.POST("/status", handleMeteringStatus)
-				meteringGrp.POST("/reports", handleMeteringReports)
-			}
-		}
 	}
 
 	httpServer = &http.Server{
@@ -1078,17 +1059,6 @@ func Start(cfg *config.Config) {
 func Stop() {
 	// get logger
 	log := zap.L()
-
-	// Stop metering collector
-	if meteringCollector != nil {
-		log.Sugar().Info("Stopping metering collector")
-		meteringCollector.Stop()
-		meteringCollector = nil
-	}
-	if meteringStorage != nil {
-		meteringStorage.Close()
-		meteringStorage = nil
-	}
 
 	// Stop OTel emitter
 	if otelEmitter != nil {

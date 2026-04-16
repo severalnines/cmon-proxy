@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/severalnines/cmon-proxy/config"
-	"github.com/severalnines/cmon-proxy/metering"
 	cmonotel "github.com/severalnines/cmon-proxy/otel"
 	"go.uber.org/zap"
 )
@@ -34,7 +33,7 @@ func initOtelEmitter(cfg *config.Config) {
 		instanceID = "cmon-proxy"
 	}
 
-	provider := metering.NewRouterAdapter(proxy.DefaultRouter())
+	provider := cmonotel.NewRouterAdapter(proxy.DefaultRouter())
 	otelEmitter = cmonotel.NewEmitter(provider, endpoint, interval, instanceID)
 	otelEmitter.Start()
 

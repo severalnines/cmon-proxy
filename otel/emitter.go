@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/severalnines/cmon-proxy/metering"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
@@ -27,7 +26,7 @@ import (
 
 // Emitter periodically collects metering data and emits OTel metrics via OTLP gRPC.
 type Emitter struct {
-	provider   metering.ClusterDataProvider
+	provider   ClusterDataProvider
 	endpoint   string
 	interval   time.Duration
 	instanceID string
@@ -37,7 +36,7 @@ type Emitter struct {
 }
 
 // NewEmitter creates a new OTel metrics emitter.
-func NewEmitter(provider metering.ClusterDataProvider, endpoint string, interval time.Duration, instanceID string) *Emitter {
+func NewEmitter(provider ClusterDataProvider, endpoint string, interval time.Duration, instanceID string) *Emitter {
 	return &Emitter{
 		provider:   provider,
 		endpoint:   endpoint,
@@ -123,7 +122,7 @@ func (e *Emitter) emit() {
 					className = host.ClassName
 				}
 
-				if !metering.IsEligibleNode(className) {
+				if !IsEligibleNode(className) {
 					continue
 				}
 
@@ -136,9 +135,9 @@ func (e *Emitter) emit() {
 					intAttr("cc.cluster.id", int64(cluster.ClusterID)),
 					strAttr("cc.cluster.name", cluster.ClusterName),
 					strAttr("cc.cluster.type", cluster.ClusterType),
-					strAttr("cc.db.vendor", metering.NormalizeVendor(cluster.Vendor)),
+					strAttr("cc.db.vendor", NormalizeVendor(cluster.Vendor)),
 					intAttr("cc.node.port", int64(host.Port)),
-					strAttr("cc.node.role", metering.NodeRoleFromClassName(className)),
+					strAttr("cc.node.role", NodeRoleFromClassName(className)),
 					strAttr("cc.node.class", className),
 					strAttr("cc.node.status", host.HostStatus),
 				}
