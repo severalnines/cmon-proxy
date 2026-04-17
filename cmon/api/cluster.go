@@ -38,6 +38,41 @@ type GetAllClusterInfoRequest struct {
 	WithTags         bool `json:"with_tags,omitempty"`
 }
 
+type GetMeteringDataRequest struct {
+	*WithOperation `json:",inline"`
+}
+
+type GetMeteringDataResponse struct {
+	*WithControllerID `json:",inline"`
+	*WithResponseData `json:",inline"`
+
+	Clusters     []*MeteringCluster `json:"clusters"`
+	ClusterCount int                `json:"cluster_count"`
+	HostCount    int                `json:"host_count"`
+}
+
+type MeteringCluster struct {
+	ClusterID   uint64          `json:"cluster_id"`
+	ClusterName string          `json:"cluster_name"`
+	ClusterType string          `json:"cluster_type"`
+	Vendor      string          `json:"vendor"`
+	Tags        []string        `json:"tags,omitempty"`
+	Hosts       []*MeteringHost `json:"hosts,omitempty"`
+}
+
+type MeteringHost struct {
+	ClassName     string `json:"class_name"`
+	Hostname      string `json:"hostname"`
+	IP            string `json:"ip"`
+	Port          int    `json:"port"`
+	HostStatus    string `json:"hoststatus"`
+	NodeType      string `json:"nodetype"`
+	HostID        uint64 `json:"host_id"`
+	NCPUs         *int   `json:"ncpus,omitempty"`
+	TotalMemoryMB *int   `json:"total_memory_mb,omitempty"`
+	LargestDiskMB *int   `json:"largest_disk_mb,omitempty"`
+}
+
 type CmonLicense struct {
 	*WithClassName `json:",inline"`
 

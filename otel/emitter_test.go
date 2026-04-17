@@ -128,7 +128,7 @@ func TestEmitter_EmitsOneLogRecordPerEligibleNode(t *testing.T) {
 			ControllerID: "ctrl-xid-1",
 			Clusters:     []*api.Cluster{cluster},
 			HostStats: map[uint64]*HostHardwareStats{
-				1001: {RAMMB: intPtr(16384), VolumeGB: intPtr(200)},
+				1001: {VCPU: intPtr(8), RAMMB: intPtr(16384), VolumeGB: intPtr(200)},
 				// 1002 intentionally omitted to exercise the nil-hw path.
 			},
 		},
@@ -174,6 +174,7 @@ func TestEmitter_EmitsOneLogRecordPerEligibleNode(t *testing.T) {
 	assert.Equal(t, "database", kvAsString(dbBody, "node_role"))
 	assert.Equal(t, "CmonGaleraHost", kvAsString(dbBody, "node_class"))
 	assert.Equal(t, "CmonHostOnline", kvAsString(dbBody, "node_status"))
+	assert.Equal(t, int64(8), kvAsInt(dbBody, "vcpu"))
 	assert.Equal(t, int64(16384), kvAsInt(dbBody, "ram_mb"))
 	assert.Equal(t, int64(200), kvAsInt(dbBody, "volume_gb"))
 	assert.Equal(t, []string{"customer-acme", "env-prod"}, kvAsStringArray(dbBody, "tags"))
@@ -185,6 +186,7 @@ func TestEmitter_EmitsOneLogRecordPerEligibleNode(t *testing.T) {
 	assert.Equal(t, int64(0), kvAsInt(proxyBody, "ram_mb"), "missing ram_mb returns zero-int on lookup")
 	// Absence check — ensure we didn't emit a ram_mb KV at all when hw was nil.
 	for _, kv := range proxyBody {
+		assert.NotEqual(t, "vcpu", kv.Key, "vcpu must be absent when HostStats is missing")
 		assert.NotEqual(t, "ram_mb", kv.Key, "ram_mb must be absent when HostStats is missing")
 		assert.NotEqual(t, "volume_gb", kv.Key, "volume_gb must be absent when HostStats is missing")
 	}

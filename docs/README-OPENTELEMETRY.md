@@ -2,34 +2,35 @@
 
 ## Overview
 
-ClusterControl usage metering v2 uses OpenTelemetry to decouple data collection from billing. cmon-proxy emits OTel metrics about managed database nodes. A separate service, cmon-billing, receives these metrics and generates sealed billing reports.
+ClusterControl usage metering v2 uses OpenTelemetry to decouple data collection from billing. cmon-proxy emits OTel log records about managed database nodes. A separate service, cmon-telemetry, receives these records and generates sealed billing reports.
 
 ## Components
 
 | Component | Package | Purpose |
 |---|---|---|
-| cmon-proxy | `clustercontrol-proxy` | Emits OTel metrics about cluster/node state |
-| cmon-billing | `clustercontrol-billing` | Receives metrics, stores snapshots, generates reports |
+| cmon-proxy | `clustercontrol-proxy` | Emits OTel log records about cluster/node state |
+| cmon-telemetry | `clustercontrol-telemetry` | Receives logs, stores snapshots, generates reports |
 
 ## Quick Start
 
-### 1. Install cmon-billing
+### 1. Install cmon-telemetry
 
 ```bash
 # DEB
-apt install clustercontrol-billing
+apt install clustercontrol-telemetry
 
 # RPM
-yum install clustercontrol-billing
+yum install clustercontrol-telemetry
 ```
 
-### 2. Configure cmon-billing
+### 2. Configure cmon-telemetry
 
-Edit `/etc/cmon-billing/config.yaml`:
+Edit `/etc/cmon-telemetry/config.yaml`:
 
 ```yaml
 otlp_listen: ":4317"
-db_path: /var/lib/cmon-billing/metering.db
+db_path: /var/lib/cmon-telemetry/metering.db
+collection_interval: "60m"
 billing_period_months: 1
 min_active_hours: 24
 retention_months: 12
@@ -43,8 +44,8 @@ key_id: "key-2026-Q2"
 Start the service:
 
 ```bash
-systemctl enable cmon-billing
-systemctl start cmon-billing
+systemctl enable cmon-telemetry
+systemctl start cmon-telemetry
 ```
 
 ### 3. Enable the OTel emitter in cmon-proxy
@@ -75,7 +76,7 @@ systemctl restart cmon-proxy
 ### 4. Verify data is flowing
 
 ```bash
-# Check cmon-billing status
+# Check cmon-telemetry status
 curl -s http://localhost:9520/status | python3 -m json.tool
 ```
 
@@ -134,12 +135,13 @@ version (they are not served from the period cache).
 
 ## Configuration Reference
 
-### cmon-billing (`/etc/cmon-billing/config.yaml`)
+### cmon-telemetry (`/etc/cmon-telemetry/config.yaml`)
 
 | Key | Default | Description |
 |---|---|---|
 | `otlp_listen` | `:4317` | OTLP gRPC listen address |
-| `db_path` | `/var/lib/cmon-billing/metering.db` | SQLite database path (or `postgres://` DSN) |
+| `db_path` | `/var/lib/cmon-telemetry/metering.db` | SQLite database path (or `postgres://` DSN) |
+| `collection_interval` | `60m` | Expected snapshot cadence from cmon-proxy, used for billing duration and health checks |
 | `billing_period_months` | `1` | Billing period in calendar months |
 | `min_active_hours` | `24` | Minimum hours for a node to be billable |
 | `retention_months` | `12` | Snapshot retention period |
@@ -231,7 +233,7 @@ Returns receiver health, snapshot count, and database size.
 
 | Operation | Description |
 |---|---|
-| `generateReport` | Compute and seal a billing report. Params: `period_start`, `period_end`. Idempotent. `force_regenerate: true` creates a new version. |
+| `generateReport` | Compute and seal a billing report. Params: optional `period_start`, `period_end`. When omitted, the most recently completed configured billing period is used. `force_regenerate: true` creates a new version. |
 | `listReports` | Return metadata for all sealed reports. |
 | `verifyReport` | Recompute hash + signature for a `report_id`. |
 | `exportReport` | Download as JSON or CSV (ZIP with summary + node_details). |
@@ -240,13 +242,13 @@ Returns receiver health, snapshot count, and database size.
 
 ```
 cmon-proxy-1 (site A) ──┐
-cmon-proxy-2 (site B) ──┤── OTLP gRPC ──► cmon-billing (central)
+cmon-proxy-2 (site B) ──┤── OTLP gRPC ──► cmon-telemetry (central)
 cmon-proxy-3 (site C) ──┘                      │
                                                ├── SQLite/PostgreSQL
                                                └── REST API :9520
 ```
 
-Each proxy emits independently. cmon-billing deduplicates by node ID — no double-counting even if two proxies manage overlapping controllers.
+Each proxy emits independently. cmon-telemetry deduplicates by node ID per collection tick — no double-counting even if two proxies manage overlapping controllers.
 
 ## OTel Logs Emitted
 
@@ -351,17 +353,17 @@ verification_keys:
   key-2026-Q3: "<new-key>"
 
 # Restart
-systemctl restart cmon-billing
+systemctl restart cmon-telemetry
 ```
 
 Old reports remain verifiable via `verification_keys`.
 
 ## Troubleshooting
 
-**cmon-billing not receiving data:** Check `systemctl status cmon-billing` for listener errors. Verify `OTEL_METERING_ENDPOINT` in cmon-proxy matches `otlp_listen` in cmon-billing. Check firewall allows port 4317.
+**cmon-telemetry not receiving data:** Check `systemctl status cmon-telemetry` for listener errors. Verify `OTEL_METERING_ENDPOINT` in cmon-proxy matches `otlp_listen` in cmon-telemetry. Check firewall allows port 4317.
 
-**Snapshots not appearing:** Verify cmon-proxy logs show `[otel-metering] emitted N metrics`. Check that the CMON controllers are reachable from cmon-proxy.
+**Snapshots not appearing:** Verify cmon-proxy logs show `[otel-metering] emitted N node snapshots`. Check that the CMON controllers are reachable from cmon-proxy.
 
 **Report shows 0 billable nodes:** Nodes need ≥24 cumulative hours (configurable via `min_active_hours`). Wait for enough collection ticks.
 
-**vCPU always 0:** Requires the `getMeteringData` endpoint in cc-cmon (CLUS-7327). Falls back gracefully to nil until the controller is upgraded.
+**vCPU missing for some nodes:** cmon-proxy now prefers `getMeteringData`. If a controller or host collector has not populated `ncpus` yet, the `vcpu` field is omitted and the report stores it as unknown for that snapshot.

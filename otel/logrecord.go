@@ -33,6 +33,9 @@ func buildNodeLogRecord(nodeID, controllerID string, cluster *api.Cluster, host 
 		strAttr("node_status", host.HostStatus),
 	}
 	if hw != nil {
+		if hw.VCPU != nil {
+			body = append(body, intAttr("vcpu", int64(*hw.VCPU)))
+		}
 		if hw.RAMMB != nil {
 			body = append(body, intAttr("ram_mb", int64(*hw.RAMMB)))
 		}

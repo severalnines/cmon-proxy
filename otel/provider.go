@@ -24,6 +24,7 @@ type ControllerClusters struct {
 
 // HostHardwareStats holds hardware specs for a single host.
 type HostHardwareStats struct {
+	VCPU     *int
 	RAMMB    *int
 	VolumeGB *int
 }
@@ -38,17 +39,17 @@ func NewRouterAdapter(r *router.Router) *RouterAdapter {
 	return &RouterAdapter{router: r}
 }
 
-// FetchAllClusters forces a cache refresh and returns per-controller cluster data
-// including hardware stats (RAM, disk) fetched from the stat API.
+// FetchAllClusters returns per-controller cluster data. It prefers the
+// lightweight getMeteringData endpoint when available and falls back to
+// getAllClusterInfo plus statByName for older controllers.
 func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
 	log := zap.L().Sugar()
 
 	urls := a.router.Urls()
 	log.Debugf("[otel-provider] Router has %d URLs: %v", len(urls), urls)
 
-	a.router.GetAllClusterInfo(true)
-
 	result := make(map[string]*ControllerClusters)
+	fetchedFallbackClusters := false
 
 	for _, addr := range urls {
 		if addr == "" {
@@ -65,22 +66,100 @@ func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
 			cc.ControllerID = xid
 		}
 
-		if cmonEntry.Clusters != nil && cmonEntry.Clusters.Clusters != nil {
-			cc.Clusters = cmonEntry.Clusters.Clusters
-			log.Debugf("[otel-provider] Controller %s returned %d clusters", addr, len(cc.Clusters))
-		} else {
-			log.Debugf("[otel-provider] Controller %s has no cluster data cached", addr)
+		client := a.router.Client(addr)
+		if client != nil {
+			clusters, hostStats, err := fetchMeteringData(client)
+			if err == nil {
+				cc.Clusters = clusters
+				cc.HostStats = hostStats
+				log.Debugf("[otel-provider] Controller %s returned %d metering clusters", addr, len(cc.Clusters))
+			} else {
+				log.Debugf("[otel-provider] getMeteringData unavailable for controller %s, falling back to cached cluster info: %v", addr, err)
+			}
 		}
 
-		client := a.router.Client(addr)
-		if client != nil && cc.Clusters != nil {
-			cc.HostStats = fetchHostStats(client, cc.Clusters)
+		if cc.Clusters == nil {
+			if !fetchedFallbackClusters {
+				a.router.GetAllClusterInfo(true)
+				fetchedFallbackClusters = true
+			}
+			if cmonEntry.Clusters != nil && cmonEntry.Clusters.Clusters != nil {
+				cc.Clusters = cmonEntry.Clusters.Clusters
+				log.Debugf("[otel-provider] Controller %s returned %d fallback clusters", addr, len(cc.Clusters))
+			} else {
+				log.Debugf("[otel-provider] Controller %s has no cluster data cached", addr)
+			}
+			if client != nil && cc.Clusters != nil {
+				cc.HostStats = fetchHostStats(client, cc.Clusters)
+			}
 		}
 
 		result[addr] = cc
 	}
 
 	return result
+}
+
+func fetchMeteringData(client interface {
+	GetMeteringData(*api.GetMeteringDataRequest) (*api.GetMeteringDataResponse, error)
+}) ([]*api.Cluster, map[uint64]*HostHardwareStats, error) {
+	resp, err := client.GetMeteringData(&api.GetMeteringDataRequest{
+		WithOperation: &api.WithOperation{Operation: "getMeteringData"},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	clusters := make([]*api.Cluster, 0, len(resp.Clusters))
+	hostStats := make(map[uint64]*HostHardwareStats)
+	for _, cluster := range resp.Clusters {
+		if cluster == nil {
+			continue
+		}
+		converted := &api.Cluster{
+			ClusterID:   cluster.ClusterID,
+			ClusterName: cluster.ClusterName,
+			ClusterType: cluster.ClusterType,
+			Vendor:      cluster.Vendor,
+			Tags:        cluster.Tags,
+		}
+
+		for _, host := range cluster.Hosts {
+			if host == nil {
+				continue
+			}
+			converted.Hosts = append(converted.Hosts, &api.Host{
+				WithClassName: &api.WithClassName{ClassName: host.ClassName},
+				HostID:        host.HostID,
+				Hostname:      host.Hostname,
+				IP:            host.IP,
+				Port:          api.CmonInt(host.Port),
+				HostStatus:    host.HostStatus,
+				Nodetype:      host.NodeType,
+			})
+
+			stats := &HostHardwareStats{}
+			if host.NCPUs != nil {
+				vcpu := *host.NCPUs
+				stats.VCPU = &vcpu
+			}
+			if host.TotalMemoryMB != nil {
+				ramMB := *host.TotalMemoryMB
+				stats.RAMMB = &ramMB
+			}
+			if host.LargestDiskMB != nil {
+				volumeGB := *host.LargestDiskMB / 1024
+				stats.VolumeGB = &volumeGB
+			}
+			if stats.VCPU != nil || stats.RAMMB != nil || stats.VolumeGB != nil {
+				hostStats[host.HostID] = stats
+			}
+		}
+
+		clusters = append(clusters, converted)
+	}
+
+	return clusters, hostStats, nil
 }
 
 func fetchHostStats(client interface {
