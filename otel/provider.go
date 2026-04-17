@@ -102,6 +102,7 @@ func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
 
 func fetchMeteringData(client interface {
 	GetMeteringData(*api.GetMeteringDataRequest) (*api.GetMeteringDataResponse, error)
+	GetCpuPhysicalInfo(*api.GetCpuPhysicalInfoRequest) (*api.GetCpuPhysicalInfoResponse, error)
 }) ([]*api.Cluster, map[uint64]*HostHardwareStats, error) {
 	resp, err := client.GetMeteringData(&api.GetMeteringDataRequest{
 		WithOperation: &api.WithOperation{Operation: "getMeteringData"},
@@ -151,15 +152,78 @@ func fetchMeteringData(client interface {
 				volumeGB := *host.LargestDiskMB / 1024
 				stats.VolumeGB = &volumeGB
 			}
-			if stats.VCPU != nil || stats.RAMMB != nil || stats.VolumeGB != nil {
-				hostStats[host.HostID] = stats
-			}
+			hostStats[host.HostID] = stats
 		}
+
+		fillMissingVCPUFromCPUInfo(client, cluster.ClusterID, hostStats)
 
 		clusters = append(clusters, converted)
 	}
 
 	return clusters, hostStats, nil
+}
+
+func fillMissingVCPUFromCPUInfo(client interface {
+	GetCpuPhysicalInfo(*api.GetCpuPhysicalInfoRequest) (*api.GetCpuPhysicalInfoResponse, error)
+}, clusterID uint64, hostStats map[uint64]*HostHardwareStats) {
+	if !hasHostMissingVCPU(hostStats) {
+		return
+	}
+
+	resp, err := client.GetCpuPhysicalInfo(&api.GetCpuPhysicalInfoRequest{
+		WithOperation: &api.WithOperation{Operation: "getCpuPhysicalInfo"},
+		WithClusterID: &api.WithClusterID{ClusterID: clusterID},
+	})
+	if err != nil || resp == nil {
+		return
+	}
+
+	perHostVCPU := make(map[uint64]int)
+	seenPhysicalCPU := make(map[uint64]map[int]bool)
+	for _, cpuInfo := range resp.Data {
+		if cpuInfo == nil {
+			continue
+		}
+
+		threads := cpuInfo.Siblings
+		if threads <= 0 {
+			threads = cpuInfo.CpuCores
+		}
+		if threads <= 0 {
+			continue
+		}
+
+		if seenPhysicalCPU[cpuInfo.HostID] == nil {
+			seenPhysicalCPU[cpuInfo.HostID] = make(map[int]bool)
+		}
+		if seenPhysicalCPU[cpuInfo.HostID][cpuInfo.PhysicalCPUID] {
+			continue
+		}
+		seenPhysicalCPU[cpuInfo.HostID][cpuInfo.PhysicalCPUID] = true
+		perHostVCPU[cpuInfo.HostID] += threads
+	}
+
+	for hostID, vcpu := range perHostVCPU {
+		if hostStats[hostID] == nil {
+			hostStats[hostID] = &HostHardwareStats{}
+		}
+		if hostStats[hostID].VCPU == nil {
+			value := vcpu
+			hostStats[hostID].VCPU = &value
+		}
+	}
+}
+
+func hasHostMissingVCPU(hostStats map[uint64]*HostHardwareStats) bool {
+	if len(hostStats) == 0 {
+		return true
+	}
+	for _, stats := range hostStats {
+		if stats == nil || stats.VCPU == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func fetchHostStats(client interface {

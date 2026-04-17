@@ -1,5 +1,12 @@
 package api
 
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -58,6 +65,53 @@ type MeteringCluster struct {
 	Vendor      string          `json:"vendor"`
 	Tags        []string        `json:"tags,omitempty"`
 	Hosts       []*MeteringHost `json:"hosts,omitempty"`
+}
+
+func (c *MeteringCluster) UnmarshalJSON(data []byte) error {
+	type rawMeteringCluster struct {
+		ClusterID   uint64          `json:"cluster_id"`
+		ClusterName string          `json:"cluster_name"`
+		ClusterType json.RawMessage `json:"cluster_type"`
+		Vendor      string          `json:"vendor"`
+		Tags        []string        `json:"tags,omitempty"`
+		Hosts       []*MeteringHost `json:"hosts,omitempty"`
+	}
+
+	var raw rawMeteringCluster
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	clusterType, err := decodeMeteringClusterType(raw.ClusterType)
+	if err != nil {
+		return err
+	}
+
+	c.ClusterID = raw.ClusterID
+	c.ClusterName = raw.ClusterName
+	c.ClusterType = clusterType
+	c.Vendor = raw.Vendor
+	c.Tags = raw.Tags
+	c.Hosts = raw.Hosts
+	return nil
+}
+
+func decodeMeteringClusterType(data json.RawMessage) (string, error) {
+	if len(data) == 0 || string(data) == "null" {
+		return "", nil
+	}
+
+	var asString string
+	if err := json.Unmarshal(data, &asString); err == nil {
+		return strings.Trim(asString, "\r\n\t '\""), nil
+	}
+
+	var asNumber int
+	if err := json.Unmarshal(data, &asNumber); err == nil {
+		return strconv.Itoa(asNumber), nil
+	}
+
+	return "", fmt.Errorf("invalid cluster_type payload: %s", string(data))
 }
 
 type MeteringHost struct {
