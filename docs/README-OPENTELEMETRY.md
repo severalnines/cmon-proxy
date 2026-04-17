@@ -101,6 +101,37 @@ curl -s -X POST http://localhost:9520/reports \
   }' | python3 -m json.tool
 ```
 
+#### Per-customer / per-tenant reports
+
+`generateReport` also accepts optional filters so MSPs and CSPs can produce a
+sealed report restricted to a single customer or tenant. Filters are combined
+with AND across fields; values inside each list combine with OR. A snapshot's
+`cc.cluster.tags` attribute is matched against `tags`.
+
+| Field | Type | Semantics |
+|---|---|---|
+| `tags` | `[]string` | Match snapshots whose tag list contains any of the listed values |
+| `cluster_ids` | `[]uint64` | Match snapshots whose `cluster_id` is in the list |
+| `cluster_names` | `[]string` | Match snapshots whose `cluster_name` is in the list |
+
+```bash
+# Billing report for a single tenant (tag)
+curl -s -X POST http://localhost:9520/reports \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "operation": "generateReport",
+    "period_start": "2026-04-01T00:00:00Z",
+    "period_end":   "2026-04-30T23:59:59Z",
+    "tags": ["customer-acme"]
+  }' | python3 -m json.tool
+```
+
+Filtered reports are sealed and stored as their own entries in
+`billing_reports`, independently verifiable via `verifyReport`. The returned
+payload includes a top-level `"filter"` object describing the scope it covers.
+Unlike estate-wide reports, filtered generations always create a new sealed
+version (they are not served from the period cache).
+
 ## Configuration Reference
 
 ### cmon-billing (`/etc/cmon-billing/config.yaml`)
