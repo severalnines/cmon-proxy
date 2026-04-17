@@ -32,7 +32,7 @@ cmon-proxy instance N ──┘                            │
 
 The OTLP wire protocol means you can insert an OTel Collector between them for fan-out, or replace either side independently.
 
-## OTel Metrics Schema
+## OTel Logs Schema
 
 ### Resource Attributes (per cmon-proxy instance)
 
@@ -40,32 +40,32 @@ The OTLP wire protocol means you can insert an OTel Collector between them for f
 |---|---|---|
 | `service.name` | `cmon-proxy` | OTel standard service identifier |
 | `service.instance.id` | `proxy-01` | Distinguishes multi-proxy setups |
-| `controller.id` | `https://ctrl-1:9501` | CMON controller URL or xid |
+| `cc.controller.id` | `ctrl-xid-1` | Stable controller identity attached per LogRecord |
 
-### Metrics Emitted
-
-| Metric Name | Type | Unit | Description |
-|---|---|---|---|
-| `cc.node.active` | Gauge (1/0) | — | 1 if node is present in cluster (active or stopped). Stopped nodes count as active for billing. 0 if absent/removed. |
-| `cc.node.cpu.count` | Gauge | `{cores}` | vCPU count (from getMeteringData ncpus) |
-| `cc.node.memory.total` | Gauge | `MiBy` | Total RAM in MB |
-| `cc.node.disk.total` | Gauge | `MiBy` | Largest disk mount in MB |
-
-### Data-Point Attributes (per metric data point)
+### LogRecord Attributes (identity + query keys)
 
 | Attribute | Example | Description |
-|---|---|---|
+|---|---|---|---|
+| `cc.controller.id` | `ctrl-xid-1` | CMON controller xid |
 | `cc.cluster.id` | `1` | Cluster ID within the controller |
 | `cc.cluster.name` | `prod-galera` | Human-readable cluster name |
 | `cc.cluster.type` | `GALERA` | Cluster type |
 | `cc.db.vendor` | `percona` | Normalized vendor name |
-| `cc.node.id` | `ctrl-1:10.0.1.1` | Stable node identifier |
-| `cc.node.hostname` | `db-node-1` | Hostname |
-| `cc.node.port` | `3306` | Service port |
-| `cc.node.role` | `database` | `database` or `proxysql` |
-| `cc.node.class` | `CmonGaleraHost` | CMON host class name |
-| `cc.node.status` | `CmonHostOnline` | Raw CMON host status |
-| `cc.cluster.tags` | `["customer-123"]` | JSON array of cluster tags |
+
+### LogRecord Body (typed KvList payload)
+
+| Field | Type | Description |
+|---|---|---|
+| `node_id` | string | `{controller_id}:{private_ip}` stable node identifier |
+| `hostname` | string | Hostname |
+| `port` | int | Service port |
+| `node_role` | string | `database` or `proxysql` |
+| `node_class` | string | CMON host class name |
+| `node_status` | string | Raw CMON host status |
+| `vcpu` | int (optional) | vCPU count from `getMeteringData.ncpus` |
+| `ram_mb` | int (optional) | Total RAM in MB |
+| `volume_gb` | int (optional) | Largest mount-point size in GB |
+| `tags` | array of string (optional) | Cluster tag list |
 
 ## Data Flow
 
@@ -74,24 +74,21 @@ The OTLP wire protocol means you can insert an OTel Collector between them for f
 ```
 Router.GetMeteringData(forceUpdate=true)
   → For each cluster → For each eligible host:
-    Emit cc.node.active = 1
-    Emit cc.node.cpu.count = ncpus
-    Emit cc.node.memory.total = total_memory_mb
-    Emit cc.node.disk.total = total_disk_mb
-    (all with cc.* attributes)
+    Build one OTLP LogRecord
+    Attach cc.* identity attributes
+    Populate body with node_id, status, vcpu, ram_mb, volume_gb, tags
   → OTLP gRPC push to cmon-telemetry
 ```
 
 ### Reception (cmon-telemetry)
 
 ```
-OTLP ExportMetricsServiceRequest received
-  → For each data point on cc.node.active:
-    Extract cc.* attributes → NodeSnapshot
-    value == 1 → status "active" or "stopped" (from cc.node.status)
-    value == 0 → status "removed"
-    Read structured body fields (vcpu, memory, disk) from the same LogRecord
-  → Lifecycle tracker: diff against previous tick → detect removals
+OTLP ExportLogsServiceRequest received
+  → For each LogRecord:
+    Extract cc.* attributes → NodeSnapshot identity
+    Decode body fields → status, vcpu, memory, disk, tags
+  → Tick-bucketed ingestion dedupes same-node records per tick
+  → Restart hydration + active-set diff emits synthetic "removed" snapshots
   → Batch-insert into SQLite
 ```
 
@@ -118,9 +115,9 @@ Same as v1: query snapshots for a billing period, identify billable nodes (≥24
 | Component | Purpose |
 |---|---|
 | `cmd/cmon-telemetry/main.go` | Entry point, config, startup |
-| `internal/receiver/otlp.go` | OTLP gRPC server, metric → snapshot conversion |
-| `internal/metering/` | Models, storage, SQLite, report, sealing (reused from cmon-proxy v1) |
-| `internal/lifecycle/tracker.go` | Node diff detection (removed node tracking) |
+| `internal/receiver/otlp.go` | OTLP gRPC server, LogRecord → snapshot conversion |
+| `internal/ingestion/pipeline.go` | Tick bucketing, dedupe, restart hydration, removed-node synthesis |
+| `internal/metering/` | Models, storage, SQLite, report, sealing |
 | `internal/api/server.go` | Gin REST API (reports, status) |
 
 ## Deduplication (multi-proxy)
@@ -134,14 +131,14 @@ cc-telemetry/                        # New repo
 ├── cmd/cmon-telemetry/main.go       # Binary entry point
 ├── internal/
 │   ├── receiver/otlp.go             # OTLP gRPC receiver
-│   ├── metering/                    # Reused from cmon-proxy v1
+│   ├── ingestion/pipeline.go        # Tick bucketing + dedupe + lifecycle synthesis
+│   ├── metering/
 │   │   ├── models.go
 │   │   ├── storage.go
 │   │   ├── sqlite.go
 │   │   ├── report.go
 │   │   ├── sealing.go
 │   │   └── status.go
-│   ├── lifecycle/tracker.go         # Node add/remove detection
 │   └── api/server.go                # REST API
 ├── etc/
 │   ├── systemd/system/cmon-telemetry.service
