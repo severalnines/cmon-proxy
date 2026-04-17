@@ -282,12 +282,21 @@ The LogRecord's `body` is an OTLP KvList — a typed structured record (not an o
 | `node_role` | string | `database` or `proxysql` |
 | `node_class` | string | CMON host class name |
 | `node_status` | string | Raw CMON status; receiver normalises to `active` / `stopped` / `removed` |
-| `vcpu` | int (optional) | vCPU count when known |
+| `vcpu` | int (optional) | vCPU count — see "vCPU recovery" below for the fetch chain |
 | `ram_mb` | int (optional) | Total RAM in MB |
 | `volume_gb` | int (optional) | Largest data volume in GB |
 | `tags` | array of string (optional) | Cluster tag list (customer-id, tenant-id, …) |
 
 Optional fields are absent from the body when unavailable rather than emitted as zero — downstream queries should check for presence.
+
+### vCPU recovery
+
+cmon-proxy fetches hardware stats in two stages:
+
+1. **Primary: `getMeteringData`** (cc-cmon) returns per-host `ncpus`, `total_memory_mb`, and `largest_disk_mb` in one call, backed by the live stat collectors with a `CmonSheetManager` fallback on the controller side.
+2. **vCPU recovery: `getCpuPhysicalInfo`.** If any host in the cluster still lacks `vcpu` after step 1, cmon-proxy calls `getCpuPhysicalInfo` and reconstructs vCPU by summing per-physical-CPU thread counts (`Siblings`, falling back to `CpuCores`) deduplicated by `PhysicalCPUID`. This closes the gap for hosts whose collectors haven't sampled CPU yet.
+
+The `vcpu` field is only absent when both stages return nothing for that host. RAM and disk have no equivalent recovery path; they rely on the controller-side sheet-manager fallback.
 
 ## Fan-Out to Observability
 
@@ -335,7 +344,7 @@ service:
 
 This requires no changes to either cmon-proxy or cmon-telemetry.
 
-> The old emitter shape (OTel gauges, one per node per metric name) was removed in Phase 4. Gauges were a semantic mismatch for state records — the `cc.node.active = 1` value was always a presence flag and the real payload lived in attributes. If you genuinely want metric-style aggregation, the Collector's `logstometrics` processor can derive counts from these records downstream; we no longer ship that pipeline out of the box.
+> **History.** The emitter originally sent four OTel gauge metrics per node per tick; that was replaced by a single OTel LogRecord in CLUS-7333 (Phase 4). If you want metric-style aggregation on top of the Logs stream, the Collector's `logstometrics` processor can derive counts downstream — we don't ship that pipeline by default.
 
 ## Key Rotation
 
@@ -366,4 +375,4 @@ Old reports remain verifiable via `verification_keys`.
 
 **Report shows 0 billable nodes:** Nodes need ≥24 cumulative hours (configurable via `min_active_hours`). Wait for enough collection ticks.
 
-**vCPU missing for some nodes:** cmon-proxy now prefers `getMeteringData`. If a controller or host collector has not populated `ncpus` yet, the `vcpu` field is omitted and the report stores it as unknown for that snapshot.
+**vCPU missing for some nodes:** cmon-proxy fetches vCPU via `getMeteringData` and, as a fallback, `getCpuPhysicalInfo` (dedup by physical CPU id). If both return empty for a host — usually a newly-added node the controller hasn't sampled yet — the `vcpu` field is omitted and the report stores it as unknown until the next collection tick fills it in.

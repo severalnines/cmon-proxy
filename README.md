@@ -2,6 +2,10 @@
 
 cmon-proxy creates a unified view of multiple controllers.
 
+It also carries the OpenTelemetry metering emitter for ClusterControl billing —
+one OTLP LogRecord per eligible node per collection tick is pushed to
+cc-telemetry. See [`docs/README-OPENTELEMETRY.md`](docs/README-OPENTELEMETRY.md).
+
 Disclaimer: everything here is currently experimental, in a working progress
 state.
 
