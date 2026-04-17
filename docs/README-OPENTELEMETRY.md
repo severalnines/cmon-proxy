@@ -122,11 +122,75 @@ curl -s -X POST http://localhost:9520/reports \
 | Env Variable | YAML Key | Default | Description |
 |---|---|---|---|
 | `OTEL_METERING_ENABLED` | `otel_metering_enabled` | `false` | Enable OTel metering emission |
-| `OTEL_METERING_ENDPOINT` | `otel_metering_endpoint` | `localhost:4317` | cmon-billing gRPC address |
+| `OTEL_METERING_ENDPOINT` | `otel_metering_endpoint` | `localhost:4317` | cmon-telemetry gRPC address |
 | `OTEL_METERING_INTERVAL` | `otel_metering_interval` | `60m` | Collection/emission interval |
 | `OTEL_METERING_INSECURE` | `otel_metering_insecure` | `true` | Skip TLS for gRPC connection |
+| — | `otel_metering_tls_cert` | (none) | Client TLS certificate path |
+| — | `otel_metering_tls_key` | (none) | Client TLS private key path |
+| — | `otel_metering_tls_ca` | (none) | CA certificate for server verification |
 
-## REST API (cmon-billing :9520)
+## gRPC TLS Setup
+
+By default, the connection between cmon-proxy and cmon-telemetry is insecure (plaintext). For production, enable TLS or mTLS.
+
+### Generate certificates
+
+```bash
+# 1. Create a CA (one-time, shared between both services)
+openssl req -x509 -newkey rsa:4096 -keyout ca.key -out ca.crt -days 3650 -nodes \
+  -subj "/CN=cmon-telemetry-ca"
+
+# 2. Server cert (for cmon-telemetry)
+openssl req -newkey rsa:4096 -keyout server.key -out server.csr -nodes \
+  -subj "/CN=cmon-telemetry"
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out server.crt -days 365 \
+  -extfile <(printf "subjectAltName=DNS:localhost,DNS:cmon-telemetry,IP:127.0.0.1")
+
+# 3. Client cert (for cmon-proxy — only needed for mTLS)
+openssl req -newkey rsa:4096 -keyout client.key -out client.csr -nodes \
+  -subj "/CN=cmon-proxy"
+openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out client.crt -days 365
+```
+
+### Configure cmon-telemetry (server side)
+
+In `/etc/cmon-telemetry/config.yaml`:
+
+```yaml
+# TLS (server authenticates to clients)
+otlp_tls_cert: /etc/cmon-telemetry/server.crt
+otlp_tls_key: /etc/cmon-telemetry/server.key
+
+# mTLS (also verify client certs — add this line)
+otlp_tls_ca: /etc/cmon-telemetry/ca.crt
+```
+
+### Configure cmon-proxy (client side)
+
+In `ccmgr.yaml`:
+
+```yaml
+otel_metering_insecure: false  # disable plaintext
+
+# TLS (verify server using CA)
+otel_metering_tls_ca: /etc/cmon-proxy/ca.crt
+
+# mTLS (also present client cert)
+otel_metering_tls_cert: /etc/cmon-proxy/client.crt
+otel_metering_tls_key: /etc/cmon-proxy/client.key
+```
+
+### TLS modes
+
+| Mode | cmon-telemetry config | cmon-proxy config |
+|---|---|---|
+| Plaintext | (none) | `otel_metering_insecure: true` |
+| TLS (server auth) | cert + key | `otel_metering_tls_ca` |
+| mTLS (mutual) | cert + key + ca | cert + key + ca |
+
+## REST API (cmon-telemetry :9520)
 
 ### GET /status
 
