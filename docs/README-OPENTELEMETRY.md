@@ -248,30 +248,92 @@ cmon-proxy-3 (site C) ──┘                      │
 
 Each proxy emits independently. cmon-billing deduplicates by node ID — no double-counting even if two proxies manage overlapping controllers.
 
-## OTel Metrics Emitted
+## OTel Logs Emitted
 
-cmon-proxy emits these gauges per eligible node on each collection tick:
+cmon-proxy emits one OTLP **LogRecord** per eligible node on each collection tick. A node snapshot is a structured state record (identity, role, hardware high-water marks, tags) — it is carried on the OTLP logs signal, not the metrics signal, because it describes an event with structured body rather than a time-series measurement.
 
-| Metric | Description |
-|---|---|
-| `cc.node.active` | 1 if present (active/stopped), 0 if removed |
-| `cc.node.cpu.count` | vCPU count |
-| `cc.node.memory.total` | Total RAM (MB) |
-| `cc.node.disk.total` | Largest disk mount (MB) |
+Each record is self-contained; the receiver decodes it 1:1 into a `NodeSnapshot` with no cross-record correlation.
 
-Each data point carries attributes: `cc.cluster.id`, `cc.cluster.name`, `cc.cluster.type`, `cc.db.vendor`, `cc.node.id`, `cc.node.hostname`, `cc.node.port`, `cc.node.role`, `cc.node.class`, `cc.node.status`, `cc.cluster.tags`.
+### Record identity — attributes
+
+The LogRecord's `attributes` carry the identity and query keys suited to downstream indexing (Loki label selectors, Elasticsearch keyword fields):
+
+| Attribute | Type | Description |
+|---|---|---|
+| `cc.controller.id` | string | CMON controller XID |
+| `cc.cluster.id` | int | Cluster ID |
+| `cc.cluster.name` | string | Cluster display name |
+| `cc.cluster.type` | string | Deployment type (e.g. `GALERA`, `POSTGRESQL_SINGLE`) |
+| `cc.db.vendor` | string | Normalized vendor (`percona`, `mariadb`, `mongodb`, …) |
+
+The Resource carries `service.name = cmon-proxy` and `service.instance.id`.
+
+### Record payload — body (typed KvList)
+
+The LogRecord's `body` is an OTLP KvList — a typed structured record (not an opaque JSON string), so downstream backends can index and query individual fields:
+
+| Body field | Type | Description |
+|---|---|---|
+| `node_id` | string | `{controller_id}:{private_ip}` — stable across clouds |
+| `hostname` | string | Node hostname |
+| `port` | int | Service port |
+| `node_role` | string | `database` or `proxysql` |
+| `node_class` | string | CMON host class name |
+| `node_status` | string | Raw CMON status; receiver normalises to `active` / `stopped` / `removed` |
+| `vcpu` | int (optional) | vCPU count when known |
+| `ram_mb` | int (optional) | Total RAM in MB |
+| `volume_gb` | int (optional) | Largest data volume in GB |
+| `tags` | array of string (optional) | Cluster tag list (customer-id, tenant-id, …) |
+
+Optional fields are absent from the body when unavailable rather than emitted as zero — downstream queries should check for presence.
 
 ## Fan-Out to Observability
 
-You can insert a standard OTel Collector between cmon-proxy and cmon-billing to fan out metrics to additional backends:
+The sealed billing report lives in cmon-telemetry. For log archival, search, and dashboards you can insert a standard OTel Collector between cmon-proxy and cmon-telemetry and fan out to log backends:
 
 ```
-cmon-proxy ──► OTel Collector ──┬──► cmon-billing (billing)
-                                ├──► Prometheus (monitoring)
-                                └──► Grafana Cloud (dashboards)
+cmon-proxy ──► OTel Collector ──┬──► cmon-telemetry (billing)
+                                ├──► Loki          (search + dashboards)
+                                ├──► Elasticsearch (search + long-term)
+                                └──► S3 / GCS      (archive)
 ```
 
-This requires no changes to either cmon-proxy or cmon-billing.
+### Minimal Collector config (Loki + S3 + cmon-telemetry)
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  otlp/billing:
+    endpoint: cmon-telemetry:4317
+    tls:
+      insecure: true
+
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    default_labels_enabled:
+      exporter: false
+
+  awss3:
+    s3uploader:
+      region: eu-west-1
+      s3_bucket: clustercontrol-snapshots
+      s3_prefix: cc-proxy/
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [otlp/billing, loki, awss3]
+```
+
+This requires no changes to either cmon-proxy or cmon-telemetry.
+
+> The old emitter shape (OTel gauges, one per node per metric name) was removed in Phase 4. Gauges were a semantic mismatch for state records — the `cc.node.active = 1` value was always a presence flag and the real payload lived in attributes. If you genuinely want metric-style aggregation, the Collector's `logstometrics` processor can derive counts from these records downstream; we no longer ship that pipeline out of the box.
 
 ## Key Rotation
 

@@ -15,16 +15,20 @@ import (
 	"fmt"
 	"time"
 
-	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
-	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Emitter periodically collects metering data and emits OTel metrics via OTLP gRPC.
+// Emitter periodically collects metering data and emits OTel Logs via OTLP gRPC.
+// One LogRecord per eligible node per tick; the record body carries the full
+// node snapshot as a typed KvList (node_id, hostname, port, role, class,
+// status, vcpu, ram_mb, volume_gb, tags), and attributes carry the identity
+// keys (controller, cluster, vendor) suited to downstream querying.
 type Emitter struct {
 	provider   ClusterDataProvider
 	endpoint   string
@@ -36,8 +40,8 @@ type Emitter struct {
 	done       chan struct{}
 }
 
-// NewEmitter creates a new OTel metrics emitter.
-// dialOpts configures the gRPC connection (e.g., insecure or TLS credentials).
+// NewEmitter creates a new OTLP Logs emitter.
+// dialOpts configures the gRPC connection (insecure or TLS credentials).
 func NewEmitter(provider ClusterDataProvider, endpoint string, interval time.Duration, instanceID string, dialOpts ...grpc.DialOption) *Emitter {
 	if len(dialOpts) == 0 {
 		dialOpts = []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
@@ -137,7 +141,7 @@ func (e *Emitter) emitFromData(controllerData map[string]*ControllerClusters) {
 		return
 	}
 
-	var allMetrics []*metricspb.Metric
+	var records []*logspb.LogRecord
 
 	for addr, data := range controllerData {
 		if data.Err != nil {
@@ -162,87 +166,45 @@ func (e *Emitter) emitFromData(controllerData map[string]*ControllerClusters) {
 					continue
 				}
 
-				nodeID := fmt.Sprintf("%s:%s", controllerID, host.IP)
-				now := uint64(time.Now().UnixNano())
-
-				attrs := []*commonpb.KeyValue{
-					strAttr("cc.node.id", nodeID),
-					strAttr("cc.node.hostname", host.Hostname),
-					intAttr("cc.cluster.id", int64(cluster.ClusterID)),
-					strAttr("cc.cluster.name", cluster.ClusterName),
-					strAttr("cc.cluster.type", cluster.ClusterType),
-					strAttr("cc.db.vendor", NormalizeVendor(cluster.Vendor)),
-					intAttr("cc.node.port", int64(host.Port)),
-					strAttr("cc.node.role", NodeRoleFromClassName(className)),
-					strAttr("cc.node.class", className),
-					strAttr("cc.node.status", host.HostStatus),
-				}
-
-				if len(cluster.Tags) > 0 {
-					// Encode tags as JSON string attribute.
-					tagsStr := "["
-					for i, tag := range cluster.Tags {
-						if i > 0 {
-							tagsStr += ","
-						}
-						tagsStr += `"` + tag + `"`
-					}
-					tagsStr += "]"
-					attrs = append(attrs, strAttr("cc.cluster.tags", tagsStr))
-				}
-
-				// cc.node.active = 1 (node is present)
-				allMetrics = append(allMetrics, gaugeMetric("cc.node.active", now, 1, attrs))
-
-				// Hardware stats.
-				var cpuCount, ramMB, diskMB int64
+				var hw *HostHardwareStats
 				if data.HostStats != nil {
-					if hw, ok := data.HostStats[host.HostID]; ok && hw != nil {
-						if hw.RAMMB != nil {
-							ramMB = int64(*hw.RAMMB)
-						}
-						if hw.VolumeGB != nil {
-							diskMB = int64(*hw.VolumeGB) // Note: field is VolumeGB but we pass raw value
-						}
-					}
+					hw = data.HostStats[host.HostID]
 				}
-				allMetrics = append(allMetrics, gaugeMetric("cc.node.cpu.count", now, cpuCount, attrs))
-				allMetrics = append(allMetrics, gaugeMetric("cc.node.memory.total", now, ramMB, attrs))
-				allMetrics = append(allMetrics, gaugeMetric("cc.node.disk.total", now, diskMB, attrs))
+
+				nodeID := fmt.Sprintf("%s:%s", controllerID, host.IP)
+				records = append(records, buildNodeLogRecord(nodeID, controllerID, cluster, host, className, hw))
 			}
 		}
 	}
 
-	if len(allMetrics) == 0 {
+	if len(records) == 0 {
 		e.logger.Info("[otel-metering] no eligible nodes found")
 		return
 	}
 
-	// Build OTLP request.
-	req := &colmetricspb.ExportMetricsServiceRequest{
-		ResourceMetrics: []*metricspb.ResourceMetrics{{
+	req := &collogspb.ExportLogsServiceRequest{
+		ResourceLogs: []*logspb.ResourceLogs{{
 			Resource: &resourcepb.Resource{
 				Attributes: []*commonpb.KeyValue{
 					strAttr("service.name", "cmon-proxy"),
 					strAttr("service.instance.id", e.instanceID),
 				},
 			},
-			ScopeMetrics: []*metricspb.ScopeMetrics{{
-				Metrics: allMetrics,
+			ScopeLogs: []*logspb.ScopeLogs{{
+				LogRecords: records,
 			}},
 		}},
 	}
 
-	// Send via gRPC.
 	if err := e.send(req); err != nil {
-		e.logger.Errorf("[otel-metering] failed to send %d metrics: %v", len(allMetrics)/4, err)
+		e.logger.Errorf("[otel-metering] failed to send %d log records: %v", len(records), err)
 		return
 	}
 
-	e.logger.Infof("[otel-metering] emitted %d node metrics to %s", len(allMetrics)/4, e.endpoint)
+	e.logger.Infof("[otel-metering] emitted %d node snapshots to %s", len(records), e.endpoint)
 }
 
-func (e *Emitter) send(req *colmetricspb.ExportMetricsServiceRequest) error {
+func (e *Emitter) send(req *collogspb.ExportLogsServiceRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -252,36 +214,7 @@ func (e *Emitter) send(req *colmetricspb.ExportMetricsServiceRequest) error {
 	}
 	defer conn.Close()
 
-	client := colmetricspb.NewMetricsServiceClient(conn)
+	client := collogspb.NewLogsServiceClient(conn)
 	_, err = client.Export(ctx, req)
 	return err
-}
-
-func strAttr(key, value string) *commonpb.KeyValue {
-	return &commonpb.KeyValue{
-		Key:   key,
-		Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: value}},
-	}
-}
-
-func intAttr(key string, value int64) *commonpb.KeyValue {
-	return &commonpb.KeyValue{
-		Key:   key,
-		Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: value}},
-	}
-}
-
-func gaugeMetric(name string, timeNano uint64, value int64, attrs []*commonpb.KeyValue) *metricspb.Metric {
-	return &metricspb.Metric{
-		Name: name,
-		Data: &metricspb.Metric_Gauge{
-			Gauge: &metricspb.Gauge{
-				DataPoints: []*metricspb.NumberDataPoint{{
-					TimeUnixNano: timeNano,
-					Value:        &metricspb.NumberDataPoint_AsInt{AsInt: value},
-					Attributes:   attrs,
-				}},
-			},
-		},
-	}
 }
