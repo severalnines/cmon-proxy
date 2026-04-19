@@ -268,6 +268,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					"MULTI_CONTROLLER_API_URL":  "/v2",
 					"KUBERNETES_ENABLED":        cfg.KubernetesEnabled,
 					"POOL_VISIBLE":              cfg.PoolVisible,
+					"OTEL_METERING_ENABLED":     cfg.OtelMeteringEnabled,
 					"INSTANCES":                 cfg.Instances,
 				}
 

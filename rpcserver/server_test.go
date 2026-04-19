@@ -18,6 +18,8 @@ import (
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/multi/api"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
@@ -233,4 +235,33 @@ func TestStart(t *testing.T) {
 			t.Fail()
 		}
 	})
+}
+
+func TestCcmgrJsIncludesOtelMeteringFlag(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+	}{
+		{"enabled", true},
+		{"disabled", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{
+				OtelMeteringEnabled: tc.enabled,
+				FrontendPath:        t.TempDir(), // must exist; EvalSymlinks is called on it
+			}
+			gin.SetMode(gin.TestMode)
+			eng := gin.New()
+			require.NoError(t, serveFrontend(eng, cfg))
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/ccmgr.js", nil)
+			eng.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			body := w.Body.String()
+			want := fmt.Sprintf(`"OTEL_METERING_ENABLED":%t`, tc.enabled)
+			assert.Contains(t, body, want, "ccmgr.js must reflect OtelMeteringEnabled config")
+		})
+	}
 }
