@@ -150,6 +150,18 @@ type Config struct {
 	AcmeRenewBefore      string `yaml:"acme_renew_before,omitempty" json:"acme_renew_before,omitempty"`
 	AcmeHostPolicyStrict bool   `yaml:"acme_host_policy_strict" json:"acme_host_policy_strict"`
 
+	// OtelMeteringEnabled is the feature gate the UI reads via /ccmgr.js to
+	// decide whether the Billing page is reachable. The emitter-side fields
+	// (endpoint, interval, TLS, etc.) live on a separate PR; this flag is
+	// the minimum surface the passthrough handler needs.
+	OtelMeteringEnabled bool `yaml:"otel_metering_enabled" json:"otel_metering_enabled"`
+
+	// cc-telemetry is the billing service receiving OTLP Logs from this proxy.
+	// When the web UI asks for a billing report, cmon-proxy forwards to this URL
+	// and attaches the Bearer token below.
+	CcTelemetryURL   string `yaml:"cc_telemetry_url,omitempty" json:"cc_telemetry_url,omitempty"`
+	CcTelemetryToken string `yaml:"cc_telemetry_token,omitempty" json:"cc_telemetry_token,omitempty"`
+
 	mtx sync.RWMutex
 }
 
@@ -447,6 +459,10 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 	if config.K8sProxyURL == "" {
 		config.K8sProxyURL = defaults.K8sProxyURL
+	}
+
+	if config.CcTelemetryURL == "" {
+		config.CcTelemetryURL = "http://localhost:9520"
 	}
 
 	if config.LicenseProxyURL == "" {
