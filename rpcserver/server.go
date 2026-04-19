@@ -896,7 +896,8 @@ func Start(cfg *config.Config) {
 		telemetryGroup := p.Group("/telemetry")
 		telemetryGroup.Use(proxy.RPCAuthMiddleware)
 		{
-			telemetryGroup.Any("/*any", proxy.TelemetryProxyRequest)
+			telemetryGroup.GET("/status", proxy.TelemetryProxyRequest)
+			telemetryGroup.POST("/reports", proxy.TelemetryProxyRequest)
 		}
 
 		auth := p.Group("/auth")

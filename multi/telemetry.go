@@ -29,8 +29,8 @@ func (p *Proxy) TelemetryProxyRequest(c *gin.Context) {
 		return
 	}
 
-	// gin route is `/proxy/telemetry/*any`; `any` carries the leading slash.
-	tail := c.Param("any")
+	// Upstream path is whatever follows the /proxy/telemetry prefix.
+	tail := strings.TrimPrefix(c.Request.URL.Path, "/proxy/telemetry")
 	if tail == "" {
 		tail = "/"
 	}
