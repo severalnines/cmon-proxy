@@ -158,6 +158,12 @@ type Config struct {
 	OtelMeteringTLSKey   string `yaml:"otel_metering_tls_key,omitempty" json:"otel_metering_tls_key,omitempty"`   // Client TLS private key
 	OtelMeteringTLSCA    string `yaml:"otel_metering_tls_ca,omitempty" json:"otel_metering_tls_ca,omitempty"`     // CA cert for server verification
 
+	// cc-telemetry is the billing service receiving OTLP Logs from this proxy.
+	// When the web UI asks for a billing report, cmon-proxy forwards to this URL
+	// and attaches the Bearer token below.
+	CcTelemetryURL   string `yaml:"cc_telemetry_url,omitempty" json:"cc_telemetry_url,omitempty"`
+	CcTelemetryToken string `yaml:"cc_telemetry_token,omitempty" json:"cc_telemetry_token,omitempty"`
+
 	mtx sync.RWMutex
 }
 
@@ -452,6 +458,10 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 	}
 	if config.K8sProxyURL == "" {
 		config.K8sProxyURL = defaults.K8sProxyURL
+	}
+
+	if config.CcTelemetryURL == "" {
+		config.CcTelemetryURL = "http://localhost:9520"
 	}
 
 	if config.LicenseProxyURL == "" {
