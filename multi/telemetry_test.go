@@ -32,7 +32,6 @@ func TestTelemetryProxyRequest_ForwardsGET(t *testing.T) {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/proxy/telemetry/status", nil)
-	ctx.Params = gin.Params{{Key: "any", Value: "/status"}}
 
 	p.TelemetryProxyRequest(ctx)
 
@@ -59,7 +58,6 @@ func TestTelemetryProxyRequest_ForwardsPOSTBody(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/proxy/telemetry/reports", body)
 	ctx.Request.Header.Set("Content-Type", "application/json")
-	ctx.Params = gin.Params{{Key: "any", Value: "/reports"}}
 
 	p.TelemetryProxyRequest(ctx)
 
@@ -81,7 +79,6 @@ func TestTelemetryProxyRequest_NoTokenSkipsAuthHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/proxy/telemetry/status", nil)
-	ctx.Params = gin.Params{{Key: "any", Value: "/status"}}
 
 	p.TelemetryProxyRequest(ctx)
 	assert.Empty(t, gotAuth, "no token configured → no Authorization header")
@@ -99,7 +96,6 @@ func TestTelemetryProxyRequest_Upstream5xxSurfacesAs502(t *testing.T) {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/proxy/telemetry/status", nil)
-	ctx.Params = gin.Params{{Key: "any", Value: "/status"}}
 
 	p.TelemetryProxyRequest(ctx)
 	assert.Equal(t, http.StatusInternalServerError, w.Code, "upstream status must be mirrored verbatim")
@@ -112,7 +108,6 @@ func TestTelemetryProxyRequest_UpstreamDownReturns502(t *testing.T) {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/proxy/telemetry/status", nil)
-	ctx.Params = gin.Params{{Key: "any", Value: "/status"}}
 
 	p.TelemetryProxyRequest(ctx)
 	assert.Equal(t, http.StatusBadGateway, w.Code)
