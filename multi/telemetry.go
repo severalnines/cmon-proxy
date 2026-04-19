@@ -3,6 +3,7 @@ package multi
 // Copyright 2026 Severalnines AB — GPL-2.0 (same as the rest of this repo)
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"strings"
@@ -42,7 +43,7 @@ func (p *Proxy) TelemetryProxyRequest(c *gin.Context) {
 			c.String(http.StatusBadGateway, "read request body: %v", err)
 			return
 		}
-		bodyReader = strings.NewReader(string(buf))
+		bodyReader = bytes.NewReader(buf)
 	}
 
 	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, target, bodyReader)
