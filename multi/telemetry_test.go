@@ -1,7 +1,6 @@
 package multi
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -118,5 +117,3 @@ func TestTelemetryProxyRequest_UpstreamDownReturns502(t *testing.T) {
 	p.TelemetryProxyRequest(ctx)
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
-
-var _ = bytes.NewBuffer
