@@ -88,8 +88,9 @@ OTLP ExportLogsServiceRequest received
     Extract cc.* attributes → NodeSnapshot identity
     Decode body fields → status, vcpu, memory, disk, tags
   → Tick-bucketed ingestion dedupes same-node records per tick
+  → Recent-flushed-tick FIFO drops duplicate batches that arrive after flush
   → Restart hydration + active-set diff emits synthetic "removed" snapshots
-  → Batch-insert into SQLite
+  → Batch-insert into SQLite (UNIQUE(captured_at, node_id) + INSERT OR IGNORE)
 ```
 
 ### Report Generation (cmon-telemetry, on-demand)
@@ -116,13 +117,19 @@ Same as v1: query snapshots for a billing period, identify billable nodes (≥24
 |---|---|
 | `cmd/cmon-telemetry/main.go` | Entry point, config, startup |
 | `internal/receiver/otlp.go` | OTLP gRPC server, LogRecord → snapshot conversion |
-| `internal/ingestion/pipeline.go` | Tick bucketing, dedupe, restart hydration, removed-node synthesis |
+| `internal/ingestion/pipeline.go` | Tick bucketing, in-tick dedupe, recent-flushed-tick FIFO, restart hydration, removed-node synthesis |
 | `internal/metering/` | Models, storage, SQLite, report, sealing |
 | `internal/api/server.go` | Gin REST API (reports, status) |
 
-## Deduplication (multi-proxy)
+## Deduplication
 
-When N proxies manage overlapping controllers, cmon-telemetry deduplicates by `cc.node.id` per collection tick. The `service.instance.id` tracks which proxy reported it but doesn't create duplicate billing entries.
+`(captured_at, node_id)` is `UNIQUE` in `node_snapshots`. Enforced in three places, any one of which is sufficient; the combination is defence in depth and observability:
+
+1. **In-tick dedup** — the ingestion pipeline merges same-`node_id` snapshots while buffering a tick, so two proxies reporting the same controller at the same tick produce one row.
+2. **Recent-flushed-tick FIFO** — a rolling queue of the last 10 flushed tick timestamps catches duplicate batches that arrive after a flush (e.g., a proxy retries a buffered tick after restart). Matching batches are dropped with a log line before they reach the DB.
+3. **DB constraint + `INSERT OR IGNORE`** — the schema rejects any stray duplicate; `InsertSnapshots` absorbs them silently.
+
+`service.instance.id` identifies which proxy reported a record for observability but does not participate in dedup.
 
 ## Package Structure
 
@@ -131,7 +138,7 @@ cc-telemetry/                        # New repo
 ├── cmd/cmon-telemetry/main.go       # Binary entry point
 ├── internal/
 │   ├── receiver/otlp.go             # OTLP gRPC receiver
-│   ├── ingestion/pipeline.go        # Tick bucketing + dedupe + lifecycle synthesis
+│   ├── ingestion/pipeline.go        # Tick bucketing + in-tick dedupe + recent-flushed FIFO + lifecycle synthesis
 │   ├── metering/
 │   │   ├── models.go
 │   │   ├── storage.go

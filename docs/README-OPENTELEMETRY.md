@@ -248,7 +248,7 @@ cmon-proxy-3 (site C) ──┘                      │
                                                └── REST API :9520
 ```
 
-Each proxy emits independently. cmon-telemetry deduplicates by node ID per collection tick — no double-counting even if two proxies manage overlapping controllers.
+Each proxy emits independently. cmon-telemetry enforces a `UNIQUE(captured_at, node_id)` constraint on its event store and uses an in-memory FIFO of recently-flushed ticks in the ingestion pipeline, so two proxies reporting the same controller at the same tick — or a single proxy retrying a batch after a restart — produce exactly one row per (tick, node). See `cc-telemetry/ARCHITECTURE.md` → "Snapshot Deduplication".
 
 ## OTel Logs Emitted
 
