@@ -250,6 +250,10 @@ cmon-proxy-3 (site C) ──┘                      │
 
 Each proxy emits independently. cmon-telemetry enforces a `UNIQUE(captured_at, node_id)` constraint on its event store and uses an in-memory FIFO of recently-flushed ticks in the ingestion pipeline, so two proxies reporting the same controller at the same tick — or a single proxy retrying a batch after a restart — produce exactly one row per (tick, node). See `cc-telemetry/ARCHITECTURE.md` → "Snapshot Deduplication".
 
+### Verifiable exports
+
+Reports that cmon-telemetry seals carry an Ed25519 signature in addition to the existing HMAC. The Ed25519 keypair is auto-generated on first start (`ed25519_key_file`, default `/var/lib/cmon-telemetry/signing.ed25519`, perms 0600) and the public-key fingerprint is visible both on cmon-telemetry's `GET /status` and on the Billing UI's "Signing Key" card. Sharing the fingerprint with Severalnines sales lets them verify an exported ZIP locally using the `cmon-report-verify` CLI shipped in the same package — without ever handling the private key. See `cc-telemetry/ARCHITECTURE.md` → "Cryptographic Sealing".
+
 ## OTel Logs Emitted
 
 cmon-proxy emits one OTLP **LogRecord** per eligible node on each collection tick. A node snapshot is a structured state record (identity, role, hardware high-water marks, tags) — it is carried on the OTLP logs signal, not the metrics signal, because it describes an event with structured body rather than a time-series measurement.
