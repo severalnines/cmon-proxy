@@ -74,6 +74,7 @@ type CmonInstance struct {
 
 type WebServerSecurity struct {
 	FrameDeny                       *bool  `yaml:"frame_deny,omitempty"`
+	CustomFrameOptionsValue         string `yaml:"custom_frame_options_value,omitempty"`
 	STSSeconds                      int64  `yaml:"sts_seconds,omitempty"`
 	STSIncludeSubdomains            *bool  `yaml:"sts_include_subdomains,omitempty"`
 	STSPreload                      *bool  `yaml:"sts_preload,omitempty"`
@@ -174,6 +175,7 @@ var (
 			TrustedPlatform: "",
 			Security: WebServerSecurity{
 				FrameDeny:                       Bool(true),
+				CustomFrameOptionsValue:         "SAMEORIGIN",
 				STSSeconds:                      31536000,
 				STSIncludeSubdomains:            Bool(true),
 				STSPreload:                      Bool(false),
@@ -528,6 +530,9 @@ func applyWebServerSecurityDefaults(security *WebServerSecurity) {
 	}
 	if security.PermissionsPolicy == "" {
 		security.PermissionsPolicy = defaults.WebServer.Security.PermissionsPolicy
+	}
+	if security.CustomFrameOptionsValue == "" {
+		security.CustomFrameOptionsValue = defaults.WebServer.Security.CustomFrameOptionsValue
 	}
 	if security.ContentSecurityPolicyReportOnly == nil {
 		security.ContentSecurityPolicyReportOnly = defaults.WebServer.Security.ContentSecurityPolicyReportOnly
