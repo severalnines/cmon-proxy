@@ -43,14 +43,33 @@ fi
 INTERVAL="${1:-${INTERVAL:-10m}}"
 ENDPOINT="${2:-${ENDPOINT:-localhost:4317}}"
 
-# Generate a temporary ccmgr.yaml for the soak test.
 # cmon-proxy loads {basedir}/ccmgr.yaml, so we write to /tmp/ccmgr-soak/ccmgr.yaml
 SOAK_BASEDIR="/tmp/ccmgr-soak"
 mkdir -p "$SOAK_BASEDIR"
 SOAK_CONFIG="$SOAK_BASEDIR/ccmgr.yaml"
 
-# Primary controller block.
-cat > "$SOAK_CONFIG" <<EOF
+# Preserve xids across restarts. cmon-proxy mints a fresh xid per
+# instance block the first time it reads the config, and the xid is
+# what cc-telemetry keys snapshots by (cc.controller.id). If we
+# overwrite the config on every start the xids rotate, which piles
+# up stale-controller history in the DB and inflates estate-wide
+# billable counts against a soak environment where the same
+# physical controllers never actually changed.
+#
+# So: if the file already exists and references the expected CMON
+# URLs, keep it untouched. Otherwise regenerate from scratch.
+needs_regenerate() {
+    [ ! -f "$SOAK_CONFIG" ] && return 0
+    grep -qF "$CMON_ENDPOINT" "$SOAK_CONFIG" || return 0
+    if [ -n "$CMON_ENDPOINT_2" ]; then
+        grep -qF "$CMON_ENDPOINT_2" "$SOAK_CONFIG" || return 0
+    fi
+    return 1
+}
+
+if needs_regenerate; then
+    # Primary controller block.
+    cat > "$SOAK_CONFIG" <<EOF
 instances:
   - url: "$CMON_ENDPOINT"
     name: soak-controller
@@ -58,29 +77,32 @@ instances:
     password: "$CMON_PASSWORD"
 EOF
 
-# Optional second controller — append when CMON_ENDPOINT_2 is set.
-# Use a separate instance entry with name "soak-controller-2" so the
-# Billing UI's Controllers multi-select and the per-controller filter
-# (CLUS-7356) both have two distinct entries to work with.
-if [ -n "$CMON_ENDPOINT_2" ]; then
-    : "${CMON_USERNAME_2:?CMON_ENDPOINT_2 is set but CMON_USERNAME_2 is missing}"
-    : "${CMON_PASSWORD_2:?CMON_ENDPOINT_2 is set but CMON_PASSWORD_2 is missing}"
-    cat >> "$SOAK_CONFIG" <<EOF
+    # Optional second controller — append when CMON_ENDPOINT_2 is set.
+    # Use a separate instance entry with name "soak-controller-2" so the
+    # Billing UI's Controllers multi-select and the per-controller filter
+    # (CLUS-7356) both have two distinct entries to work with.
+    if [ -n "$CMON_ENDPOINT_2" ]; then
+        : "${CMON_USERNAME_2:?CMON_ENDPOINT_2 is set but CMON_USERNAME_2 is missing}"
+        : "${CMON_PASSWORD_2:?CMON_ENDPOINT_2 is set but CMON_PASSWORD_2 is missing}"
+        cat >> "$SOAK_CONFIG" <<EOF
   - url: "$CMON_ENDPOINT_2"
     name: soak-controller-2
     username: "$CMON_USERNAME_2"
     password: "$CMON_PASSWORD_2"
 EOF
-fi
+    fi
 
-# Common tail.
-cat >> "$SOAK_CONFIG" <<EOF
+    # Common tail.
+    cat >> "$SOAK_CONFIG" <<EOF
 timeout: 180
 port: 19051
 logfile: $SOAK_BASEDIR/ccmgr.log
 EOF
 
-echo "Generated soak config: $SOAK_CONFIG"
+    echo "Generated soak config: $SOAK_CONFIG"
+else
+    echo "Preserving existing soak config: $SOAK_CONFIG (xids stable across restart)"
+fi
 echo "  Controller: $CMON_ENDPOINT ($CMON_USERNAME)"
 if [ -n "$CMON_ENDPOINT_2" ]; then
     echo "  Controller: $CMON_ENDPOINT_2 ($CMON_USERNAME_2)"
