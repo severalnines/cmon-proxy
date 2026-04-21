@@ -9,16 +9,70 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	cmonapi "github.com/severalnines/cmon-proxy/cmon/api"
 	"github.com/severalnines/cmon-proxy/config"
 	"github.com/severalnines/cmon-proxy/multi/api"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
+
+func TestApplyWebServerConfig_XFrameOptions(t *testing.T) {
+	cases := []struct {
+		name                    string
+		frameDeny               bool
+		customFrameOptionsValue string
+		want                    string
+	}{
+		{
+			name:                    "SAMEORIGIN allows same-origin iframes for cmon-ssh hterm",
+			frameDeny:               true,
+			customFrameOptionsValue: "SAMEORIGIN",
+			want:                    "SAMEORIGIN",
+		},
+		{
+			name:                    "DENY remains configurable via CustomFrameOptionsValue",
+			frameDeny:               true,
+			customFrameOptionsValue: "DENY",
+			want:                    "DENY",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := config.WebServer{
+				Security: config.WebServerSecurity{
+					FrameDeny:               config.Bool(tc.frameDeny),
+					CustomFrameOptionsValue: tc.customFrameOptionsValue,
+					STSIncludeSubdomains:    config.Bool(false),
+					STSPreload:              config.Bool(false),
+					ForceSTSHeader:          config.Bool(false),
+					ContentTypeNosniff:      config.Bool(false),
+					BrowserXssFilter:        config.Bool(false),
+				},
+			}
+
+			gin.SetMode(gin.TestMode)
+			r := gin.New()
+			applyWebServerConfig(r, ws)
+			r.GET("/ping", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+			req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			got := w.Header().Get("X-Frame-Options")
+			if got != tc.want {
+				t.Fatalf("X-Frame-Options = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestStart(t *testing.T) {
 	t.Skip("it's broken")
