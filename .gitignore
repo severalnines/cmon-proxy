@@ -8,3 +8,5 @@
 /server.crt
 /server.key
 jwt_secret.key
+# Local UI screenshots captured via Playwright MCP (not tracked)
+screenshots/

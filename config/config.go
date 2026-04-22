@@ -150,6 +150,16 @@ type Config struct {
 	AcmeRenewBefore      string `yaml:"acme_renew_before,omitempty" json:"acme_renew_before,omitempty"`
 	AcmeHostPolicyStrict bool   `yaml:"acme_host_policy_strict" json:"acme_host_policy_strict"`
 
+	// OTel metering emitter settings (emits to cc-telemetry).
+	OtelMeteringEnabled  bool   `yaml:"otel_metering_enabled" json:"otel_metering_enabled"`
+	OtelMeteringEndpoint string `yaml:"otel_metering_endpoint,omitempty" json:"otel_metering_endpoint,omitempty"` // gRPC address of cmon-telemetry (default "localhost:4317")
+	OtelMeteringInterval string `yaml:"otel_metering_interval,omitempty" json:"otel_metering_interval,omitempty"` // Go duration string, default "60m"
+	OtelMeteringInsecure bool   `yaml:"otel_metering_insecure" json:"otel_metering_insecure"`                     // Skip TLS for gRPC
+	OtelMeteringInstance string `yaml:"otel_metering_instance,omitempty" json:"otel_metering_instance,omitempty"` // service.instance.id for multi-proxy
+	OtelMeteringTLSCert  string `yaml:"otel_metering_tls_cert,omitempty" json:"otel_metering_tls_cert,omitempty"` // Client TLS certificate
+	OtelMeteringTLSKey   string `yaml:"otel_metering_tls_key,omitempty" json:"otel_metering_tls_key,omitempty"`   // Client TLS private key
+	OtelMeteringTLSCA    string `yaml:"otel_metering_tls_ca,omitempty" json:"otel_metering_tls_ca,omitempty"`     // CA cert for server verification
+
 	mtx sync.RWMutex
 }
 
@@ -451,6 +461,23 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 
 	if config.LicenseProxyURL == "" {
 		config.LicenseProxyURL = defaults.LicenseProxyURL
+	}
+
+	// OTel metering emitter env vars (from /etc/default/cmon-proxy.env)
+	if v := os.Getenv("OTEL_METERING_ENABLED"); v != "" {
+		config.OtelMeteringEnabled = v == "true" || v == "1" || v == "yes"
+	}
+	if v := os.Getenv("OTEL_METERING_ENDPOINT"); v != "" {
+		config.OtelMeteringEndpoint = v
+	}
+	if v := os.Getenv("OTEL_METERING_INTERVAL"); v != "" {
+		config.OtelMeteringInterval = v
+	}
+	if v := os.Getenv("OTEL_METERING_INSECURE"); v != "" {
+		config.OtelMeteringInsecure = v == "true" || v == "1" || v == "yes"
+	}
+	if v := os.Getenv("OTEL_METERING_INSTANCE"); v != "" {
+		config.OtelMeteringInstance = v
 	}
 
 	// we don't want nulls
