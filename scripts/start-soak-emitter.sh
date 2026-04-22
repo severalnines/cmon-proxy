@@ -116,6 +116,19 @@ export OTEL_METERING_INTERVAL="$INTERVAL"
 export OTEL_METERING_INSECURE=true
 export OTEL_METERING_INSTANCE="soak-proxy-$(hostname -s 2>/dev/null || echo local)"
 
+# cc-telemetry REST passthrough — default to plain HTTP for the soak.
+# If CC_TELEMETRY_TLS_CA is passed in, we assume the operator pointed
+# cc-telemetry at an HTTPS cert and flip the URL to https://.
+export CC_TELEMETRY_URL="${CC_TELEMETRY_URL:-http://localhost:9520}"
+if [ -n "$CC_TELEMETRY_TLS_CA" ]; then
+    # Respect operator's CA path verbatim; switch URL scheme if they
+    # left it on the default http:// (soak convenience, not a footgun
+    # — a real prod deploy sets CC_TELEMETRY_URL explicitly).
+    case "$CC_TELEMETRY_URL" in
+        http://*) export CC_TELEMETRY_URL="https://${CC_TELEMETRY_URL#http://}";;
+    esac
+fi
+
 echo "=== Starting cmon-proxy (soak OTel emitter mode) ==="
 echo "CMON:      $CMON_ENDPOINT"
 if [ -n "$CMON_ENDPOINT_2" ]; then

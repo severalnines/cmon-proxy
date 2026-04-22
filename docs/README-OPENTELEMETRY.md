@@ -223,6 +223,60 @@ otel_metering_tls_key: /etc/cmon-proxy/client.key
 | TLS (server auth) | cert + key | `otel_metering_tls_ca` |
 | mTLS (mutual) | cert + key + ca | cert + key + ca |
 
+### REST API TLS (cmon-telemetry :9520)
+
+The OTLP gRPC setup above protects the telemetry pipeline (cmon-proxy → cc-telemetry). The separate REST API on the same cc-telemetry process (`:9520`) is what the operator Billing UI consumes via cmon-proxy's `/proxy/telemetry/*` passthrough. Three deployment flavours:
+
+**1. Plain HTTP (default, non-prod only):**
+
+No TLS config on either side. Config:
+
+```yaml
+# cmon-telemetry /etc/cmon-telemetry/config.yaml
+# (no api_tls_cert / api_tls_key)
+
+# cmon-proxy ccmgr.yaml
+cc_telemetry_url: http://localhost:9520
+```
+
+**2. HTTPS with a publicly-trusted cert (prod, cloud):**
+
+cc-telemetry presents a cert signed by a CA in the system trust store (Let's Encrypt, corporate CA shipped via the OS). cmon-proxy verifies against the system trust store by default — no extra config.
+
+```yaml
+# cmon-telemetry
+api_tls_cert: /etc/cmon-telemetry/api-server.crt
+api_tls_key:  /etc/cmon-telemetry/api-server.key
+
+# cmon-proxy
+cc_telemetry_url: https://telemetry.example.com:9520
+```
+
+**3. HTTPS with a private CA / self-signed cert (on-prem, dev):**
+
+Same server config. On cmon-proxy, point `cc_telemetry_tls_ca` at a PEM bundle that includes the signing CA (or the self-signed cert itself):
+
+```yaml
+# cmon-proxy
+cc_telemetry_url:    https://cmon-telemetry.internal:9520
+cc_telemetry_tls_ca: /etc/cmon-proxy/cc-telemetry-ca.crt
+```
+
+**Dev-only skip-verify** — if you just want to iterate against a local cc-telemetry with a throwaway self-signed cert, flip the insecure switch:
+
+```yaml
+# cmon-proxy
+cc_telemetry_insecure: true
+```
+
+This logs a loud warning at client-build time. ⚠️ **Never use in production** — it disables all certificate verification, including expiration and hostname checks.
+
+**Strict default**: with neither `cc_telemetry_tls_ca` nor `cc_telemetry_insecure` set, an HTTPS upstream whose cert the system trust store doesn't recognise produces a 502 with an `x509: certificate signed by unknown authority` error. That's the intended posture — production misconfigurations fail visibly rather than silently fronting a broken chain.
+
+**Env-var overrides** (for `/etc/default/cmon-proxy.env`): `CC_TELEMETRY_URL`, `CC_TELEMETRY_TOKEN`, `CC_TELEMETRY_TLS_CA`, `CC_TELEMETRY_INSECURE`.
+
+**Client-certificate auth (mTLS)** is not yet supported on cc-telemetry's REST API — `api_tls_ca` is reserved but unused. cmon-proxy doesn't send a client cert here either.
+
 ## REST API (cmon-telemetry :9520)
 
 ### GET /status
