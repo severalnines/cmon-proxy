@@ -46,14 +46,23 @@ var (
 	sessIdKey = "s"
 )
 
+// sessionTTL returns the effective session TTL: configured value if set, otherwise the default.
+func sessionTTL(p *Proxy) time.Duration {
+	if p != nil && p.cfg != nil && p.cfg.SessionTtl > 0 {
+		return time.Duration(p.cfg.SessionTtl)
+	}
+	return session.SessionTTL
+}
+
 func cleanupOldSessions(p *Proxy) {
+	ttl := sessionTTL(p)
 	sesssMtx.Lock()
 
 	usernames := make([]string, 0, len(sesss))
 	invalidate := make([]string, 0)
 	// Collect the outdated sessions
 	for sessionId, data := range sesss {
-		if time.Since(data.LastActive) > session.SessionTTL {
+		if time.Since(data.LastActive) > ttl {
 			invalidate = append(invalidate, sessionId)
 
 			// Audit log of server side logouts
@@ -109,7 +118,14 @@ func cleanupOldSessions(p *Proxy) {
 }
 
 func StartSessionCleanupScheduler(p *Proxy) {
-	ticker := time.NewTicker(30 * time.Minute)
+	// Run cleanup at half the TTL, capped at 30 minutes.
+	// This ensures expired sessions are collected within one TTL period
+	// regardless of how short the configured TTL is.
+	interval := sessionTTL(p) / 2
+	if interval > 30*time.Minute {
+		interval = 30 * time.Minute
+	}
+	ticker := time.NewTicker(interval)
 	go func() {
 		for range ticker.C {
 			cleanupOldSessions(p)
@@ -227,6 +243,11 @@ func (p *Proxy) RPCAuthMiddleware(ctx *gin.Context) {
 			})
 		ctx.Abort()
 		return
+	}
+	// Refresh LastActive on every authenticated request so TTL is an idle timeout,
+	// not a fixed-duration timeout. A session in active use will never be cleaned up.
+	if sessionId := getSessionIdFromRequest(ctx); sessionId != "" {
+		refreshSession(sessionId)
 	}
 	// we store the 'user' object in context
 	ctx.Set(userKey, user)
@@ -599,6 +620,15 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 		}
 	}
 
+	// Rate limit by client IP before any credential work
+	clientIP := ctx.ClientIP()
+	if !loginLimiter.Check(clientIP) {
+		resp.RequestStatus = cmonapi.RequestStatusAccessDenied
+		resp.ErrorString = "Too many failed attempts, please wait"
+		ctx.JSON(http.StatusTooManyRequests, resp)
+		return
+	}
+
 	routerMtx.RLock()
 	defaultRouter := p.r[router.DefaultRouter]
 	routerMtx.RUnlock()
@@ -614,7 +644,10 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 
 	// user might be nil and we may succeed in case of controller auth
 	if user != nil {
-		if err := user.ValidatePassword(req.Password); err != nil {
+		if user.Suspended {
+			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
+			resp.ErrorString = "Account is suspended"
+		} else if err := user.ValidatePassword(req.Password); err != nil {
 			resp.RequestStatus = cmonapi.RequestStatusAccessDenied
 			resp.ErrorString = "User not found or wrong password"
 		} else {
@@ -622,9 +655,15 @@ func (p *Proxy) RPCAuthLoginHandler(ctx *gin.Context) {
 			user = user.Copy(false)
 			user.Admin = true
 			resp.User = user
-
 			setUserForSession(ctx, user)
 		}
+	}
+
+	// Update rate limiter based on outcome
+	if resp.RequestStatus == cmonapi.RequestStatusAccessDenied {
+		loginLimiter.Record(clientIP)
+	} else {
+		loginLimiter.Clear(clientIP)
 	}
 
 	zap.L().Info(
@@ -885,6 +924,7 @@ func (p *Proxy) RPCAuthSetPasswordHandler(ctx *gin.Context) {
 	ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 }
 
+
 func (p *Proxy) RPCElevateSession(ctx *gin.Context) {
 	var req api.LoginRequest
 	var resp api.ElevateSessionResponse
@@ -909,22 +949,35 @@ func (p *Proxy) RPCElevateSession(ctx *gin.Context) {
 		return
 	}
 
-	// Get the first user from the config's users list
+	// Rate limit by session ID
+	s := sessions.Default(ctx)
+	sessionID, _ := s.Get(sessIdKey).(string)
+	if !elevationLimiter.Check(sessionID) {
+		resp.WithResponseData.ErrorString = "Too many failed attempts, please wait"
+		ctx.JSON(http.StatusTooManyRequests, resp)
+		return
+	}
+
+	// Get the user from the config's users list
 	user, err := p.Router(nil).Config.GetUser(req.Username)
 	if user == nil || err != nil {
+		elevationLimiter.Record(sessionID)
 		resp.WithResponseData.ErrorString = "Invalid credentials"
 		ctx.JSON(cmonapi.RequestStatusToStatusCode(resp.RequestStatus), resp)
 		return
 	}
 
-	// Verify credentials against the first user
+	// Verify credentials
 	if user.ValidatePassword(req.Password) != nil {
+		elevationLimiter.Record(sessionID)
+		zap.L().Warn(fmt.Sprintf("[AUDIT] Failed elevation attempt for user %s (source %s)",
+			authenticatedUser.Username, ctx.ClientIP()))
 		resp.WithResponseData.ErrorString = "Invalid credentials"
 	} else {
+		elevationLimiter.Clear(sessionID)
 		// Set elevated session flag in the session
-		session := sessions.Default(ctx)
-		session.Set("elevated", true)
-		if err := session.Save(); err != nil {
+		s.Set("elevated", true)
+		if err := s.Save(); err != nil {
 			resp.WithResponseData.ErrorString = "Failed to save session"
 		}
 		resp.WithResponseData.RequestStatus = cmonapi.RequestStatusOk
