@@ -56,6 +56,45 @@ func (client *Client) GetAllClusterInfo(req *api.GetAllClusterInfoRequest) (*api
 	return res, nil
 }
 
+func (client *Client) GetMeteringData(req *api.GetMeteringDataRequest) (*api.GetMeteringDataResponse, error) {
+	if req == nil {
+		req = &api.GetMeteringDataRequest{}
+	}
+	if req.WithOperation == nil {
+		req.WithOperation = &api.WithOperation{}
+	}
+	req.Operation = "getMeteringData"
+	res := &api.GetMeteringDataResponse{}
+	if err := client.Request(api.ModuleClusters, req, res); err != nil {
+		return nil, err
+	}
+	if res.RequestStatus != api.RequestStatusOk {
+		return nil, api.NewErrorFromResponseData(res.WithResponseData)
+	}
+	return res, nil
+}
+
+func (client *Client) GetCpuPhysicalInfo(req *api.GetCpuPhysicalInfoRequest) (*api.GetCpuPhysicalInfoResponse, error) {
+	if req == nil {
+		req = &api.GetCpuPhysicalInfoRequest{}
+	}
+	if req.WithOperation == nil {
+		req.WithOperation = &api.WithOperation{}
+	}
+	req.Operation = "getCpuPhysicalInfo"
+	if req.WithClusterID == nil || req.WithClusterID.ClusterID < 1 {
+		return nil, fmt.Errorf("invalid cluster id")
+	}
+	res := &api.GetCpuPhysicalInfoResponse{}
+	if err := client.Request(api.ModuleStat, req, res); err != nil {
+		return nil, err
+	}
+	if res.RequestStatus != api.RequestStatusOk {
+		return nil, api.NewErrorFromResponseData(res.WithResponseData)
+	}
+	return res, nil
+}
+
 func (client *Client) CreateDatabase(req *api.CreateDatabaseRequest) (*api.CreateDatabaseResponse, error) {
 	if req.WithOperation == nil {
 		req.WithOperation = &api.WithOperation{}

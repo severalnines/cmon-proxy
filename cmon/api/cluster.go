@@ -1,5 +1,12 @@
 package api
 
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -36,6 +43,97 @@ type GetAllClusterInfoRequest struct {
 	WithDatabases    bool `json:"with_databases,omitempty"`
 	WithLicenseCheck bool `json:"with_license_check,omitempty"`
 	WithTags         bool `json:"with_tags,omitempty"`
+}
+
+type GetMeteringDataRequest struct {
+	*WithOperation `json:",inline"`
+}
+
+type GetMeteringDataResponse struct {
+	*WithControllerID `json:",inline"`
+	*WithResponseData `json:",inline"`
+
+	Clusters     []*MeteringCluster `json:"clusters"`
+	ClusterCount int                `json:"cluster_count"`
+	HostCount    int                `json:"host_count"`
+}
+
+type MeteringCluster struct {
+	ClusterID   uint64          `json:"cluster_id"`
+	ClusterName string          `json:"cluster_name"`
+	ClusterType string          `json:"cluster_type"`
+	Vendor      string          `json:"vendor"`
+	Tags        []string        `json:"tags,omitempty"`
+	Hosts       []*MeteringHost `json:"hosts,omitempty"`
+}
+
+func (c *MeteringCluster) UnmarshalJSON(data []byte) error {
+	type rawMeteringCluster struct {
+		ClusterID   uint64          `json:"cluster_id"`
+		ClusterName string          `json:"cluster_name"`
+		ClusterType json.RawMessage `json:"cluster_type"`
+		Vendor      string          `json:"vendor"`
+		Tags        []string        `json:"tags,omitempty"`
+		Hosts       []*MeteringHost `json:"hosts,omitempty"`
+	}
+
+	var raw rawMeteringCluster
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	clusterType, err := decodeMeteringClusterType(raw.ClusterType)
+	if err != nil {
+		return err
+	}
+
+	c.ClusterID = raw.ClusterID
+	c.ClusterName = raw.ClusterName
+	c.ClusterType = clusterType
+	c.Vendor = raw.Vendor
+	c.Tags = raw.Tags
+	c.Hosts = raw.Hosts
+	return nil
+}
+
+func decodeMeteringClusterType(data json.RawMessage) (string, error) {
+	if len(data) == 0 || string(data) == "null" {
+		return "", nil
+	}
+
+	var asString string
+	if err := json.Unmarshal(data, &asString); err == nil {
+		return strings.Trim(asString, "\r\n\t '\""), nil
+	}
+
+	var asNumber int
+	if err := json.Unmarshal(data, &asNumber); err == nil {
+		return strconv.Itoa(asNumber), nil
+	}
+
+	return "", fmt.Errorf("invalid cluster_type payload: %s", string(data))
+}
+
+type MeteringHost struct {
+	ClassName string `json:"class_name"`
+	Hostname  string `json:"hostname"`
+	IP        string `json:"ip"`
+	Port      int    `json:"port"`
+	HostStatus string `json:"hoststatus"`
+	NodeType  string `json:"nodetype"`
+	HostID    uint64 `json:"host_id"`
+	// Role carries CMON's role string — for MongoDB: "shardsvr" (shard data),
+	// "configsvr" (config server), "mongos" (router), "arbiter". Used by
+	// the OTel emitter's eligibility gate to exclude non-data roles from
+	// billing. Empty on cluster types where role has no billing meaning.
+	Role string `json:"role,omitempty"`
+	// ElasticRoles carries the hyphen-delimited role string CMON emits for
+	// Elasticsearch hosts (e.g. "master-data-ingest" or "coordinator_only").
+	// Used by the emitter to exclude non-data-bearing Elastic nodes.
+	ElasticRoles  string `json:"elastic_roles,omitempty"`
+	NCPUs         *int   `json:"ncpus,omitempty"`
+	TotalMemoryMB *int   `json:"total_memory_mb,omitempty"`
+	LargestDiskMB *int   `json:"largest_disk_mb,omitempty"`
 }
 
 type CmonLicense struct {
