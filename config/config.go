@@ -169,6 +169,7 @@ var (
 		PoolVisible:       true,
 		K8sProxyURL:       "http://127.0.0.1:8080",
 		LicenseProxyURL:   "https://severalnines.com/service/lic.php",
+		SessionSecure:     Bool(true),
 		AcmeAcceptTOS:     true,
 		AcmeRenewBefore:   "720h",
 		WebServer: WebServer{
@@ -370,6 +371,7 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 	config.KubernetesEnabled = defaults.KubernetesEnabled
 	config.PoolVisible = defaults.PoolVisible
 	config.AcmeAcceptTOS = defaults.AcmeAcceptTOS
+	config.SessionSecure = Bool(*defaults.SessionSecure)
 
 	contents, err := ioutil.ReadFile(filename)
 	if err == nil && len(contents) > 0 {

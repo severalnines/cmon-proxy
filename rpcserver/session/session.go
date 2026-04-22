@@ -34,6 +34,7 @@ var (
 	domain        = os.Getenv("SESSION_DOMAIN")
 	authKey       = os.Getenv("SESSION_AUTH_KEY")
 	encryptionKey = os.Getenv("SESSION_ENCRYPTION_KEY")
+	secureCookie  bool // set by getStore from config
 )
 
 // Sessions is the sessions middleware
@@ -41,25 +42,26 @@ func Sessions(cfg *config.Config) gin.HandlerFunc {
 	return sessions.Sessions(cookieName, getStore(cfg))
 }
 
-// Destroy is destroying the session
+// SessionDestroy destroys the session cookie using the same flags as the store
 func SessionDestroy(ctx *gin.Context) {
 	ctx.SetCookie(
 		cookieName,
 		"",
 		-1,
 		"/", domain,
-		false,
+		secureCookie,
 		true)
 }
 
 func getStore(cfg *config.Config) sessions.Store {
 	store := cookie.NewStore(getSessionKeys()...)
-	secure := true
+	secure := cfg.SessionSecure == nil || *cfg.SessionSecure
 	sameSite := http.SameSiteNoneMode
-	if cfg.SessionSecure != nil && !*cfg.SessionSecure {
-		secure = false
+	if !secure {
 		sameSite = http.SameSiteDefaultMode
 	}
+	// store for SessionDestroy to use the same flag
+	secureCookie = secure
 	store.Options(sessions.Options{
 		Domain:   domain,
 		MaxAge:   0,
