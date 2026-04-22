@@ -324,11 +324,20 @@ func parseDiskStats(data json.RawMessage, stats map[uint64]*HostHardwareStats) {
 
 // Eligible node classification — same logic as metering/models.go.
 
+// Exclusions worth calling out:
+//   - CmonRedisSentinelHost: sentinels don't serve data, only observe the
+//     Redis replication topology. Not billable.
+//   - CmonPrometheusHost: monitoring sidecar, not a DB.
+//   - Controller hosts (filtered upstream by host.Nodetype == "controller").
+//
+// Redis-sharded currently comes over the wire as "RedisShardedHost" (no
+// "Cmon" prefix); keep both spellings in case CMON retrofits the prefix.
+// Must stay in sync with cc-telemetry's internal/metering/models.go.
 var eligibleDBClassNames = map[string]bool{
 	"CmonMySqlHost": true, "CmonGaleraHost": true, "CmonElasticHost": true,
-	"CmonRedisHost": true, "CmonRedisSentinelHost": true, "CmonGroupReplHost": true,
-	"CmonMongoHost": true, "CmonNdbHost": true, "CmonPostgreSqlHost": true,
-	"CmonMsSqlHost": true,
+	"CmonRedisHost": true, "RedisShardedHost": true, "CmonRedisShardedHost": true,
+	"CmonGroupReplHost": true, "CmonMongoHost": true, "CmonNdbHost": true,
+	"CmonPostgreSqlHost": true, "CmonMsSqlHost": true,
 }
 
 var eligibleProxyClassNames = map[string]bool{
