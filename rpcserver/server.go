@@ -555,15 +555,19 @@ func applyWebServerConfig(r *gin.Engine, cfg config.WebServer) {
 		r.TrustedPlatform = cfg.TrustedPlatform
 	}
 
-	// Security headers (excluding CSP which needs per-request nonce)
+	// Security headers (excluding CSP which needs per-request nonce).
+	// CustomFrameOptionsValue overrides FrameDeny: the default "SAMEORIGIN"
+	// keeps clickjacking protection while allowing hterm's same-origin iframe
+	// in the cmon-ssh console to load.
 	sec := secure.New(secure.Config{
-		FrameDeny:            unPtr(cfg.Security.FrameDeny),
-		STSSeconds:           cfg.Security.STSSeconds,
-		STSIncludeSubdomains: unPtr(cfg.Security.STSIncludeSubdomains),
-		STSPreload:           unPtr(cfg.Security.STSPreload),
-		ContentTypeNosniff:   unPtr(cfg.Security.ContentTypeNosniff),
-		BrowserXssFilter:     unPtr(cfg.Security.BrowserXssFilter),
-		ReferrerPolicy:       cfg.Security.ReferrerPolicy,
+		FrameDeny:               unPtr(cfg.Security.FrameDeny),
+		CustomFrameOptionsValue: cfg.Security.CustomFrameOptionsValue,
+		STSSeconds:              cfg.Security.STSSeconds,
+		STSIncludeSubdomains:    unPtr(cfg.Security.STSIncludeSubdomains),
+		STSPreload:              unPtr(cfg.Security.STSPreload),
+		ContentTypeNosniff:      unPtr(cfg.Security.ContentTypeNosniff),
+		BrowserXssFilter:        unPtr(cfg.Security.BrowserXssFilter),
+		ReferrerPolicy:          cfg.Security.ReferrerPolicy,
 	})
 	r.Use(sec)
 
