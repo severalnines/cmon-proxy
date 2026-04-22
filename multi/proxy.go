@@ -11,6 +11,7 @@ package multi
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"net/http"
 	"strings"
 	"sync"
 
@@ -31,6 +32,13 @@ var (
 type Proxy struct {
 	cfg *config.Config
 	r   map[string]*router.Router
+
+	// telemetry client state — lazy-built from cfg the first time a
+	// /proxy/telemetry/* request arrives, so tests that instantiate
+	// &Proxy{cfg: ...} directly don't need extra setup.
+	telemetryOnce      sync.Once
+	telemetryClient    *http.Client
+	telemetryClientErr error
 }
 
 func init() {

@@ -164,6 +164,14 @@ type Config struct {
 	CcTelemetryURL   string `yaml:"cc_telemetry_url,omitempty" json:"cc_telemetry_url,omitempty"`
 	CcTelemetryToken string `yaml:"cc_telemetry_token,omitempty" json:"cc_telemetry_token,omitempty"`
 
+	// TLS knobs for the REST-API side of the passthrough. cc-telemetry's
+	// /status and /reports endpoints run HTTPS when it's deployed with
+	// api_tls_cert/api_tls_key. Default posture is strict verification via
+	// the system trust store; these let operators trust a private CA or
+	// skip verification in dev/test.
+	CcTelemetryTLSCA    string `yaml:"cc_telemetry_tls_ca,omitempty" json:"cc_telemetry_tls_ca,omitempty"` // PEM bundle that signs cc-telemetry's server cert (private CA / self-signed)
+	CcTelemetryInsecure bool   `yaml:"cc_telemetry_insecure" json:"cc_telemetry_insecure"`                // Skip verification — dev/test only
+
 	mtx sync.RWMutex
 }
 
@@ -462,6 +470,20 @@ func LoadFromFile(filename string, loadFromCli ...bool) (*Config, error) {
 
 	if config.CcTelemetryURL == "" {
 		config.CcTelemetryURL = "http://localhost:9520"
+	}
+
+	// cc-telemetry REST API env-var overrides (from /etc/default/cmon-proxy.env)
+	if v := os.Getenv("CC_TELEMETRY_URL"); v != "" {
+		config.CcTelemetryURL = v
+	}
+	if v := os.Getenv("CC_TELEMETRY_TOKEN"); v != "" {
+		config.CcTelemetryToken = v
+	}
+	if v := os.Getenv("CC_TELEMETRY_TLS_CA"); v != "" {
+		config.CcTelemetryTLSCA = v
+	}
+	if v := os.Getenv("CC_TELEMETRY_INSECURE"); v != "" {
+		config.CcTelemetryInsecure = v == "true" || v == "1" || v == "yes"
 	}
 
 	if config.LicenseProxyURL == "" {
