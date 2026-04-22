@@ -115,13 +115,22 @@ func decodeMeteringClusterType(data json.RawMessage) (string, error) {
 }
 
 type MeteringHost struct {
-	ClassName     string `json:"class_name"`
-	Hostname      string `json:"hostname"`
-	IP            string `json:"ip"`
-	Port          int    `json:"port"`
-	HostStatus    string `json:"hoststatus"`
-	NodeType      string `json:"nodetype"`
-	HostID        uint64 `json:"host_id"`
+	ClassName string `json:"class_name"`
+	Hostname  string `json:"hostname"`
+	IP        string `json:"ip"`
+	Port      int    `json:"port"`
+	HostStatus string `json:"hoststatus"`
+	NodeType  string `json:"nodetype"`
+	HostID    uint64 `json:"host_id"`
+	// Role carries CMON's role string — for MongoDB: "shardsvr" (shard data),
+	// "configsvr" (config server), "mongos" (router), "arbiter". Used by
+	// the OTel emitter's eligibility gate to exclude non-data roles from
+	// billing. Empty on cluster types where role has no billing meaning.
+	Role string `json:"role,omitempty"`
+	// ElasticRoles carries the hyphen-delimited role string CMON emits for
+	// Elasticsearch hosts (e.g. "master-data-ingest" or "coordinator_only").
+	// Used by the emitter to exclude non-data-bearing Elastic nodes.
+	ElasticRoles  string `json:"elastic_roles,omitempty"`
 	NCPUs         *int   `json:"ncpus,omitempty"`
 	TotalMemoryMB *int   `json:"total_memory_mb,omitempty"`
 	LargestDiskMB *int   `json:"largest_disk_mb,omitempty"`

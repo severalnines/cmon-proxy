@@ -153,18 +153,10 @@ func (e *Emitter) emitFromData(controllerData map[string]*ControllerClusters) {
 
 		for _, cluster := range data.Clusters {
 			for _, host := range cluster.Hosts {
-				if host == nil || host.Nodetype == "controller" {
+				if !IsEligibleHost(host) {
 					continue
 				}
-
-				className := ""
-				if host.WithClassName != nil {
-					className = host.ClassName
-				}
-
-				if !IsEligibleNode(className) {
-					continue
-				}
+				className := host.ClassName
 
 				var hw *HostHardwareStats
 				if data.HostStats != nil {

@@ -137,6 +137,8 @@ func fetchMeteringData(client interface {
 				Port:          api.CmonInt(host.Port),
 				HostStatus:    host.HostStatus,
 				Nodetype:      host.NodeType,
+				Role:          host.Role,
+				ElasticRoles:  host.ElasticRoles,
 			})
 
 			stats := &HostHardwareStats{}
@@ -347,6 +349,76 @@ var eligibleProxyClassNames = map[string]bool{
 // IsEligibleNode returns true if the given class name represents a billable node.
 func IsEligibleNode(className string) bool {
 	return eligibleDBClassNames[className] || eligibleProxyClassNames[className]
+}
+
+// nonDataMongoRoles marks MongoDB roles whose hosts don't serve data and
+// therefore shouldn't be billed. For Mongo Shards this excludes config
+// servers ("configsvr"), routers ("mongos"), and arbiters ("arbiter").
+// Shard data nodes ("shardsvr") and plain replicaset members (which
+// inherit "shardsvr" too, see cc-cmon/src/cmonmongohost.cpp:106-123) stay
+// eligible. Role strings are CMON's canonical outputs from
+// CmonMongoHost::setRoleId.
+var nonDataMongoRoles = map[string]bool{
+	"configsvr": true,
+	"mongos":    true,
+	"arbiter":   true,
+}
+
+// elasticHasDataRole returns true if the hyphen-delimited elastic_roles
+// string CMON emits for an Elasticsearch host contains any data-bearing
+// role. When the field is empty (e.g. cluster not yet populated, or
+// cc-cmon not emitting it via getMeteringData) we default to eligible
+// so we don't silently regress existing Elastic deployments — the filter
+// only narrows when roles are known.
+func elasticHasDataRole(roles string) bool {
+	if roles == "" {
+		return true
+	}
+	// Walk the hyphen-delimited segments. Data roles: "data", "data_content",
+	// "data_hot", "data_warm", "data_cold", "data_frozen".
+	// See cc-cmon/src/cmonelastichost.cpp:298-353 getRolesStr for the
+	// canonical string forms.
+	start := 0
+	for i := 0; i <= len(roles); i++ {
+		if i == len(roles) || roles[i] == '-' {
+			seg := roles[start:i]
+			if seg == "data" ||
+				seg == "data_content" ||
+				seg == "data_hot" ||
+				seg == "data_warm" ||
+				seg == "data_cold" ||
+				seg == "data_frozen" {
+				return true
+			}
+			start = i + 1
+		}
+	}
+	return false
+}
+
+// IsEligibleHost returns true if the given host should be billed. It
+// subsumes IsEligibleNode(className) and layers role-aware guards for
+// cluster types where a single class covers both billable and
+// non-billable roles (MongoDB Shards: shardsvr vs configsvr/mongos;
+// Elasticsearch: data-bearing vs master/ingest/coordinator-only).
+func IsEligibleHost(h *api.Host) bool {
+	if h == nil || h.Nodetype == "controller" {
+		return false
+	}
+	className := ""
+	if h.WithClassName != nil {
+		className = h.ClassName
+	}
+	if !IsEligibleNode(className) {
+		return false
+	}
+	switch className {
+	case "CmonMongoHost":
+		return !nonDataMongoRoles[h.Role]
+	case "CmonElasticHost":
+		return elasticHasDataRole(h.ElasticRoles)
+	}
+	return true
 }
 
 // NodeRoleFromClassName returns the metering node role for a CMON host class name.
