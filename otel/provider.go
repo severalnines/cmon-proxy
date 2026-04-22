@@ -60,11 +60,18 @@ func (a *RouterAdapter) FetchAllClusters() map[string]*ControllerClusters {
 			continue
 		}
 
-		cc := &ControllerClusters{ControllerID: addr}
-
-		if xid := cmonEntry.Xid(); xid != "" {
-			cc.ControllerID = xid
+		xid := cmonEntry.Xid()
+		if xid == "" {
+			// cc.controller.id is the stable cross-boundary identifier that
+			// cc-telemetry uses to key node_snapshots. Emitting an internal
+			// router URL as the id would (a) leak that URL into the billing
+			// DB and (b) re-key every node the instant the xid settles on a
+			// later ping, creating a ghost controller's worth of snapshots.
+			// Defer until xid is known.
+			log.Warnf("[otel-provider] controller %s has no xid yet; skipping this emit", addr)
+			continue
 		}
+		cc := &ControllerClusters{ControllerID: xid}
 
 		client := a.router.Client(addr)
 		if client != nil {
@@ -283,6 +290,7 @@ type memoryStat struct {
 func parseMemoryStats(data json.RawMessage, stats map[uint64]*HostHardwareStats) {
 	var entries []memoryStat
 	if err := json.Unmarshal(data, &entries); err != nil {
+		zap.L().Sugar().Debugf("[otel-provider] parse memorystat: %v", err)
 		return
 	}
 	for _, e := range entries {
@@ -306,6 +314,7 @@ type diskStat struct {
 func parseDiskStats(data json.RawMessage, stats map[uint64]*HostHardwareStats) {
 	var entries []diskStat
 	if err := json.Unmarshal(data, &entries); err != nil {
+		zap.L().Sugar().Debugf("[otel-provider] parse diskstat: %v", err)
 		return
 	}
 	maxDisk := make(map[uint64]int64)

@@ -44,7 +44,10 @@ func initOtelEmitter(cfg *config.Config) {
 	if cfg.OtelMeteringTLSCert != "" && cfg.OtelMeteringTLSKey != "" {
 		creds, err := buildClientTLS(cfg.OtelMeteringTLSCert, cfg.OtelMeteringTLSKey, cfg.OtelMeteringTLSCA)
 		if err != nil {
-			log.Fatalf("[otel-metering] failed to load TLS credentials: %v", err)
+			// Metering is non-critical — a bad cert shouldn't kill the whole
+			// cmon-proxy process. Log and skip starting the emitter.
+			log.Errorf("[otel-metering] failed to load TLS credentials; emitter disabled: %v", err)
+			return
 		}
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
 		log.Info("[otel-metering] gRPC TLS enabled")

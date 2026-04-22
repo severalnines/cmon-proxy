@@ -13,6 +13,7 @@ package otel
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
@@ -37,6 +38,7 @@ type Emitter struct {
 	dialOpts   []grpc.DialOption
 	logger     *zap.SugaredLogger
 	stopCh     chan struct{}
+	stopOnce   sync.Once
 	done       chan struct{}
 }
 
@@ -64,8 +66,14 @@ func (e *Emitter) Start() {
 }
 
 // Stop signals the emitter to stop and waits for it to finish.
+// Idempotent — calling Stop more than once is a no-op after the first call.
+// Requires Start() to have been invoked; otherwise the wait on done blocks
+// indefinitely (rpcserver guards this by only calling Stop when the emitter
+// was successfully started).
 func (e *Emitter) Stop() {
-	close(e.stopCh)
+	e.stopOnce.Do(func() {
+		close(e.stopCh)
+	})
 	<-e.done
 }
 
@@ -150,6 +158,15 @@ func (e *Emitter) emitFromData(controllerData map[string]*ControllerClusters) {
 		}
 
 		controllerID := data.ControllerID
+		if controllerID == "" {
+			// Defensive: the RouterAdapter already skips controllers with
+			// an unsettled xid so we never reach here in production, but a
+			// future provider implementation could regress. An empty
+			// cc.controller.id would poison cc-telemetry's node_snapshots
+			// keying — refuse to emit rather than leak an addr or a blank.
+			e.logger.Warnf("[otel-metering] controller %s has empty ControllerID; skipping emit", addr)
+			continue
+		}
 
 		for _, cluster := range data.Clusters {
 			for _, host := range cluster.Hosts {
