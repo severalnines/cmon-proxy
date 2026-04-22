@@ -1,5 +1,11 @@
 # Usage Metering for ClusterControl — Design Spec
 
+> **⚠️ SUPERSEDED — historical v1 design.** This spec describes the original "metering embedded inside cmon-proxy" architecture (CLUS-6418 Phase 1). The shipped architecture is v2: metering is decoupled into a standalone `cmon-telemetry` service that cmon-proxy emits to over OTLP (CLUS-7328). Claims in this document about a `metering/` package inside cmon-proxy, `node_snapshots` tables owned by cmon-proxy, and `/v2/metering/` endpoints on the proxy no longer reflect the code — all of that now lives in cmon-telemetry.
+>
+> **Current source of truth:** `docs/ARCHITECTURE-METERING-OPENTELEMETRY.md` (high-level) and `docs/README-OPENTELEMETRY.md` (operator guide).
+>
+> Preserved for historical context — useful for understanding the design evolution and the rationale behind the v1→v2 pivot.
+
 ## Workflow
 
 - **Branch/worktree:** `CLUS-6418` (in `cmon-proxy/` subproject)
