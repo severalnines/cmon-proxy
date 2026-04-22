@@ -270,7 +270,7 @@ The LogRecord's `attributes` carry the identity and query keys suited to downstr
 | `cc.cluster.id` | int | Cluster ID |
 | `cc.cluster.name` | string | Cluster display name |
 | `cc.cluster.type` | string | Deployment type (e.g. `GALERA`, `POSTGRESQL_SINGLE`) |
-| `cc.db.vendor` | string | Normalized vendor (`percona`, `mariadb`, `mongodb`, …) |
+| `cc.db.vendor` | string | Normalized vendor (`percona`, `mariadb`, `mongodb`, `valkey`, `timescaledb`, `elasticsearch`, `redis`, …) |
 
 The Resource carries `service.name = cmon-proxy` and `service.instance.id`.
 
@@ -292,6 +292,20 @@ The LogRecord's `body` is an OTLP KvList — a typed structured record (not an o
 | `tags` | array of string (optional) | Cluster tag list (customer-id, tenant-id, …) |
 
 Optional fields are absent from the body when unavailable rather than emitted as zero — downstream queries should check for presence.
+
+### Eligibility
+
+Not every host behind a CMON controller is billable. cmon-proxy applies a two-layer filter before emitting a LogRecord:
+
+1. **Class-name gate.** Only database and proxy host classes are considered: `CmonMySqlHost`, `CmonGaleraHost`, `CmonGroupReplHost`, `CmonPostgreSqlHost`, `CmonMsSqlHost`, `CmonMongoHost`, `CmonNdbHost`, `CmonElasticHost`, `CmonRedisHost` (includes Valkey), `RedisShardedHost` / `CmonRedisShardedHost`, `CmonProxySqlHost`. Sentinels (`CmonRedisSentinelHost`), monitoring sidecars (`CmonPrometheusHost`), and controller hosts are excluded.
+
+2. **Role-aware narrowing** for cluster types where one class covers multiple roles:
+   - **MongoDB (`CmonMongoHost`)** — only data-bearing roles are billable. `shardsvr` (shard data nodes and plain replicaset members) is eligible; `configsvr`, `mongos` (router), and `arbiter` are excluded.
+   - **Elasticsearch (`CmonElasticHost`)** — only data-bearing roles are billable. The host's `elastic_roles` string (hyphen-delimited) must contain at least one of `data`, `data_content`, `data_hot`, `data_warm`, `data_cold`, `data_frozen`. Hosts that are purely `master`, `ingest`, or `coordinator_only` are excluded.
+
+   Role filters are **default-eligible when the role field is empty** — we don't silently regress clusters whose CMON hasn't populated the role yet; the filter only narrows when roles are known.
+
+See `otel/provider.go` (`IsEligibleHost`, `nonDataMongoRoles`, `elasticHasDataRole`) for the canonical implementation.
 
 ### vCPU recovery
 
