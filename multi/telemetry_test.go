@@ -24,6 +24,7 @@ func TestTelemetryProxyRequest_ForwardsGET(t *testing.T) {
 	defer upstream.Close()
 
 	p := &Proxy{cfg: &config.Config{
+		OtelMeteringEnabled: true,
 		CcTelemetryURL:   upstream.URL,
 		CcTelemetryToken: "s3cret",
 	}}
@@ -50,7 +51,7 @@ func TestTelemetryProxyRequest_ForwardsPOSTBody(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	p := &Proxy{cfg: &config.Config{CcTelemetryURL: upstream.URL}}
+	p := &Proxy{cfg: &config.Config{OtelMeteringEnabled: true, CcTelemetryURL: upstream.URL}}
 	body := strings.NewReader(`{"operation":"listReports"}`)
 
 	gin.SetMode(gin.TestMode)
@@ -74,7 +75,7 @@ func TestTelemetryProxyRequest_NoTokenSkipsAuthHeader(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	p := &Proxy{cfg: &config.Config{CcTelemetryURL: upstream.URL}}
+	p := &Proxy{cfg: &config.Config{OtelMeteringEnabled: true, CcTelemetryURL: upstream.URL}}
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
@@ -91,7 +92,7 @@ func TestTelemetryProxyRequest_Upstream5xxSurfacesAs502(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	p := &Proxy{cfg: &config.Config{CcTelemetryURL: upstream.URL}}
+	p := &Proxy{cfg: &config.Config{OtelMeteringEnabled: true, CcTelemetryURL: upstream.URL}}
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
@@ -103,7 +104,7 @@ func TestTelemetryProxyRequest_Upstream5xxSurfacesAs502(t *testing.T) {
 }
 
 func TestTelemetryProxyRequest_UpstreamDownReturns502(t *testing.T) {
-	p := &Proxy{cfg: &config.Config{CcTelemetryURL: "http://127.0.0.1:1"}} // port-1 is unreachable
+	p := &Proxy{cfg: &config.Config{OtelMeteringEnabled: true, CcTelemetryURL: "http://127.0.0.1:1"}} // port-1 is unreachable
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
@@ -111,4 +112,19 @@ func TestTelemetryProxyRequest_UpstreamDownReturns502(t *testing.T) {
 
 	p.TelemetryProxyRequest(ctx)
 	assert.Equal(t, http.StatusBadGateway, w.Code)
+}
+
+func TestTelemetryProxyRequest_FeatureDisabledReturns404(t *testing.T) {
+	p := &Proxy{cfg: &config.Config{
+		OtelMeteringEnabled: false,
+		CcTelemetryURL:      "http://127.0.0.1:1",
+	}}
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/proxy/telemetry/status", nil)
+
+	p.TelemetryProxyRequest(ctx)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "billing is disabled")
 }

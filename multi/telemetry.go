@@ -78,6 +78,10 @@ func (p *Proxy) telemetryHTTPClient() (*http.Client, error) {
 // level — by the time we get here the operator is already authenticated.
 func (p *Proxy) TelemetryProxyRequest(c *gin.Context) {
 	cfg := p.cfg
+	if cfg == nil || !cfg.OtelMeteringEnabled {
+		c.String(http.StatusNotFound, "billing is disabled")
+		return
+	}
 	if cfg == nil || cfg.CcTelemetryURL == "" {
 		c.String(http.StatusBadGateway, "cc-telemetry URL is not configured")
 		return

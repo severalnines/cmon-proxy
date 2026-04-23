@@ -44,6 +44,7 @@ func TestTelemetryProxyRequest_HTTPSWithTrustedCA(t *testing.T) {
 
 	caPath := writeCertPEM(t, upstream)
 	p := &Proxy{cfg: &config.Config{
+		OtelMeteringEnabled: true,
 		CcTelemetryURL:   upstream.URL,
 		CcTelemetryTLSCA: caPath,
 	}}
@@ -70,6 +71,7 @@ func TestTelemetryProxyRequest_HTTPSWithInsecureSkip(t *testing.T) {
 	defer upstream.Close()
 
 	p := &Proxy{cfg: &config.Config{
+		OtelMeteringEnabled: true,
 		CcTelemetryURL:      upstream.URL,
 		CcTelemetryInsecure: true,
 	}}
@@ -96,6 +98,7 @@ func TestTelemetryProxyRequest_HTTPSStrictByDefault(t *testing.T) {
 	defer upstream.Close()
 
 	p := &Proxy{cfg: &config.Config{
+		OtelMeteringEnabled: true,
 		CcTelemetryURL: upstream.URL,
 		// No CcTelemetryTLSCA, no CcTelemetryInsecure — strict default.
 	}}
