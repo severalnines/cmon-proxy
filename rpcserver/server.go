@@ -268,6 +268,7 @@ func serveFrontend(s *gin.Engine, cfg *config.Config) error {
 					"MULTI_CONTROLLER_API_URL":  "/v2",
 					"KUBERNETES_ENABLED":        cfg.KubernetesEnabled,
 					"POOL_VISIBLE":              cfg.PoolVisible,
+					"OTEL_METERING_ENABLED":     cfg.OtelMeteringEnabled,
 					"INSTANCES":                 cfg.Instances,
 				}
 
@@ -887,6 +888,13 @@ func Start(cfg *config.Config) {
 		{
 			configGroup.GET("", proxy.RPCConfigHandler)
 			configGroup.POST("", proxy.RPCConfigHandler)
+		}
+
+		telemetryGroup := p.Group("/telemetry")
+		telemetryGroup.Use(proxy.RPCAuthMiddleware)
+		{
+			telemetryGroup.GET("/status", proxy.TelemetryProxyRequest)
+			telemetryGroup.POST("/reports", proxy.TelemetryProxyRequest)
 		}
 
 		auth := p.Group("/auth")
