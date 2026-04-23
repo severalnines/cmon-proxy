@@ -1,6 +1,7 @@
 package otel
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/severalnines/cmon-proxy/cmon/api"
@@ -174,5 +175,26 @@ func TestFetchMeteringData_UsesCpuInfoWhenMeteringDataLacksNCPUs(t *testing.T) {
 
 	if stats.VCPU == nil || *stats.VCPU != 16 {
 		t.Fatalf("expected vcpu fallback of 16, got %#v", stats.VCPU)
+	}
+}
+
+func TestParseMemoryStats_ConvertsKilobytesToMB(t *testing.T) {
+	data, err := json.Marshal([]memoryStat{{
+		HostID:   42,
+		RAMTotal: 16777216, // 16 GiB in KB
+	}})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	stats := map[uint64]*HostHardwareStats{}
+	parseMemoryStats(data, stats)
+
+	got := stats[42]
+	if got == nil || got.RAMMB == nil {
+		t.Fatalf("expected RAMMB for host 42, got %#v", got)
+	}
+	if *got.RAMMB != 16384 {
+		t.Fatalf("RAMMB = %d, want %d", *got.RAMMB, 16384)
 	}
 }

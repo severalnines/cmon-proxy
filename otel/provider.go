@@ -297,7 +297,9 @@ func parseMemoryStats(data json.RawMessage, stats map[uint64]*HostHardwareStats)
 		if e.RAMTotal <= 0 {
 			continue
 		}
-		ramMB := int(e.RAMTotal / (1024 * 1024))
+		// memorystat.ramtotal is reported in KB; convert to MB for the
+		// billing wire shape.
+		ramMB := int(e.RAMTotal / 1024)
 		if hw, ok := stats[e.HostID]; ok {
 			hw.RAMMB = &ramMB
 		} else {

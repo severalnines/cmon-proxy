@@ -3,6 +3,7 @@ package rpcserver
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"os"
 	"time"
 
@@ -41,7 +42,7 @@ func initOtelEmitter(cfg *config.Config) {
 
 	// Configure gRPC credentials.
 	var dialOpts []grpc.DialOption
-	if cfg.OtelMeteringTLSCert != "" && cfg.OtelMeteringTLSKey != "" {
+	if cfg.OtelMeteringTLSCert != "" || cfg.OtelMeteringTLSKey != "" || cfg.OtelMeteringTLSCA != "" {
 		creds, err := buildClientTLS(cfg.OtelMeteringTLSCert, cfg.OtelMeteringTLSKey, cfg.OtelMeteringTLSCA)
 		if err != nil {
 			// Metering is non-critical — a bad cert shouldn't kill the whole
@@ -71,13 +72,17 @@ func initOtelEmitter(cfg *config.Config) {
 
 // buildClientTLS creates gRPC client TLS credentials.
 func buildClientTLS(certFile, keyFile, caFile string) (credentials.TransportCredentials, error) {
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, err
-	}
+	tlsCfg := &tls.Config{}
 
-	tlsCfg := &tls.Config{
-		Certificates: []tls.Certificate{cert},
+	if certFile == "" && keyFile != "" || certFile != "" && keyFile == "" {
+		return nil, fmt.Errorf("otel metering TLS requires both client cert and key")
+	}
+	if certFile != "" && keyFile != "" {
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return nil, err
+		}
+		tlsCfg.Certificates = []tls.Certificate{cert}
 	}
 
 	if caFile != "" {
@@ -86,7 +91,9 @@ func buildClientTLS(certFile, keyFile, caFile string) (credentials.TransportCred
 			return nil, err
 		}
 		caPool := x509.NewCertPool()
-		caPool.AppendCertsFromPEM(caPEM)
+		if !caPool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("parse CA cert %q: no PEM certs found", caFile)
+		}
 		tlsCfg.RootCAs = caPool
 	}
 
