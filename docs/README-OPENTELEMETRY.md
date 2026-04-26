@@ -223,6 +223,60 @@ otel_metering_tls_key: /etc/cmon-proxy/client.key
 | TLS (server auth) | cert + key | `otel_metering_tls_ca` |
 | mTLS (mutual) | cert + key + ca | cert + key + ca |
 
+### REST API TLS (cmon-telemetry :9520)
+
+The OTLP gRPC setup above protects the telemetry pipeline (cmon-proxy → cc-telemetry). The separate REST API on the same cc-telemetry process (`:9520`) is what the operator Billing UI consumes via cmon-proxy's `/proxy/telemetry/*` passthrough. Three deployment flavours:
+
+**1. Plain HTTP (default, non-prod only):**
+
+No TLS config on either side. Config:
+
+```yaml
+# cmon-telemetry /etc/cmon-telemetry/config.yaml
+# (no api_tls_cert / api_tls_key)
+
+# cmon-proxy ccmgr.yaml
+cc_telemetry_url: http://localhost:9520
+```
+
+**2. HTTPS with a publicly-trusted cert (prod, cloud):**
+
+cc-telemetry presents a cert signed by a CA in the system trust store (Let's Encrypt, corporate CA shipped via the OS). cmon-proxy verifies against the system trust store by default — no extra config.
+
+```yaml
+# cmon-telemetry
+api_tls_cert: /etc/cmon-telemetry/api-server.crt
+api_tls_key:  /etc/cmon-telemetry/api-server.key
+
+# cmon-proxy
+cc_telemetry_url: https://telemetry.example.com:9520
+```
+
+**3. HTTPS with a private CA / self-signed cert (on-prem, dev):**
+
+Same server config. On cmon-proxy, point `cc_telemetry_tls_ca` at a PEM bundle that includes the signing CA (or the self-signed cert itself):
+
+```yaml
+# cmon-proxy
+cc_telemetry_url:    https://cmon-telemetry.internal:9520
+cc_telemetry_tls_ca: /etc/cmon-proxy/cc-telemetry-ca.crt
+```
+
+**Dev-only skip-verify** — if you just want to iterate against a local cc-telemetry with a throwaway self-signed cert, flip the insecure switch:
+
+```yaml
+# cmon-proxy
+cc_telemetry_insecure: true
+```
+
+This logs a loud warning at client-build time. ⚠️ **Never use in production** — it disables all certificate verification, including expiration and hostname checks.
+
+**Strict default**: with neither `cc_telemetry_tls_ca` nor `cc_telemetry_insecure` set, an HTTPS upstream whose cert the system trust store doesn't recognise produces a 502 with an `x509: certificate signed by unknown authority` error. That's the intended posture — production misconfigurations fail visibly rather than silently fronting a broken chain.
+
+**Env-var overrides** (for `/etc/default/cmon-proxy.env`): `CC_TELEMETRY_URL`, `CC_TELEMETRY_TOKEN`, `CC_TELEMETRY_TLS_CA`, `CC_TELEMETRY_INSECURE`.
+
+**Client-certificate auth (mTLS)** is not yet supported on cc-telemetry's REST API — `api_tls_ca` is reserved but unused. cmon-proxy doesn't send a client cert here either.
+
 ## REST API (cmon-telemetry :9520)
 
 ### GET /status
@@ -270,7 +324,7 @@ The LogRecord's `attributes` carry the identity and query keys suited to downstr
 | `cc.cluster.id` | int | Cluster ID |
 | `cc.cluster.name` | string | Cluster display name |
 | `cc.cluster.type` | string | Deployment type (e.g. `GALERA`, `POSTGRESQL_SINGLE`) |
-| `cc.db.vendor` | string | Normalized vendor (`percona`, `mariadb`, `mongodb`, …) |
+| `cc.db.vendor` | string | Normalized vendor (`percona`, `mariadb`, `mongodb`, `valkey`, `timescaledb`, `elasticsearch`, `redis`, …) |
 
 The Resource carries `service.name = cmon-proxy` and `service.instance.id`.
 
@@ -292,6 +346,20 @@ The LogRecord's `body` is an OTLP KvList — a typed structured record (not an o
 | `tags` | array of string (optional) | Cluster tag list (customer-id, tenant-id, …) |
 
 Optional fields are absent from the body when unavailable rather than emitted as zero — downstream queries should check for presence.
+
+### Eligibility
+
+Not every host behind a CMON controller is billable. cmon-proxy applies a two-layer filter before emitting a LogRecord:
+
+1. **Class-name gate.** Only database and proxy host classes are considered: `CmonMySqlHost`, `CmonGaleraHost`, `CmonGroupReplHost`, `CmonPostgreSqlHost`, `CmonMsSqlHost`, `CmonMongoHost`, `CmonNdbHost`, `CmonElasticHost`, `CmonRedisHost` (includes Valkey), `RedisShardedHost` / `CmonRedisShardedHost`, `CmonProxySqlHost`. Sentinels (`CmonRedisSentinelHost`), monitoring sidecars (`CmonPrometheusHost`), and controller hosts are excluded.
+
+2. **Role-aware narrowing** for cluster types where one class covers multiple roles:
+   - **MongoDB (`CmonMongoHost`)** — only data-bearing roles are billable. `shardsvr` (shard data nodes and plain replicaset members) is eligible; `configsvr`, `mongos` (router), and `arbiter` are excluded.
+   - **Elasticsearch (`CmonElasticHost`)** — only data-bearing roles are billable. The host's `elastic_roles` string (hyphen-delimited) must contain at least one of `data`, `data_content`, `data_hot`, `data_warm`, `data_cold`, `data_frozen`. Hosts that are purely `master`, `ingest`, or `coordinator_only` are excluded.
+
+   Role filters are **default-eligible when the role field is empty** — we don't silently regress clusters whose CMON hasn't populated the role yet; the filter only narrows when roles are known.
+
+See `otel/provider.go` (`IsEligibleHost`, `nonDataMongoRoles`, `elasticHasDataRole`) for the canonical implementation.
 
 ### vCPU recovery
 
