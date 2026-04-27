@@ -1,4 +1,5 @@
 package api
+
 // Copyright 2022 Severalnines AB
 //
 // This file is part of cmon-proxy.
@@ -8,7 +9,6 @@ package api
 // cmon-proxy is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License along with cmon-proxy. If not, see <https://www.gnu.org/licenses/>.
-
 
 import (
 	"encoding/json"
@@ -34,6 +34,26 @@ type GetStatByNameResponse struct {
 	*WithTotal        `json:",inline"`
 
 	Data json.RawMessage `json:"data"`
+}
+
+type GetCpuPhysicalInfoRequest struct {
+	*WithOperation `json:",inline"`
+	*WithClusterID `json:",inline"`
+}
+
+type GetCpuPhysicalInfoResponse struct {
+	*WithControllerID `json:",inline"`
+	*WithResponseData `json:",inline"`
+	*WithTotal        `json:",inline"`
+
+	Data []*CpuPhysicalInfo `json:"data"`
+}
+
+type CpuPhysicalInfo struct {
+	HostID        uint64 `json:"hostid"`
+	PhysicalCPUID int    `json:"physical_cpu_id"`
+	CpuCores      int    `json:"cpucores"`
+	Siblings      int    `json:"siblings"`
 }
 
 func IsValidStatType(t StatType) bool {

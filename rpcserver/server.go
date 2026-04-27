@@ -44,6 +44,7 @@ import (
 	"github.com/severalnines/cmon-proxy/config"
 	k8s "github.com/severalnines/cmon-proxy/k8s"
 	"github.com/severalnines/cmon-proxy/multi"
+	cmonotel "github.com/severalnines/cmon-proxy/otel"
 	"github.com/severalnines/cmon-proxy/multi/router"
 	"github.com/severalnines/cmon-proxy/opts"
 	"github.com/severalnines/cmon-proxy/poolhelpers"
@@ -55,6 +56,7 @@ var (
 	httpServer      *http.Server
 	httpServerPlain *http.Server
 	proxy           *multi.Proxy
+	otelEmitter     *cmonotel.Emitter
 )
 
 func secureTLSConfig() *tls.Config {
@@ -783,6 +785,11 @@ func Start(cfg *config.Config) {
 
 	multi.StartSessionCleanupScheduler(proxy)
 
+	// Initialize OTel metering emitter (emits to cc-telemetry).
+	if cfg.OtelMeteringEnabled {
+		initOtelEmitter(cfg)
+	}
+
 	// to serve the static files
 	err = serveFrontend(s, cfg)
 	if err != nil {
@@ -1055,6 +1062,12 @@ func Start(cfg *config.Config) {
 func Stop() {
 	// get logger
 	log := zap.L()
+
+	if otelEmitter != nil {
+		log.Sugar().Info("Stopping OTel metering emitter")
+		otelEmitter.Stop()
+		otelEmitter = nil
+	}
 
 	if httpServerPlain != nil {
 		ctx, cancel := context.WithTimeout(

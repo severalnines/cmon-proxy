@@ -58,6 +58,12 @@ type Host struct {
 
 	// postgres
 	ReplicationState string `json:"replication_state,omitempty"`
+
+	// elasticsearch — hyphen-delimited role string CMON emits for Elastic
+	// hosts (e.g. "master-data-ingest", "coordinator_only"). Empty for
+	// non-Elastic hosts. Used by the OTel emitter's eligibility gate to
+	// exclude non-data-bearing Elastic nodes from billing.
+	ElasticRoles string `json:"elastic_roles,omitempty"`
 }
 
 // IsSSLEnabled returns true if ssl is enabled on this host.
