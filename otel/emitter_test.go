@@ -191,3 +191,117 @@ func TestEmitter_EmitsOneLogRecordPerEligibleNode(t *testing.T) {
 		assert.NotEqual(t, "volume_gb", kv.Key, "volume_gb must be absent when HostStats is missing")
 	}
 }
+
+// When cmon returns a cluster with empty Vendor (transient missing-data
+// state — controller restart, mid-discovery, getMeteringData race), the
+// emitter must skip the cluster's nodes for this tick rather than fall
+// back to the empty→"community" normalization. Otherwise the bad tick
+// poisons cc-telemetry's append-only node_snapshots and surfaces in
+// reports as a phantom (cluster_type, "community") aggregation row.
+// Reproduces the scenario diagnosed in /tmp/soak-metering.db where 20
+// outlier rows from a single 2026-04-21T06:42:00Z tick produced
+// (GALERA, community), (MONGODB, community), etc. across every
+// cluster type that happened to flap that minute.
+func TestEmitter_SkipsClustersWithEmptyVendor(t *testing.T) {
+	srv := &capturingLogsServer{}
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	grpcSrv := grpc.NewServer()
+	collogspb.RegisterLogsServiceServer(grpcSrv, srv)
+	go grpcSrv.Serve(lis)
+	defer grpcSrv.Stop()
+
+	bad := &api.Cluster{
+		ClusterID:   42,
+		ClusterName: "prod-galera",
+		ClusterType: "GALERA",
+		Vendor:      "", // ← the transient cmon hiccup we're defending against
+		Hosts: []*api.Host{
+			{
+				WithClassName: &api.WithClassName{ClassName: "CmonGaleraHost"},
+				HostID:        1001,
+				Hostname:      "db-1",
+				IP:            "10.0.1.1",
+				Port:          3306,
+				HostStatus:    "CmonHostOnline",
+			},
+		},
+	}
+	good := &api.Cluster{
+		ClusterID:   43,
+		ClusterName: "prod-mongo",
+		ClusterType: "MONGODB",
+		Vendor:      "mongodb",
+		Hosts: []*api.Host{
+			{
+				WithClassName: &api.WithClassName{ClassName: "CmonMongoHost"},
+				HostID:        2001,
+				Hostname:      "mongo-1",
+				IP:            "10.0.2.1",
+				Port:          27017,
+				HostStatus:    "CmonHostOnline",
+			},
+		},
+	}
+
+	prov := &fakeProvider{data: map[string]*ControllerClusters{
+		"ctrl-1.example:9500": {
+			ControllerID: "ctrl-xid-1",
+			Clusters:     []*api.Cluster{bad, good},
+		},
+	}}
+
+	em := NewEmitter(prov, lis.Addr().String(), time.Hour, "emit-1")
+	em.logger = zap.NewNop().Sugar()
+	em.emitFromData(prov.FetchAllClusters())
+
+	require.Eventually(t, func() bool { return len(srv.requests) == 1 }, time.Second, 10*time.Millisecond)
+	records := srv.requests[0].ResourceLogs[0].ScopeLogs[0].LogRecords
+	require.Len(t, records, 1, "only the well-formed cluster's host should be emitted")
+	assert.Equal(t, "mongodb", kvAsString(records[0].Attributes, "cc.db.vendor"))
+	assert.Equal(t, "MONGODB", kvAsString(records[0].Attributes, "cc.cluster.type"))
+}
+
+// Empty cluster_type is the symmetric defense — same transient-data
+// reasoning, just on the other identity field. We don't want to ship
+// snapshots into a phantom (empty, vendor) bucket either.
+func TestEmitter_SkipsClustersWithEmptyClusterType(t *testing.T) {
+	srv := &capturingLogsServer{}
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	grpcSrv := grpc.NewServer()
+	collogspb.RegisterLogsServiceServer(grpcSrv, srv)
+	go grpcSrv.Serve(lis)
+	defer grpcSrv.Stop()
+
+	bad := &api.Cluster{
+		ClusterID:   44,
+		ClusterName: "in-discovery",
+		ClusterType: "", // ← the other transient state
+		Vendor:      "mariadb",
+		Hosts: []*api.Host{
+			{
+				WithClassName: &api.WithClassName{ClassName: "CmonGaleraHost"},
+				HostID:        3001,
+				IP:            "10.0.3.1",
+				HostStatus:    "CmonHostOnline",
+			},
+		},
+	}
+
+	prov := &fakeProvider{data: map[string]*ControllerClusters{
+		"ctrl-1.example:9500": {
+			ControllerID: "ctrl-xid-1",
+			Clusters:     []*api.Cluster{bad},
+		},
+	}}
+
+	em := NewEmitter(prov, lis.Addr().String(), time.Hour, "emit-1")
+	em.logger = zap.NewNop().Sugar()
+	em.emitFromData(prov.FetchAllClusters())
+
+	// "no eligible nodes" path — the emitter should not call send() at all.
+	// Give it a beat to confirm nothing arrives.
+	time.Sleep(100 * time.Millisecond)
+	assert.Empty(t, srv.requests, "no records should be emitted when every cluster lacks identity")
+}

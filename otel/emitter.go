@@ -169,6 +169,23 @@ func (e *Emitter) emitFromData(controllerData map[string]*ControllerClusters) {
 		}
 
 		for _, cluster := range data.Clusters {
+			// Skip clusters where cmon returned empty identity fields. These
+			// are transient missing-data states (controller restart,
+			// mid-discovery, getMeteringData race) — not real classifications.
+			// Emitting under the "" → "community" fallback poisons cc-telemetry's
+			// append-only node_snapshots forever, which manifests in reports as
+			// a phantom (cluster_type, "community") aggregation row alongside
+			// the real (cluster_type, vendor) rows. Better to skip the tick;
+			// the next one will recover.
+			if cluster.ClusterType == "" {
+				e.logger.Warnf("[otel-metering] controller %s cluster %d (%s) returned empty cluster_type; skipping this tick", controllerID, cluster.ClusterID, cluster.ClusterName)
+				continue
+			}
+			if cluster.Vendor == "" {
+				e.logger.Warnf("[otel-metering] controller %s cluster %d (%s, %s) returned empty vendor; skipping this tick", controllerID, cluster.ClusterID, cluster.ClusterName, cluster.ClusterType)
+				continue
+			}
+
 			for _, host := range cluster.Hosts {
 				if !IsEligibleHost(host) {
 					continue
